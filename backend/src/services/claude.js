@@ -107,7 +107,17 @@ const TOOLS = [
   }
 ];
 
-const CONNECTOR_WEBHOOK_URL = 'https://hook.us2.make.com/4bppiq7augsxhykycje1tvw1f4bv5lsr';
+// Separate webhooks to avoid Make.com module initialization conflicts
+const CALENDAR_WEBHOOK_URL = 'https://hook.us2.make.com/4bppiq7augsxhykycje1tvw1f4bv5lsr';
+const GMAIL_WEBHOOK_URL = 'https://hook.us2.make.com/uitftxwv23rx0rkgh6c10rdxmzrv3dvb';
+
+const TOOL_WEBHOOK_MAP = {
+  'send_email': GMAIL_WEBHOOK_URL,
+  'create_email_draft': GMAIL_WEBHOOK_URL,
+  'create_calendar_event': CALENDAR_WEBHOOK_URL,
+  'list_calendar_events': CALENDAR_WEBHOOK_URL,
+  'search_google_drive': CALENDAR_WEBHOOK_URL  // placeholder until Drive scenario exists
+};
 
 const MAX_RETRIES = 2;
 const RETRY_DELAY = 3000;
@@ -115,7 +125,10 @@ const MAX_TOOL_ROUNDS = 5;
 
 async function executeToolCall(toolName, toolInput) {
   try {
-    const response = await fetch(CONNECTOR_WEBHOOK_URL, {
+    const webhookUrl = TOOL_WEBHOOK_MAP[toolName] || CALENDAR_WEBHOOK_URL;
+    console.log(`[Claude] Routing ${toolName} to ${webhookUrl === GMAIL_WEBHOOK_URL ? 'Gmail' : 'Calendar'} gateway`);
+
+    const response = await fetch(webhookUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
