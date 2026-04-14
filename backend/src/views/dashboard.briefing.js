@@ -8,7 +8,67 @@
   document.addEventListener('DOMContentLoaded', () => {
     const btn = document.getElementById('brief-btn');
     if (btn) btn.addEventListener('click', runBriefing);
+
+    const gapsBtn = document.getElementById('gaps-btn');
+    if (gapsBtn) gapsBtn.addEventListener('click', runGapAnalysis);
+
+    const emailBtn = document.getElementById('email-day-btn');
+    if (emailBtn) emailBtn.addEventListener('click', emailMyDay);
   });
+
+  async function runGapAnalysis() {
+    const { openModal, api, toast } = window.DB;
+    openModal('What did I forget?', `
+      <div id="gaps-content" style="min-height:120px;font-size:1rem;line-height:1.6;color:var(--text)">
+        <div style="display:flex;align-items:center;gap:0.75rem;color:var(--muted)">
+          <div class="pulse" style="width:10px;height:10px;border-radius:50%;background:#ef4444;animation:pulse 1.2s ease-in-out infinite"></div>
+          <span>Checking the last 7 days…</span>
+        </div>
+      </div>
+    `, `
+      <button class="btn-secondary" id="gaps-replay" style="display:none">Speak it</button>
+      <button class="btn-secondary" onclick="DB.closeModal()">Close</button>
+    `);
+    try {
+      const data = await api('/api/brief/gaps');
+      const analysis = data.analysis || 'All clear.';
+      const content = document.getElementById('gaps-content');
+      if (content) {
+        content.innerHTML = '';
+        analysis.split(/\n{2,}/).forEach(p => {
+          const el = document.createElement('p');
+          el.style.margin = '0 0 0.75rem';
+          el.textContent = p.trim();
+          content.appendChild(el);
+        });
+      }
+      const replay = document.getElementById('gaps-replay');
+      if (replay) {
+        replay.style.display = '';
+        replay.onclick = () => speak(analysis);
+      }
+      // Auto-speak
+      speak(analysis);
+    } catch (e) {
+      const content = document.getElementById('gaps-content');
+      if (content) content.innerHTML = '<p style="color:#991b1b">Could not analyze: ' + escapeHtml(e.message) + '</p>';
+      toast(e.message, 'error');
+    }
+  }
+
+  async function emailMyDay() {
+    const { api, toast } = window.DB;
+    const btn = document.getElementById('email-day-btn');
+    if (btn) { btn.disabled = true; btn.style.opacity = '0.5'; }
+    try {
+      const data = await api('/api/brief/email', { method: 'POST', body: JSON.stringify({}) });
+      toast('Today plan emailed' + (data.to ? ' to ' + data.to : ''), 'success');
+    } catch (e) {
+      toast(e.message, 'error');
+    } finally {
+      if (btn) { btn.disabled = false; btn.style.opacity = ''; }
+    }
+  }
 
   let currentUtterance = null;
 

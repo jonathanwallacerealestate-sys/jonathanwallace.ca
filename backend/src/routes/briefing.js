@@ -8,10 +8,19 @@ const router = express.Router();
 const Anthropic = require('@anthropic-ai/sdk');
 const pool = require('../db/pool');
 const { requireApiKey } = require('../middleware/apiKey');
+const { google } = require('googleapis');
 
 router.use(requireApiKey);
 
 const anthropic = new Anthropic();
+
+// Gmail client — reused for "Email my day" export
+const oauth2Client = new google.auth.OAuth2(
+  process.env.GMAIL_CLIENT_ID,
+  process.env.GMAIL_CLIENT_SECRET
+);
+oauth2Client.setCredentials({ refresh_token: process.env.GMAIL_REFRESH_TOKEN });
+const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
 
 const BRIEF_SYSTEM_PROMPT = `You are Jonathan Wallace's personal morning briefing assistant.
 
@@ -116,6 +125,148 @@ async function buildBriefSnapshot() {
     workout_today: workoutsToday,
     marketing_today: marketingToday
   };
+}
+
+/**
+ * "What did I forget?" — compares recent activity + goals (from app_settings)
+ * against upcoming commitments and flags blind spots.
+ */
+const GAP_SYSTEM_PROMPT = `You are Jonathan Wallace's no-nonsense accountability coach.
+He's a high-producing real estate agent with personal goals (workouts per week,
+daily nutrition targets) and business commitments (CRM follow-ups, closings).
+
+Your job: given a snapshot of the last 7 days of activity plus his stated goals,
+tell him what he has dropped the ball on. Be direct. Be short.
+
+Rules:
+- Under 120 words.
+- Plain prose, no markdown, no bullets.
+- Lead with the single most important miss.
+- Call out CRM follow-ups that are overdue, workouts missed against target,
+  protein/calorie days that look way off target, closings without recent
+  activity, and marketing that was scheduled but never posted.
+- If everything looks good, say so in one sentence and move on.
+- Always end with one concrete next action to take in the next 2 hours.`;
+
+router.get('/gaps', async (req, res) => {
+  try {
+    if (!process.env.ANTHROPIC_API_KEY) {
+      return res.status(503).json({ error: 'Claude not configured on this server' });
+    }
+    const [activity, goals] = await Promise.all([
+      buildActivitySnapshot(),
+      loadGoals()
+    ]);
+
+    const userMessage = `Goals:\n${JSON.stringify(goals, null, 2)}\n\nLast 7 days + upcoming:\n${JSON.stringify(activity, null, 2)}`;
+
+    const response = await anthropic.messages.create({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 400,
+      system: GAP_SYSTEM_PROMPT,
+      messages: [{ role: 'user', content: userMessage }]
+    });
+
+    const text = response.content.filter(b => b.type === 'text').map(b => b.text).join('\n').trim();
+    res.json({ analysis: text, generated_at: new Date().toISOString(), tokens: response.usage, snapshot: activity, goals });
+  } catch (err) {
+    console.error('gap analysis error:', err);
+    res.status(500).json({ error: 'Failed to analyze gaps', message: err.message });
+  }
+});
+
+/**
+ * "Email my day" — sends a copy of today's briefing + quick action list
+ * to Jonathan's own inbox so it's accessible from any email client.
+ */
+router.post('/email', async (req, res) => {
+  try {
+    if (!process.env.GMAIL_REFRESH_TOKEN) {
+      return res.status(503).json({ error: 'Gmail not configured' });
+    }
+    if (!process.env.ANTHROPIC_API_KEY) {
+      return res.status(503).json({ error: 'Claude not configured' });
+    }
+
+    const snapshot = await buildBriefSnapshot();
+    const today = new Date().toLocaleDateString('en-CA', {
+      timeZone: 'America/Toronto', weekday: 'long', month: 'long', day: 'numeric', year: 'numeric'
+    });
+
+    const response = await anthropic.messages.create({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 900,
+      system: `You are composing the day-start email for Jonathan Wallace. Write a clean HTML email
+(no external CSS, inline styles only) that starts with a one-paragraph briefing,
+then has clearly labeled sections for Priorities, Today's Calendar, Needs Reply,
+CRM Follow-Ups, and Closings. Keep it scannable on mobile. No wasted words.`,
+      messages: [{ role: 'user', content: `Today is ${today}. Snapshot:\n${JSON.stringify(snapshot, null, 2)}` }]
+    });
+
+    const html = response.content.filter(b => b.type === 'text').map(b => b.text).join('\n').trim();
+
+    const to = (req.body && req.body.to) || process.env.GMAIL_USER || 'jonathanwallacerealestate@gmail.com';
+    const subject = `Today's Plan — ${today}`;
+    const raw = Buffer.from([
+      `From: ${process.env.GMAIL_USER || 'jonathanwallacerealestate@gmail.com'}`,
+      `To: ${to}`,
+      `Subject: ${subject}`,
+      'MIME-Version: 1.0',
+      'Content-Type: text/html; charset=UTF-8',
+      '',
+      html
+    ].join('\r\n')).toString('base64url');
+
+    const g = await gmail.users.messages.send({ userId: 'me', requestBody: { raw } });
+
+    res.json({ success: true, messageId: g.data.id, to, subject });
+  } catch (err) {
+    console.error('email-day error:', err);
+    res.status(500).json({ error: 'Failed to email day', message: err.message });
+  }
+});
+
+async function buildActivitySnapshot() {
+  const q = (s, p = []) => pool.query(s, p).then(r => r.rows);
+  const [workouts7, meals7, crmOverdue, crmCompletedWeek,
+         closingsStale, marketingScheduled, marketingPosted] =
+    await Promise.all([
+      q(`SELECT workout_date, workout_type, duration_minutes, completed FROM workouts
+          WHERE workout_date >= CURRENT_DATE - INTERVAL '7 days' ORDER BY workout_date DESC`),
+      q(`SELECT meal_date, SUM(calories) AS kcal, SUM(protein_g) AS protein_g,
+                COUNT(*) AS meal_count FROM meal_plan
+          WHERE meal_date >= CURRENT_DATE - INTERVAL '7 days'
+          GROUP BY meal_date ORDER BY meal_date DESC`),
+      q(`SELECT contact_name, follow_up_type, due_date FROM crm_followups
+          WHERE status='open' AND due_date < CURRENT_DATE LIMIT 20`),
+      q(`SELECT COUNT(*) AS done FROM crm_followups
+          WHERE status='done' AND completed_at >= CURRENT_DATE - INTERVAL '7 days'`),
+      q(`SELECT property_address, status, updated_at FROM closings
+          WHERE status IN ('pending','firm')
+            AND updated_at < CURRENT_DATE - INTERVAL '5 days'
+          LIMIT 10`),
+      q(`SELECT COUNT(*) AS scheduled FROM marketing_items
+          WHERE status='scheduled' AND scheduled_for < NOW()`),
+      q(`SELECT COUNT(*) AS posted FROM marketing_items
+          WHERE status='posted' AND updated_at >= CURRENT_DATE - INTERVAL '7 days'`)
+    ]);
+  return {
+    workouts_last_7_days: workouts7,
+    meals_last_7_days: meals7,
+    crm_overdue: crmOverdue,
+    crm_completed_this_week: crmCompletedWeek[0]?.done || 0,
+    closings_without_recent_activity: closingsStale,
+    marketing_past_due: marketingScheduled[0]?.scheduled || 0,
+    marketing_posted_this_week: marketingPosted[0]?.posted || 0
+  };
+}
+
+async function loadGoals() {
+  const keys = ['workout_week_target','daily_goal_calories','daily_goal_protein'];
+  const { rows } = await pool.query('SELECT key, value FROM app_settings WHERE key = ANY($1)', [keys]);
+  const g = {};
+  for (const r of rows) g[r.key] = r.value;
+  return g;
 }
 
 module.exports = router;

@@ -71,6 +71,16 @@
         </div>
 
         <h3 style="margin:1.25rem 0 0.75rem;font-size:0.85rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px">
+          Hotkeys
+        </h3>
+        <div style="font-size:0.85rem;color:var(--text);line-height:1.8;background:#f9fafb;padding:0.75rem 1rem;border-radius:8px;border:1px solid var(--border)">
+          <div><kbd style="background:#fff;border:1px solid var(--border);padding:2px 6px;border-radius:4px;font-family:inherit;font-size:0.75rem">F5</kbd> tap — focus agent input + start voice recording</div>
+          <div><kbd style="background:#fff;border:1px solid var(--border);padding:2px 6px;border-radius:4px;font-family:inherit;font-size:0.75rem">F5</kbd> hold — push-to-talk; release to auto-send. Claude speaks back.</div>
+          <div><kbd style="background:#fff;border:1px solid var(--border);padding:2px 6px;border-radius:4px;font-family:inherit;font-size:0.75rem">F6</kbd> — Brief Me (morning briefing)</div>
+          <div><kbd style="background:#fff;border:1px solid var(--border);padding:2px 6px;border-radius:4px;font-family:inherit;font-size:0.75rem">Esc</kbd> — stop recording, stop speaking, close modal</div>
+        </div>
+
+        <h3 style="margin:1.25rem 0 0.75rem;font-size:0.85rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px">
           Device
         </h3>
         <div class="form-grid">
