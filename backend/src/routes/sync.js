@@ -9,6 +9,7 @@ const express = require('express');
 const router = express.Router();
 const pool = require('../db/pool');
 const { requireApiKey } = require('../middleware/apiKey');
+const { publish } = require('../services/events');
 
 router.use(requireApiKey);
 
@@ -67,6 +68,7 @@ router.post('/follow-up-boss', async (req, res) => {
     }
     const result = { success: true, upserted, source: 'follow-up-boss' };
     await logWebhook('/api/sync/follow-up-boss', req.body, 200, result);
+    if (upserted > 0) publish({ type: 'sync', section: 'crm', count: upserted });
     res.json(result);
   } catch (err) {
     console.error('FUB sync error:', err);
@@ -112,6 +114,7 @@ router.post('/gmail', async (req, res) => {
     }
     const result = { success: true, upserted, source: 'gmail' };
     await logWebhook('/api/sync/gmail', req.body, 200, result);
+    if (upserted > 0) publish({ type: 'sync', section: 'emails', count: upserted });
     res.json(result);
   } catch (err) {
     console.error('Gmail sync error:', err);
@@ -154,6 +157,7 @@ router.post('/calendar', async (req, res) => {
     }
     const result = { success: true, upserted, source: 'google-calendar' };
     await logWebhook('/api/sync/calendar', req.body, 200, result);
+    if (upserted > 0) publish({ type: 'sync', section: 'calendar', count: upserted });
     res.json(result);
   } catch (err) {
     console.error('Calendar sync error:', err);
@@ -207,6 +211,7 @@ router.post('/marketing', async (req, res) => {
     }
     const result = { success: true, upserted, source: 'marketing' };
     await logWebhook('/api/sync/marketing', req.body, 200, result);
+    if (upserted > 0) publish({ type: 'sync', section: 'marketing', count: upserted });
     res.json(result);
   } catch (err) {
     console.error('Marketing sync error:', err);

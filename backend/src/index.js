@@ -23,6 +23,8 @@ const categoriesRoutes = require('./routes/categories');
 const syncRoutes = require('./routes/sync');
 const dailyBriefRoutes = require('./routes/dailyBrief');
 const settingsRoutes = require('./routes/settings');
+const briefingRoutes = require('./routes/briefing');
+const eventsRoutes = require('./routes/events');
 const { initDb } = require('./db/init');
 const { startWorker } = require('./services/worker');
 
@@ -74,6 +76,8 @@ app.use('/api/categories', categoriesRoutes);
 app.use('/api/sync', syncRoutes);
 app.use('/api/daily-brief', dailyBriefRoutes);
 app.use('/api/settings', settingsRoutes);
+app.use('/api/brief', briefingRoutes);
+app.use('/api/events', eventsRoutes);
 app.use('/dashboard', dashboardRoutes);
 
 app.get('/', (req, res) => {

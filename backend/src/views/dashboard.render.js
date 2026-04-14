@@ -494,8 +494,35 @@ function initDashboard() {
   // Delegated click handling
   document.body.addEventListener('click', handleAction);
 
-  // Auto refresh every 2 minutes
+  // Auto refresh every 2 minutes (safety net)
   setInterval(load, 120000);
+
+  // Live updates via SSE — reload when Make.com pushes or the worker finishes
+  setupEventStream();
+}
+
+let _sseDebounce = null;
+function setupEventStream() {
+  try {
+    const key = (window.DB_CONFIG && window.DB_CONFIG.apiKey) || '';
+    if (!key) return;
+    const url = '/api/events/stream?key=' + encodeURIComponent(key);
+    const es = new EventSource(url);
+    es.addEventListener('sync', (e) => { queueReload(parseSection(e)); });
+    es.addEventListener('task', (e) => { queueReload('tasks'); });
+    es.addEventListener('error', () => { /* EventSource retries itself */ });
+    window._dashboardStream = es;
+  } catch (e) { /* no-op: SSE unsupported */ }
+}
+function parseSection(e) {
+  try { return (JSON.parse(e.data) || {}).section; } catch { return null; }
+}
+function queueReload(sectionHint) {
+  if (_sseDebounce) clearTimeout(_sseDebounce);
+  _sseDebounce = setTimeout(() => {
+    window.DB.toast(sectionHint ? 'Updated: ' + sectionHint : 'Live update');
+    if (typeof load === 'function') load();
+  }, 500);
 }
 window.initDashboard = initDashboard;
 
