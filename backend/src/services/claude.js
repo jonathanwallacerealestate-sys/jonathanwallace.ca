@@ -34,10 +34,107 @@ Short promotional message for social media or email inviting buyers to an open h
 
 Keep formatting clean, easy to copy and paste. Avoid long paragraphs. Be clear and persuasive.
 
-For non-marketing tasks, follow instructions precisely and return structured, actionable results.`;
+For non-marketing tasks, follow instructions precisely and return structured, actionable results.
+
+You have access to tools that let you take real actions: send emails, create calendar events, search calendars, and create email drafts. Use these tools when the user's instruction requires taking an action beyond generating text. Always confirm what action you are taking in your response.`;
+
+// Tool definitions for Claude's native tool_use
+const TOOLS = [
+  {
+    name: 'send_email',
+    description: 'Send an email from Jonathan Wallace\'s Gmail account (jonathanwallacerealestate@gmail.com). Use this when instructed to email someone.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        to: { type: 'string', description: 'Recipient email address' },
+        subject: { type: 'string', description: 'Email subject line' },
+        body: { type: 'string', description: 'Email body content (HTML supported)' }
+      },
+      required: ['to', 'subject', 'body']
+    }
+  },
+  {
+    name: 'create_email_draft',
+    description: 'Create an email draft in Jonathan\'s Gmail for review before sending. Use this when the user wants to draft but not immediately send.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        to: { type: 'string', description: 'Recipient email address' },
+        subject: { type: 'string', description: 'Email subject line' },
+        body: { type: 'string', description: 'Email body content (HTML supported)' }
+      },
+      required: ['to', 'subject', 'body']
+    }
+  },
+  {
+    name: 'create_calendar_event',
+    description: 'Create an event on Jonathan\'s Google Calendar. Use this for scheduling showings, open houses, meetings, etc.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        title: { type: 'string', description: 'Event title' },
+        start_time: { type: 'string', description: 'Start time in ISO 8601 format (e.g. 2026-04-20T14:00:00-04:00)' },
+        end_time: { type: 'string', description: 'End time in ISO 8601 format' },
+        description: { type: 'string', description: 'Event description/notes' },
+        location: { type: 'string', description: 'Event location/address' }
+      },
+      required: ['title', 'start_time', 'end_time']
+    }
+  },
+  {
+    name: 'list_calendar_events',
+    description: 'Search and list events on Jonathan\'s Google Calendar within a date range. Use this to check availability or find scheduled showings.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'Search query to filter events (optional)' },
+        start_date: { type: 'string', description: 'Start of date range in ISO 8601 format' },
+        end_date: { type: 'string', description: 'End of date range in ISO 8601 format' }
+      },
+      required: ['start_date', 'end_date']
+    }
+  },
+  {
+    name: 'search_google_drive',
+    description: 'Search for files and folders in Jonathan\'s Google Drive. Use this to find listing photos, documents, contracts, etc. Note: This connector requires a Google Drive connection to be configured.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'Search query for files/folders (e.g. "123 Main St photos")' }
+      },
+      required: ['query']
+    }
+  }
+];
+
+const CONNECTOR_WEBHOOK_URL = 'https://hook.us2.make.com/4bppiq7augsxhykycje1tvw1f4bv5lsr';
 
 const MAX_RETRIES = 2;
 const RETRY_DELAY = 3000;
+const MAX_TOOL_ROUNDS = 5;
+
+async function executeToolCall(toolName, toolInput) {
+  try {
+    const response = await fetch(CONNECTOR_WEBHOOK_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: toolName,
+        action_params: toolInput
+      })
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      return { error: true, message: `Connector returned ${response.status}: ${errorText}` };
+    }
+
+    const result = await response.json();
+    return result;
+  } catch (err) {
+    return { error: true, message: `Connector call failed: ${err.message}` };
+  }
+}
 
 async function processTask(taskType, instruction, context = {}) {
   const messages = [];
@@ -85,55 +182,108 @@ async function processTask(taskType, instruction, context = {}) {
 
   messages.push({ role: 'user', content: userMessage });
 
-  // Retry logic for transient API errors
-  let lastError;
-  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-    try {
-      if (attempt > 0) {
-        console.log(`[Claude] Retry attempt ${attempt} for ${taskType}`);
-        await new Promise(r => setTimeout(r, RETRY_DELAY * attempt));
+  // Agentic tool-use loop
+  let totalInputTokens = 0;
+  let totalOutputTokens = 0;
+  let finalContent = '';
+  let modelUsed = '';
+  let stopReason = '';
+  let toolResults = [];
+
+  for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
+    let lastError;
+
+    // Retry logic for transient API errors
+    let response;
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        if (attempt > 0) {
+          console.log(`[Claude] Retry attempt ${attempt} for ${taskType}`);
+          await new Promise(r => setTimeout(r, RETRY_DELAY * attempt));
+        }
+
+        response = await anthropic.messages.create({
+          model: 'claude-sonnet-4-20250514',
+          max_tokens: 4096,
+          system: SYSTEM_PROMPT,
+          tools: TOOLS,
+          messages
+        });
+
+        break; // Success, exit retry loop
+      } catch (err) {
+        lastError = err;
+        if (err.status && err.status >= 400 && err.status < 500 && err.status !== 429) {
+          throw err;
+        }
+        if (attempt === MAX_RETRIES) {
+          throw err;
+        }
+        console.warn(`[Claude] API error (attempt ${attempt + 1}): ${err.message}`);
       }
+    }
 
-      const response = await anthropic.messages.create({
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: 4096,
-        system: SYSTEM_PROMPT,
-        messages
-      });
+    if (!response) throw lastError;
 
-      const content = response.content
+    totalInputTokens += response.usage.input_tokens;
+    totalOutputTokens += response.usage.output_tokens;
+    modelUsed = response.model;
+    stopReason = response.stop_reason;
+
+    // If Claude is done (no more tool calls), extract final text
+    if (response.stop_reason === 'end_turn' || response.stop_reason === 'max_tokens') {
+      finalContent = response.content
         .filter(block => block.type === 'text')
         .map(block => block.text)
         .join('\n');
-
-      return {
-        content,
-        usage: {
-          input_tokens: response.usage.input_tokens,
-          output_tokens: response.usage.output_tokens
-        },
-        model: response.model,
-        stop_reason: response.stop_reason
-      };
-
-    } catch (err) {
-      lastError = err;
-
-      // Don't retry on client errors (4xx) except rate limits (429)
-      if (err.status && err.status >= 400 && err.status < 500 && err.status !== 429) {
-        throw err;
-      }
-
-      // Retry on 429 (rate limit), 500+, and network errors
-      if (attempt === MAX_RETRIES) {
-        throw err;
-      }
-
-      console.warn(`[Claude] API error (attempt ${attempt + 1}): ${err.message}`);
+      break;
     }
+
+    // Handle tool_use blocks
+    if (response.stop_reason === 'tool_use') {
+      // Add Claude's response (with tool_use blocks) to messages
+      messages.push({ role: 'assistant', content: response.content });
+
+      // Execute each tool call and collect results
+      const toolResultBlocks = [];
+      for (const block of response.content) {
+        if (block.type === 'tool_use') {
+          console.log(`[Claude] Tool call: ${block.name}(${JSON.stringify(block.input).substring(0, 120)})`);
+          const result = await executeToolCall(block.name, block.input);
+          console.log(`[Claude] Tool result: ${JSON.stringify(result).substring(0, 200)}`);
+
+          toolResults.push({ tool: block.name, input: block.input, result });
+          toolResultBlocks.push({
+            type: 'tool_result',
+            tool_use_id: block.id,
+            content: JSON.stringify(result)
+          });
+        }
+      }
+
+      // Add tool results to messages for next round
+      messages.push({ role: 'user', content: toolResultBlocks });
+      continue;
+    }
+
+    // Fallback: extract text if stop reason is something else
+    finalContent = response.content
+      .filter(block => block.type === 'text')
+      .map(block => block.text)
+      .join('\n');
+    break;
   }
 
-  throw lastError;
+  return {
+    content: finalContent,
+    usage: {
+      input_tokens: totalInputTokens,
+      output_tokens: totalOutputTokens
+    },
+    model: modelUsed,
+    stop_reason: stopReason,
+    tool_calls: toolResults.length > 0 ? toolResults : undefined
+  };
 }
 
 module.exports = { processTask };
