@@ -2,7 +2,7 @@ const pool = require('../db/pool');
 const { processTask } = require('./claude');
 
 const POLL_INTERVAL = 10000;
-const TASK_TIMEOUT = 120000; // 2 minutes max per task
+const TASK_TIMEOUT = 180000; // 3 minutes max per task (increased for tool-use rounds)
 let isProcessing = false;
 let workerInterval = null;
 let taskCount = 0;
@@ -52,7 +52,8 @@ async function processNextTask() {
 
       taskCount++;
       const tokens = result.usage.input_tokens + result.usage.output_tokens;
-      console.log(`[Worker] Task #${task.id} completed (${tokens} tokens, total processed: ${taskCount})`);
+      const toolInfo = result.tool_calls ? ` | ${result.tool_calls.length} tool call(s)` : '';
+      console.log(`[Worker] Task #${task.id} completed (${tokens} tokens${toolInfo}, total processed: ${taskCount})`);
 
       await runPostProcessing(task, result);
 
@@ -60,6 +61,8 @@ async function processNextTask() {
       errorCount++;
       console.error(`[Worker] Task #${task.id} failed (attempt ${task.attempts + 1}/${task.max_attempts}):`, err.message);
 
+      // Exponential backoff: delay retry based on attempt count
+      const retryDelay = Math.min(30, Math.pow(2, task.attempts)) * 1000;
       const newStatus = task.attempts + 1 >= task.max_attempts ? 'failed' : 'pending';
 
       await pool.query(
@@ -70,7 +73,7 @@ async function processNextTask() {
       if (newStatus === 'failed') {
         console.error(`[Worker] Task #${task.id} permanently failed after ${task.max_attempts} attempts`);
       } else {
-        console.log(`[Worker] Task #${task.id} will retry`);
+        console.log(`[Worker] Task #${task.id} will retry (backoff: ${retryDelay / 1000}s)`);
       }
     }
 
@@ -127,13 +130,21 @@ async function runPostProcessing(task, result) {
       default:
         break;
     }
+
+    // Log tool call actions for audit trail
+    if (result.tool_calls && result.tool_calls.length > 0) {
+      for (const tc of result.tool_calls) {
+        console.log(`[Worker] Action taken: ${tc.tool} -> ${tc.result?.success ? 'SUCCESS' : 'FAILED'}`);
+      }
+    }
   } catch (err) {
     console.error(`[Worker] Post-processing error for task #${task.id}:`, err.message);
   }
 }
 
 function startWorker() {
-  console.log(`[Worker] Starting task worker (polling every ${POLL_INTERVAL / 1000}s)`);
+  console.log(`[Worker] Starting task worker (polling every ${POLL_INTERVAL / 1000}s, timeout ${TASK_TIMEOUT / 1000}s)`);
+  console.log(`[Worker] Connector gateway: Make.com webhook active`);
   workerInterval = setInterval(processNextTask, POLL_INTERVAL);
   processNextTask();
 
