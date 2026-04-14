@@ -88,10 +88,10 @@ router.get('/', async (req, res) => {
     </style></head><body>
     <div class="header"><h1>The Official Realty Group</h1><small>Agent Dashboard</small></div>
     <div class="stats">
-      <div class="stat"><div class="num">\${stats.total}</div><div class="label">Total</div></div>
-      <div class="stat"><div class="num" style="color:#f59e0b">\${stats.pending}</div><div class="label">Pending</div></div>
-      <div class="stat"><div class="num" style="color:#3b82f6">\${stats.processing}</div><div class="label">Active</div></div>
-      <div class="stat"><div class="num" style="color:#10b981">\${stats.completed}</div><div class="label">Done</div></div>
+      <div class="stat"><div class="num">${stats.total}</div><div class="label">Total</div></div>
+      <div class="stat"><div class="num" style="color:#f59e0b">${stats.pending}</div><div class="label">Pending</div></div>
+      <div class="stat"><div class="num" style="color:#3b82f6">${stats.processing}</div><div class="label">Active</div></div>
+      <div class="stat"><div class="num" style="color:#10b981">${stats.completed}</div><div class="label">Done</div></div>
     </div>
     <div class="compose">
       <textarea id="instruction" placeholder="What do you need? e.g.\\nGenerate marketing for 123 King St, Midland\\nDraft an Instagram post about our new listing\\nWrite an open house promo for Saturday 2-4pm"></textarea>
@@ -99,7 +99,7 @@ router.get('/', async (req, res) => {
       <div class="hint">Your request will be processed by Claude on the server — even if you close this page.</div>
     </div>
     <div class="feedback" id="feedback"></div>
-    <div class="tasks"><h2>Recent Tasks</h2>\${taskRows || '<div class="empty">No tasks yet. Send your first instruction above.</div>'}</div>
+    <div class="tasks"><h2>Recent Tasks</h2>${taskRows || '<div class="empty">No tasks yet. Send your first instruction above.</div>'}</div>
     <div class="modal" id="modal" onclick="if(event.target===this)closeModal()">
       <div class="modal-content">
         <div class="modal-header">
@@ -113,7 +113,7 @@ router.get('/', async (req, res) => {
       </div>
     </div>
     <script>
-    const API_KEY='\${process.env.API_KEY}';const BASE=window.location.origin;
+    const API_KEY='${process.env.API_KEY}';const BASE=window.location.origin;
     let currentRaw='';
     async function submitTask(){const btn=document.getElementById('submitBtn');const ta=document.getElementById('instruction');const fb=document.getElementById('feedback');const text=ta.value.trim();if(!text)return;btn.disabled=true;btn.textContent='Sending...';fb.className='feedback';try{const res=await fetch(BASE+'/api/tasks/quick',{method:'POST',headers:{'Content-Type':'application/json','X-API-Key':API_KEY},body:JSON.stringify({text,source:'dashboard'})});const data=await res.json();if(data.success){fb.className='feedback success';fb.textContent=data.message+' (Task #'+data.task_id+')';ta.value='';setTimeout(()=>location.reload(),2000);}else{fb.className='feedback error';fb.textContent=data.error;}}catch(e){fb.className='feedback error';fb.textContent='Network error.';}btn.disabled=false;btn.textContent='Send to Agent';}
     async function viewTask(id){try{const res=await fetch(BASE+'/api/tasks/'+id,{headers:{'X-API-Key':API_KEY}});const data=await res.json();const t=data.task;document.getElementById('modal-title').textContent=t.type.replace(/_/g,' ')+' — '+t.status;let body='';if(t.result&&t.result.content)body=t.result.content;else if(t.error)body='Error: '+t.error;else if(t.status==='processing')body='Still processing... refresh in a moment.';else body='Waiting in queue...';currentRaw=body;if(typeof marked!=='undefined'){document.getElementById('modal-body').innerHTML=marked.parse(body);document.getElementById('modal-body').className='result-body';}else{document.getElementById('modal-body').textContent=body;document.getElementById('modal-body').className='result-raw';}document.getElementById('modal').classList.add('active');}catch(e){alert('Could not load task.');}}
