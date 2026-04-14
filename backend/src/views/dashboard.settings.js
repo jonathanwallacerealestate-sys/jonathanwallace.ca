@@ -71,6 +71,22 @@
         </div>
 
         <h3 style="margin:1.25rem 0 0.75rem;font-size:0.85rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px">
+          Agent Intuition
+        </h3>
+        <div style="display:flex;gap:0.5rem;align-items:center;padding:0.75rem 1rem;background:#f9fafb;border:1px solid var(--border);border-radius:8px">
+          <span style="font-size:0.85rem;color:var(--muted);flex:1">Vocabulary, abbreviations, and long-term memory Claude uses for every request.</span>
+          <button class="btn-secondary" onclick="window.DB_INTUITION && window.DB_INTUITION.openManager()">Manage</button>
+        </div>
+
+        <h3 style="margin:1.25rem 0 0.75rem;font-size:0.85rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px">
+          Claude Chrome Workflows
+        </h3>
+        <div style="display:flex;gap:0.5rem;align-items:center;padding:0.75rem 1rem;background:#f9fafb;border:1px solid var(--border);border-radius:8px">
+          <span style="font-size:0.85rem;color:var(--muted);flex:1">Saved browser workflows + encrypted credentials for sites without APIs.</span>
+          <button class="btn-secondary" onclick="window.DB_CHROME && window.DB_CHROME.openManager()">Manage</button>
+        </div>
+
+        <h3 style="margin:1.25rem 0 0.75rem;font-size:0.85rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px">
           Hotkeys
         </h3>
         <div style="font-size:0.85rem;color:var(--text);line-height:1.8;background:#f9fafb;padding:0.75rem 1rem;border-radius:8px;border:1px solid var(--border)">

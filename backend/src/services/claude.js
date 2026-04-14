@@ -1,6 +1,7 @@
 const Anthropic = require('@anthropic-ai/sdk');
 const { google } = require('googleapis');
 const pool = require('../db/pool');
+const intuition = require('./intuition');
 
 const anthropic = new Anthropic();
 
@@ -531,6 +532,13 @@ async function processTask(taskType, instruction, context = {}) {
 
   messages.push({ role: 'user', content: userMessage });
 
+  // Load Jonathan's vocabulary + long-term memory and fold it into the
+  // system prompt. Cached for 60s inside the intuition service.
+  const intuitionBlock = await intuition.buildContextBlock();
+  const composedSystem = intuitionBlock
+    ? SYSTEM_PROMPT + '\n\n' + intuitionBlock
+    : SYSTEM_PROMPT;
+
   // Agentic tool-use loop
   let totalInputTokens = 0;
   let totalOutputTokens = 0;
@@ -554,7 +562,7 @@ async function processTask(taskType, instruction, context = {}) {
         response = await anthropic.messages.create({
           model: 'claude-sonnet-4-20250514',
           max_tokens: 4096,
-          system: SYSTEM_PROMPT,
+          system: composedSystem,
           tools: TOOLS,
           messages
         });

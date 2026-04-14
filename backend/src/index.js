@@ -25,6 +25,9 @@ const dailyBriefRoutes = require('./routes/dailyBrief');
 const settingsRoutes = require('./routes/settings');
 const briefingRoutes = require('./routes/briefing');
 const eventsRoutes = require('./routes/events');
+const intuitionRoutes = require('./routes/intuition');
+const lettersRoutes = require('./routes/letters');
+const chromeRoutes = require('./routes/chrome');
 const { initDb } = require('./db/init');
 const { startWorker } = require('./services/worker');
 
@@ -78,6 +81,9 @@ app.use('/api/daily-brief', dailyBriefRoutes);
 app.use('/api/settings', settingsRoutes);
 app.use('/api/brief', briefingRoutes);
 app.use('/api/events', eventsRoutes);
+app.use('/api/intuition', intuitionRoutes);
+app.use('/api/letters', lettersRoutes);
+app.use('/api/chrome', chromeRoutes);
 app.use('/dashboard', dashboardRoutes);
 
 app.get('/', (req, res) => {

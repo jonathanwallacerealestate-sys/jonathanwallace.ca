@@ -9,6 +9,7 @@ const Anthropic = require('@anthropic-ai/sdk');
 const pool = require('../db/pool');
 const { requireApiKey } = require('../middleware/apiKey');
 const { google } = require('googleapis');
+const intuition = require('../services/intuition');
 
 router.use(requireApiKey);
 
@@ -61,10 +62,11 @@ Give me my morning briefing.
 
 ${JSON.stringify(brief, null, 2)}`;
 
+    const ctx = await intuition.buildContextBlock();
     const response = await anthropic.messages.create({
       model: 'claude-sonnet-4-20250514',
       max_tokens: 500,
-      system: BRIEF_SYSTEM_PROMPT,
+      system: ctx ? `${BRIEF_SYSTEM_PROMPT}\n\n${ctx}` : BRIEF_SYSTEM_PROMPT,
       messages: [{ role: 'user', content: userMessage }]
     });
 
@@ -160,10 +162,11 @@ router.get('/gaps', async (req, res) => {
 
     const userMessage = `Goals:\n${JSON.stringify(goals, null, 2)}\n\nLast 7 days + upcoming:\n${JSON.stringify(activity, null, 2)}`;
 
+    const ctx = await intuition.buildContextBlock();
     const response = await anthropic.messages.create({
       model: 'claude-sonnet-4-20250514',
       max_tokens: 400,
-      system: GAP_SYSTEM_PROMPT,
+      system: ctx ? `${GAP_SYSTEM_PROMPT}\n\n${ctx}` : GAP_SYSTEM_PROMPT,
       messages: [{ role: 'user', content: userMessage }]
     });
 

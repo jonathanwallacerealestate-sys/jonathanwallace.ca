@@ -262,6 +262,103 @@ async function initDb() {
         updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
       );
 
+      -- Encrypted credentials for services without APIs. Values are encrypted
+      -- with AES-256-GCM using the CREDENTIALS_ENCRYPTION_KEY env var so a
+      -- casual DB dump doesn't expose them.
+      CREATE TABLE IF NOT EXISTS site_credentials (
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(100) NOT NULL UNIQUE,
+        site VARCHAR(255),
+        url TEXT,
+        username TEXT,
+        password_ciphertext TEXT,
+        notes TEXT,
+        mfa_hint TEXT,
+        last_used_at TIMESTAMP WITH TIME ZONE,
+        use_count INTEGER DEFAULT 0,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+      );
+
+      -- Named Chrome workflows: multi-step browser actions Claude Chrome can
+      -- execute. Each workflow references credentials by name; the run endpoint
+      -- assembles a ready-to-paste prompt with the password decrypted.
+      CREATE TABLE IF NOT EXISTS chrome_workflows (
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(150) NOT NULL UNIQUE,
+        description TEXT,
+        target_url TEXT,
+        credential_name VARCHAR(100) REFERENCES site_credentials(name) ON DELETE SET NULL,
+        steps JSONB DEFAULT '[]',
+        expected_output TEXT,
+        tags JSONB DEFAULT '[]',
+        last_run_at TIMESTAMP WITH TIME ZONE,
+        run_count INTEGER DEFAULT 0,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+      );
+
+      -- Letters of Opinion (LOO / LOV). Written estimates of market value
+      -- that Jonathan produces for sellers, lawyers, estate & divorce files.
+      CREATE TABLE IF NOT EXISTS letter_opinions (
+        id SERIAL PRIMARY KEY,
+        seller_form_id INTEGER REFERENCES seller_forms(id) ON DELETE SET NULL,
+        client_name VARCHAR(255),
+        client_email VARCHAR(255),
+        prepared_for VARCHAR(255),
+        property_address TEXT NOT NULL,
+        city VARCHAR(100),
+        postal_code VARCHAR(20),
+        property_type VARCHAR(100),
+        bedrooms INTEGER,
+        bathrooms NUMERIC(3,1),
+        square_footage INTEGER,
+        lot_size VARCHAR(100),
+        year_built INTEGER,
+        opinion_low NUMERIC(12,2),
+        opinion_mid NUMERIC(12,2),
+        opinion_high NUMERIC(12,2),
+        comps JSONB DEFAULT '[]',
+        rationale TEXT,
+        letter_body TEXT,
+        prepared_date DATE DEFAULT CURRENT_DATE,
+        status VARCHAR(50) DEFAULT 'draft',
+        delivered_at TIMESTAMP WITH TIME ZONE,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+      );
+
+      -- Agent vocabulary: Jonathan's shorthand, abbreviations, industry terms.
+      -- Injected into Claude's system prompt so it always understands him.
+      CREATE TABLE IF NOT EXISTS agent_vocabulary (
+        id SERIAL PRIMARY KEY,
+        term VARCHAR(100) NOT NULL,
+        expansion TEXT NOT NULL,
+        category VARCHAR(50) DEFAULT 'real_estate',
+        weight INTEGER DEFAULT 5,
+        enabled BOOLEAN DEFAULT TRUE,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+        UNIQUE (term)
+      );
+
+      -- Agent long-term memory: preferences, client notes, recurring context.
+      -- Lightweight — not a full vector store, just high-value snippets Claude
+      -- should always consider. Importance weights let us trim to a budget.
+      CREATE TABLE IF NOT EXISTS agent_memory (
+        id SERIAL PRIMARY KEY,
+        key VARCHAR(150) NOT NULL,
+        value TEXT NOT NULL,
+        category VARCHAR(50) DEFAULT 'preference',
+        importance INTEGER DEFAULT 5,
+        source VARCHAR(50) DEFAULT 'manual',
+        last_used_at TIMESTAMP WITH TIME ZONE,
+        use_count INTEGER DEFAULT 0,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+        UNIQUE (key)
+      );
+
       -- Free-form items attached to custom categories
       CREATE TABLE IF NOT EXISTS custom_items (
         id SERIAL PRIMARY KEY,
@@ -302,6 +399,71 @@ async function initDb() {
       CREATE INDEX IF NOT EXISTS idx_marketing_status ON marketing_items(status);
       CREATE INDEX IF NOT EXISTS idx_custom_items_category ON custom_items(category_slug);
       CREATE INDEX IF NOT EXISTS idx_custom_items_status ON custom_items(status);
+      CREATE INDEX IF NOT EXISTS idx_vocab_term ON agent_vocabulary(term);
+      CREATE INDEX IF NOT EXISTS idx_memory_key ON agent_memory(key);
+      CREATE INDEX IF NOT EXISTS idx_memory_importance ON agent_memory(importance DESC);
+      CREATE INDEX IF NOT EXISTS idx_loo_status ON letter_opinions(status);
+      CREATE INDEX IF NOT EXISTS idx_loo_prepared ON letter_opinions(prepared_date DESC);
+      CREATE INDEX IF NOT EXISTS idx_loo_seller_form ON letter_opinions(seller_form_id);
+      CREATE INDEX IF NOT EXISTS idx_cred_name ON site_credentials(name);
+      CREATE INDEX IF NOT EXISTS idx_workflow_name ON chrome_workflows(name);
+    `);
+
+    // Seed real-estate vocabulary Jonathan uses every day. Idempotent.
+    await client.query(`
+      INSERT INTO agent_vocabulary (term, expansion, category, weight) VALUES
+        ('LOO',           'Letter of Opinion — a written estimate of a property''s market value', 'real_estate', 9),
+        ('LOV',           'Letter of Opinion of Value — same as LOO', 'real_estate', 9),
+        ('FUB',           'Follow-Up Boss, Jonathan''s CRM', 'tools', 9),
+        ('MLS',           'Multiple Listing Service — the brokerage database where listings are posted', 'real_estate', 8),
+        ('GCI',           'Gross Commission Income', 'finance', 8),
+        ('firm date',     'the date the deal became firm — all buyer conditions waived', 'real_estate', 7),
+        ('conditional',   'offer accepted but still has outstanding conditions (financing, inspection, etc.)', 'real_estate', 7),
+        ('SPIS',          'Seller Property Information Statement', 'real_estate', 7),
+        ('APS',           'Agreement of Purchase and Sale', 'real_estate', 8),
+        ('closing date',  'the date legal title transfers and funds are exchanged', 'real_estate', 7),
+        ('buyer rep',     'Buyer Representation Agreement', 'real_estate', 7),
+        ('listing agreement', 'the signed contract between Jonathan and a seller to market the property', 'real_estate', 7),
+        ('comp',          'a comparable recently sold or listed property used for valuation', 'real_estate', 8),
+        ('CMA',           'Comparative Market Analysis — the formal comp analysis for sellers', 'real_estate', 8),
+        ('days on market','DOM — how long a property has been actively listed', 'real_estate', 6),
+        ('SOGB',          'Southern Georgian Bay', 'geography', 8),
+        ('Midland',       'primary service community in Southern Georgian Bay', 'geography', 6),
+        ('Penetanguishene','coastal community in SOGB, French-Canadian heritage', 'geography', 6),
+        ('Tiny Township', 'cottage + waterfront community along Georgian Bay', 'geography', 6),
+        ('Wasaga Beach',  'largest freshwater beach town in SOGB', 'geography', 6),
+        ('Tay Township',  'rural + waterfront community in SOGB', 'geography', 6),
+        ('TORG',          'The Official Realty Group, Jonathan''s brokerage', 'brand', 10),
+        ('open house',    'weekend showing event — Jonathan prefers Saturdays 2-4 pm', 'operations', 6),
+        ('price expectation', 'the seller''s own number before CMA-adjusted suggested list', 'real_estate', 6),
+        ('waterfront',    'property on or with direct access to Georgian Bay waters — priced at premium', 'real_estate', 7),
+        ('cottage',       'seasonal/recreational property, often waterfront', 'real_estate', 6),
+        ('Ruuster',       'the IDX feed provider powering the live listings on jonathanwallace.ca', 'tools', 6),
+        ('seller form',   'the intake form on the website where prospective sellers submit property details', 'operations', 7),
+        ('beta dashboard','the agent command center currently hosted on Railway for Jonathan personal use', 'tools', 5)
+      ON CONFLICT (term) DO UPDATE
+        SET expansion = EXCLUDED.expansion,
+            category = EXCLUDED.category,
+            weight = EXCLUDED.weight,
+            updated_at = NOW();
+    `);
+
+    // Seed agent memory with Jonathan's default preferences + voice rules.
+    await client.query(`
+      INSERT INTO agent_memory (key, value, category, importance, source) VALUES
+        ('preferred_greeting_time',   'Jonathan usually sits down with the dashboard between 6:30am and 7:30am ET',                  'preference', 6, 'seed'),
+        ('voice_rules',               'Never use the phrase "won''t last" or other high-pressure real estate cliches. Avoid "dream home" and "must see". Use specific, sensory language instead.', 'voice', 10, 'seed'),
+        ('email_signoff',             'Emails from Jonathan end with: "Thanks, Jonathan Wallace — The Official Realty Group, (705) 543-1234".', 'voice', 9, 'seed'),
+        ('default_timezone',          'All date/time references default to Eastern Time (America/Toronto) unless Jonathan specifies otherwise.', 'preference', 8, 'seed'),
+        ('open_house_default',        'Default open-house slot is Saturday 2-4pm unless Jonathan says otherwise.', 'operations', 6, 'seed'),
+        ('market_area',               'Jonathan''s primary market is Southern Georgian Bay: Midland, Penetanguishene, Tiny Township, Tay Township, Wasaga Beach. Collingwood is a secondary area.', 'operations', 9, 'seed'),
+        ('brokerage',                 'The Official Realty Group (TORG) is Jonathan''s brokerage.',                                  'brand',      10, 'seed'),
+        ('call_me_jonathan',          'Address Jonathan by first name sparingly — at most once per response.',                        'voice',      7, 'seed')
+      ON CONFLICT (key) DO UPDATE
+        SET value = EXCLUDED.value,
+            category = EXCLUDED.category,
+            importance = EXCLUDED.importance,
+            updated_at = NOW();
     `);
 
     // Seed default settings (idempotent)

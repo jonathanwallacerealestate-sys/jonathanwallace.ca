@@ -40,6 +40,9 @@ const ALLOWED_ASSETS = {
   'dashboard.tools.js': 'application/javascript; charset=utf-8',
   'dashboard.chart.js': 'application/javascript; charset=utf-8',
   'dashboard.voice.js': 'application/javascript; charset=utf-8',
+  'dashboard.letters.js': 'application/javascript; charset=utf-8',
+  'dashboard.intuition.js': 'application/javascript; charset=utf-8',
+  'dashboard.chrome.js': 'application/javascript; charset=utf-8',
   'icon-192.svg': 'image/svg+xml; charset=utf-8',
   'icon-512.svg': 'image/svg+xml; charset=utf-8'
 };
