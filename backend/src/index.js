@@ -11,6 +11,17 @@ const listingsRoutes = require('./routes/listings');
 const healthRoutes = require('./routes/health');
 const tasksRoutes = require('./routes/tasks');
 const dashboardRoutes = require('./routes/dashboard');
+const personalTasksRoutes = require('./routes/personalTasks');
+const flaggedEmailsRoutes = require('./routes/flaggedEmails');
+const crmFollowupsRoutes = require('./routes/crmFollowups');
+const calendarRoutes = require('./routes/calendar');
+const closingsRoutes = require('./routes/closings');
+const workoutsRoutes = require('./routes/workouts');
+const mealsRoutes = require('./routes/meals');
+const marketingRoutes = require('./routes/marketing');
+const categoriesRoutes = require('./routes/categories');
+const syncRoutes = require('./routes/sync');
+const dailyBriefRoutes = require('./routes/dailyBrief');
 const { initDb } = require('./db/init');
 const { startWorker } = require('./services/worker');
 
@@ -50,6 +61,17 @@ app.use('/api/contact', contactRoutes);
 app.use('/api/seller-form', sellerFormRoutes);
 app.use('/api/listings', listingsRoutes);
 app.use('/api/tasks', tasksRoutes);
+app.use('/api/personal-tasks', personalTasksRoutes);
+app.use('/api/emails', flaggedEmailsRoutes);
+app.use('/api/follow-ups', crmFollowupsRoutes);
+app.use('/api/calendar', calendarRoutes);
+app.use('/api/closings', closingsRoutes);
+app.use('/api/workouts', workoutsRoutes);
+app.use('/api/meals', mealsRoutes);
+app.use('/api/marketing', marketingRoutes);
+app.use('/api/categories', categoriesRoutes);
+app.use('/api/sync', syncRoutes);
+app.use('/api/daily-brief', dailyBriefRoutes);
 app.use('/dashboard', dashboardRoutes);
 
 app.get('/', (req, res) => {

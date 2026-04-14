@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <title>Agent Dashboard — Jonathan Wallace</title>
+  <link rel="stylesheet" href="/dashboard/assets/dashboard.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.1/marked.min.js"></script>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <div class="brand-mark">JW</div>
+    <div>
+      <h1>Agent Command Center</h1>
+      <small id="today-label">Loading…</small>
+    </div>
+  </div>
+  <div class="topbar-actions">
+    <button id="refresh-btn" class="icon-btn" title="Refresh">&#8635;</button>
+    <button id="sync-btn" class="btn-primary">Sync Now</button>
+  </div>
+</header>
+
+<nav class="section-nav" id="section-nav"></nav>
+
+<main class="container">
+
+  <!-- Agent Tasks -->
+  <section class="card" data-section="tasks">
+    <header class="card-header">
+      <h2><span class="dot" style="background:#1a1a2e"></span>Agent Tasks</h2>
+      <div class="card-stats" id="task-stats"></div>
+    </header>
+    <div class="compose">
+      <textarea id="agent-instruction" placeholder="Ask the agent anything — generate marketing for a listing, draft a follow-up email, build a social post…"></textarea>
+      <button id="agent-submit" class="btn-primary">Send to Agent</button>
+      <div id="agent-feedback" class="feedback"></div>
+    </div>
+    <div id="task-list" class="list"></div>
+  </section>
+
+  <!-- Email Triage -->
+  <section class="card" data-section="emails">
+    <header class="card-header">
+      <h2><span class="dot" style="background:#3b82f6"></span>Emails Needing Attention</h2>
+      <div class="card-stats" id="email-stats"></div>
+    </header>
+    <div id="email-list" class="list"></div>
+  </section>
+
+  <!-- CRM Follow-ups -->
+  <section class="card" data-section="crm">
+    <header class="card-header">
+      <h2><span class="dot" style="background:#8b5cf6"></span>CRM Follow-ups <small>(Follow-Up Boss)</small></h2>
+      <div class="card-stats" id="crm-stats"></div>
+    </header>
+    <div class="toolbar">
+      <button class="chip" data-filter="today">Due today</button>
+      <button class="chip" data-filter="overdue">Overdue</button>
+      <button class="chip" data-filter="week">This week</button>
+      <button class="chip active" data-filter="all">All open</button>
+    </div>
+    <div id="crm-list" class="list"></div>
+  </section>
+
+  <!-- Calendar -->
+  <section class="card" data-section="calendar">
+    <header class="card-header">
+      <h2><span class="dot" style="background:#10b981"></span>Today&rsquo;s Calendar</h2>
+      <div class="card-stats" id="calendar-stats"></div>
+    </header>
+    <div id="calendar-list" class="list"></div>
+  </section>
+
+  <!-- Closings & P&L -->
+  <section class="card" data-section="closings">
+    <header class="card-header">
+      <h2><span class="dot" style="background:#f59e0b"></span>Closings &amp; P&amp;L</h2>
+      <div class="card-stats" id="pnl-stats"></div>
+    </header>
+    <div class="kpi-row" id="pnl-kpis"></div>
+    <div class="toolbar">
+      <button class="btn-secondary" id="add-closing-btn">+ Add Closing</button>
+    </div>
+    <div id="closing-list" class="list"></div>
+  </section>
+
+  <!-- Personal Tasks -->
+  <section class="card" data-section="personal">
+    <header class="card-header">
+      <h2><span class="dot" style="background:#6366f1"></span>Personal Tasks</h2>
+      <div class="card-stats" id="personal-stats"></div>
+    </header>
+    <div class="quick-add">
+      <input id="personal-input" placeholder="Add a personal task…" />
+      <select id="personal-category">
+        <option value="personal">Personal</option>
+        <option value="family">Family</option>
+        <option value="errand">Errand</option>
+        <option value="admin">Admin</option>
+        <option value="learning">Learning</option>
+      </select>
+      <input type="date" id="personal-due" />
+      <button id="personal-add" class="btn-primary">Add</button>
+    </div>
+    <div id="personal-list" class="list"></div>
+  </section>
+
+  <!-- Workouts -->
+  <section class="card" data-section="workouts">
+    <header class="card-header">
+      <h2><span class="dot" style="background:#ef4444"></span>Workout</h2>
+      <div class="card-stats" id="workout-stats"></div>
+    </header>
+    <div class="quick-add">
+      <input id="workout-title" placeholder="Workout title" />
+      <select id="workout-type">
+        <option value="strength">Strength</option>
+        <option value="cardio">Cardio</option>
+        <option value="mobility">Mobility</option>
+        <option value="hiit">HIIT</option>
+        <option value="rest">Rest</option>
+      </select>
+      <input id="workout-duration" type="number" placeholder="Min" min="0" />
+      <button id="workout-add" class="btn-primary">Log</button>
+    </div>
+    <div id="workout-list" class="list"></div>
+  </section>
+
+  <!-- Meals -->
+  <section class="card" data-section="meals">
+    <header class="card-header">
+      <h2><span class="dot" style="background:#84cc16"></span>Meal Plan</h2>
+      <div class="card-stats" id="meal-stats"></div>
+    </header>
+    <div class="quick-add">
+      <input id="meal-name" placeholder="Meal name (e.g. Chicken + rice)" />
+      <select id="meal-type">
+        <option value="breakfast">Breakfast</option>
+        <option value="snack_morning">AM Snack</option>
+        <option value="lunch">Lunch</option>
+        <option value="snack_afternoon">PM Snack</option>
+        <option value="dinner">Dinner</option>
+        <option value="snack_evening">Evening Snack</option>
+      </select>
+      <input id="meal-calories" type="number" placeholder="kcal" min="0" />
+      <button id="meal-add" class="btn-primary">Add</button>
+    </div>
+    <div id="meal-list" class="list"></div>
+  </section>
+
+  <!-- Marketing -->
+  <section class="card" data-section="marketing">
+    <header class="card-header">
+      <h2><span class="dot" style="background:#ec4899"></span>Marketing Pipeline</h2>
+      <div class="card-stats" id="marketing-stats"></div>
+    </header>
+    <div class="toolbar">
+      <button class="btn-secondary" id="add-marketing-btn">+ Schedule Post</button>
+    </div>
+    <div id="marketing-list" class="list"></div>
+  </section>
+
+  <!-- Custom Categories -->
+  <section class="card" data-section="custom-root">
+    <header class="card-header">
+      <h2><span class="dot" style="background:#64748b"></span>Custom Sections</h2>
+      <div class="card-stats">
+        <button class="btn-secondary" id="add-category-btn">+ New Section</button>
+      </div>
+    </header>
+    <div id="custom-sections"></div>
+  </section>
+
+</main>
+
+<!-- Modal -->
+<div class="modal" id="modal" onclick="if(event.target===this)DB.closeModal()">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h3 id="modal-title"></h3>
+      <button class="modal-close" onclick="DB.closeModal()">&times;</button>
+    </div>
+    <div id="modal-body" class="modal-body"></div>
+    <div id="modal-footer" class="modal-footer"></div>
+  </div>
+</div>
+
+<div id="toast" class="toast"></div>
+
+<script>window.DB_CONFIG = { apiKey: '__API_KEY__' };</script>
+<script src="/dashboard/assets/dashboard.js"></script>
+<script src="/dashboard/assets/dashboard.render.js"></script>
+<script src="/dashboard/assets/dashboard.actions.js"></script>
+
+</body>
+</html>
