@@ -94,7 +94,7 @@ router.get('/', async (req, res) => {
       <div class="stat"><div class="num" style="color:#10b981">${stats.completed}</div><div class="label">Done</div></div>
     </div>
     <div class="compose">
-      <textarea id="instruction" placeholder="What do you need? e.g.\\nGenerate marketing for 123 King St, Midland\\nDraft an Instagram post about our new listing\\nWrite an open house promo for Saturday 2-4pm"></textarea>
+      <textarea id="instruction" placeholder="What do you need? e.g.&#10;Generate marketing for 123 King St, Midland&#10;Draft an Instagram post about our new listing&#10;Write an open house promo for Saturday 2-4pm"></textarea>
       <button onclick="submitTask()" id="submitBtn">Send to Agent</button>
       <div class="hint">Your request will be processed by Claude on the server — even if you close this page.</div>
     </div>
@@ -120,6 +120,8 @@ router.get('/', async (req, res) => {
     function copyResult(){navigator.clipboard.writeText(currentRaw).then(()=>{const btn=document.querySelector('.btn-copy');btn.textContent='Copied!';setTimeout(()=>btn.textContent='Copy',2000);});}
     function closeModal(){document.getElementById('modal').classList.remove('active');}
     document.getElementById('instruction').addEventListener('keydown',function(e){if((e.metaKey||e.ctrlKey)&&e.key==='Enter')submitTask();});
+    // Auto-refresh every 15s if tasks are pending or processing
+    (function(){const nums=document.querySelectorAll('.stat .num');const pending=parseInt(nums[1]?.textContent||'0');const processing=parseInt(nums[2]?.textContent||'0');if(pending>0||processing>0){setTimeout(()=>location.reload(),15000);}})();
     </script></body></html>`);
 });
 
