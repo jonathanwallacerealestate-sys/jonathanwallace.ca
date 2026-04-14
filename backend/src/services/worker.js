@@ -2,8 +2,11 @@ const pool = require('../db/pool');
 const { processTask } = require('./claude');
 
 const POLL_INTERVAL = 10000;
+const TASK_TIMEOUT = 120000; // 2 minutes max per task
 let isProcessing = false;
 let workerInterval = null;
+let taskCount = 0;
+let errorCount = 0;
 
 async function processNextTask() {
   if (isProcessing) return;
@@ -13,16 +16,14 @@ async function processNextTask() {
   try {
     await client.query('BEGIN');
     const { rows } = await client.query(`
-      UPDATE tasks
-      SET status = 'processing', started_at = NOW(), attempts = attempts + 1
+      UPDATE tasks SET status = 'processing', started_at = NOW(), attempts = attempts + 1
       WHERE id = (
         SELECT id FROM tasks
         WHERE status = 'pending' AND attempts < max_attempts
         ORDER BY priority ASC, created_at ASC
         LIMIT 1
         FOR UPDATE SKIP LOCKED
-      )
-      RETURNING *
+      ) RETURNING *
     `);
 
     if (rows.length === 0) {
@@ -36,25 +37,43 @@ async function processNextTask() {
     console.log(`[Worker] Processing task #${task.id} (${task.type}): ${task.instruction.substring(0, 80)}...`);
 
     try {
-      const result = await processTask(task.type, task.instruction, task.context || {});
+      // Wrap processTask with a timeout
+      const result = await Promise.race([
+        processTask(task.type, task.instruction, task.context || {}),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('Task timed out after ' + (TASK_TIMEOUT / 1000) + 's')), TASK_TIMEOUT)
+        )
+      ]);
 
       await pool.query(
         `UPDATE tasks SET status = 'completed', result = $1, completed_at = NOW() WHERE id = $2`,
         [JSON.stringify(result), task.id]
       );
 
-      console.log(`[Worker] Task #${task.id} completed (${result.usage.input_tokens + result.usage.output_tokens} tokens)`);
+      taskCount++;
+      const tokens = result.usage.input_tokens + result.usage.output_tokens;
+      console.log(`[Worker] Task #${task.id} completed (${tokens} tokens, total processed: ${taskCount})`);
 
       await runPostProcessing(task, result);
 
     } catch (err) {
-      console.error(`[Worker] Task #${task.id} failed:`, err.message);
+      errorCount++;
+      console.error(`[Worker] Task #${task.id} failed (attempt ${task.attempts + 1}/${task.max_attempts}):`, err.message);
+
       const newStatus = task.attempts + 1 >= task.max_attempts ? 'failed' : 'pending';
+
       await pool.query(
-        `UPDATE tasks SET status = $1, error = $2 WHERE id = $3`,
+        `UPDATE tasks SET status = $1, error = $2, context = jsonb_set(COALESCE(context, '{}')::jsonb, '{last_error_at}', to_jsonb(NOW()::text)) WHERE id = $3`,
         [newStatus, err.message, task.id]
       );
+
+      if (newStatus === 'failed') {
+        console.error(`[Worker] Task #${task.id} permanently failed after ${task.max_attempts} attempts`);
+      } else {
+        console.log(`[Worker] Task #${task.id} will retry`);
+      }
     }
+
   } catch (err) {
     console.error('[Worker] Queue processing error:', err.message);
     try { await client.query('ROLLBACK'); } catch (e) { /* ignore */ }
@@ -117,6 +136,11 @@ function startWorker() {
   console.log(`[Worker] Starting task worker (polling every ${POLL_INTERVAL / 1000}s)`);
   workerInterval = setInterval(processNextTask, POLL_INTERVAL);
   processNextTask();
+
+  // Log health stats every 5 minutes
+  setInterval(() => {
+    console.log(`[Worker] Health: ${taskCount} tasks completed, ${errorCount} errors`);
+  }, 300000);
 }
 
 function stopWorker() {
