@@ -7,6 +7,8 @@ const VALID_TYPES = [
   'generate_marketing',
   'generate_social',
   'generate_email',
+  'generate_open_house',
+  'generate_video_script',
   'update_listing',
   'analyze_market',
   'process_instruction'
@@ -132,16 +134,28 @@ router.get('/', requireApiKey, async (req, res) => {
 
 function detectTaskType(text) {
   const lower = text.toLowerCase();
-  if (lower.includes('marketing') || lower.includes('listing description') || lower.includes('mls') ||
-      (lower.includes('new listing') && lower.includes('bed'))) return 'generate_marketing';
-  if (lower.includes('instagram') || lower.includes('social') || lower.includes('facebook') ||
-      lower.includes('post about')) return 'generate_social';
-  if (lower.includes('email') || lower.includes('newsletter') || lower.includes('draft a message'))
-    return 'generate_email';
-  if (lower.includes('update') && (lower.includes('listing') || lower.includes('price')))
-    return 'update_listing';
-  if (lower.includes('market') && (lower.includes('analysis') || lower.includes('report')))
-    return 'analyze_market';
+
+  // Full marketing package
+  if (lower.includes('marketing') || lower.includes('listing description') || lower.includes('mls') || (lower.includes('new listing') && lower.includes('bed')) || lower.includes('marketing package')) return 'generate_marketing';
+
+  // Open house specific
+  if (lower.includes('open house') || lower.includes('showing event')) return 'generate_open_house';
+
+  // Video scripts
+  if (lower.includes('video script') || lower.includes('walkthrough') || lower.includes('reel script') || lower.includes('listing video')) return 'generate_video_script';
+
+  // Social media
+  if (lower.includes('instagram') || lower.includes('social') || lower.includes('facebook') || lower.includes('post about') || lower.includes('tiktok') || lower.includes('linkedin')) return 'generate_social';
+
+  // Email
+  if (lower.includes('email') || lower.includes('newsletter') || lower.includes('draft a message') || lower.includes('follow up') || lower.includes('follow-up')) return 'generate_email';
+
+  // Listing updates
+  if (lower.includes('update') && (lower.includes('listing') || lower.includes('price'))) return 'update_listing';
+
+  // Market analysis
+  if (lower.includes('market') && (lower.includes('analysis') || lower.includes('report') || lower.includes('trend') || lower.includes('stats'))) return 'analyze_market';
+
   return 'process_instruction';
 }
 
