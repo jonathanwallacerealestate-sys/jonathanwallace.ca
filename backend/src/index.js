@@ -9,7 +9,9 @@ const contactRoutes = require('./routes/contact');
 const sellerFormRoutes = require('./routes/sellerForm');
 const listingsRoutes = require('./routes/listings');
 const healthRoutes = require('./routes/health');
+const tasksRoutes = require('./routes/tasks');
 const { initDb } = require('./db/init');
+const { startWorker } = require('./services/worker');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -18,10 +20,8 @@ const PORT = process.env.PORT || 3000;
 // Middleware
 // ---------------------
 
-// Security headers
 app.use(helmet());
 
-// CORS — allow website and Make.com webhooks
 app.use(cors({
   origin: [
     'https://jonathanwallace.ca',
@@ -35,14 +35,10 @@ app.use(cors({
   credentials: true
 }));
 
-// Body parsing
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
-
-// Request logging
 app.use(morgan('combined'));
 
-// Rate limiting — 100 requests per 15 minutes per IP
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 100,
@@ -59,8 +55,8 @@ app.use('/api/health', healthRoutes);
 app.use('/api/contact', contactRoutes);
 app.use('/api/seller-form', sellerFormRoutes);
 app.use('/api/listings', listingsRoutes);
+app.use('/api/tasks', tasksRoutes);
 
-// Root route
 app.get('/', (req, res) => {
   res.json({
     name: 'The Official Realty Group API',
@@ -70,12 +66,10 @@ app.get('/', (req, res) => {
   });
 });
 
-// 404 handler
 app.use((req, res) => {
   res.status(404).json({ error: 'Endpoint not found' });
 });
 
-// Error handler
 app.use((err, req, res, next) => {
   console.error('Unhandled error:', err);
   res.status(500).json({
@@ -92,9 +86,16 @@ async function start() {
     await initDb();
     console.log('Database initialized');
 
+    if (process.env.ANTHROPIC_API_KEY) {
+      startWorker();
+      console.log('Task worker started — agent is ready for instructions');
+    } else {
+      console.warn('WARNING: No ANTHROPIC_API_KEY set — task worker disabled');
+    }
+
     app.listen(PORT, '0.0.0.0', () => {
-      console.log(`API server running on port ${PORT}`);
-      console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
+      console.log('API server running on port ' + PORT);
+      console.log('Environment: ' + (process.env.NODE_ENV || 'development'));
     });
   } catch (err) {
     console.error('Failed to start server:', err);
