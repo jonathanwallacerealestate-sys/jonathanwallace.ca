@@ -25,29 +25,4 @@
     "node": ">=18.0.0"
   }
 }
-{
-  "name": "jonathanwallace-api",
-  "version": "1.0.0",
-  "description": "Backend API for The Official Realty Group — jonathanwallace.ca",
-  "main": "src/index.js",
-  "scripts": {
-    "start": "node src/index.js",
-    "dev": "nodemon src/index.js"
-  },
-  "dependencies": {
-    "@anthropic-ai/sdk": "^0.39.0",
-    "cors": "^2.8.5",
-    "dotenv": "^16.4.5",
-    "express": "^4.21.0",
-    "helmet": "^7.1.0",
-    "morgan": "^1.10.0",
-    "pg": "^8.13.0",
-    "express-rate-limit": "^7.4.0"
-  },
-  "devDependencies": {
-    "nodemon": "^3.1.4"
-  },
-  "engines": {
-    "node": ">=18.0.0"
-  }
-}
+
