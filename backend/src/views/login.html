@@ -25,11 +25,23 @@
   </style>
 </head>
 <body>
-  <form method="GET">
+  <form method="GET" id="login-form">
     <h1>Agent Dashboard</h1>
     <p>Enter your API key to continue</p>
-    <input name="key" type="password" placeholder="API key" autofocus />
+    <input name="key" id="key" type="password" placeholder="API key" autofocus autocomplete="current-password" />
     <button type="submit">Sign In</button>
   </form>
+  <script>
+    // If we have a stored key, auto-redirect so the user isn't prompted again
+    try {
+      var saved = localStorage.getItem('jw_api_key');
+      if (saved && !location.search.includes('key=')) {
+        location.replace('/dashboard?key=' + encodeURIComponent(saved));
+      }
+    } catch(e) {}
+    document.getElementById('login-form').addEventListener('submit', function() {
+      try { localStorage.setItem('jw_api_key', document.getElementById('key').value); } catch(e) {}
+    });
+  </script>
 </body>
 </html>

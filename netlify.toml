@@ -53,6 +53,30 @@
   to = "/communities/wasaga-beach.html"
   status = 200
 
+# Agent Command Center — proxy to Railway backend.
+# Update RAILWAY_APP_URL below to your Railway-assigned subdomain, or set it
+# in Netlify → Site settings → Environment variables so you can change it
+# without a commit.
+[[redirects]]
+  from = "/dashboard"
+  to = "https://RAILWAY_APP_URL/dashboard"
+  status = 302
+  force = true
+
+[[redirects]]
+  from = "/dashboard/*"
+  to = "https://RAILWAY_APP_URL/dashboard/:splat"
+  status = 302
+  force = true
+
+# API proxy so the marketing site's contact form can hit the backend
+# through a same-origin path (avoids CORS issues).
+[[redirects]]
+  from = "/api/*"
+  to = "https://RAILWAY_APP_URL/api/:splat"
+  status = 200
+  force = true
+
 # Catch-all redirect for 404s to index
 [[redirects]]
   from = "/*"

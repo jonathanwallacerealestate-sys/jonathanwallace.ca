@@ -29,12 +29,15 @@ router.get('/', (req, res) => {
   res.type('html').send(renderWithKey(readView('dashboard.html'), key || process.env.API_KEY));
 });
 
-// Static assets (CSS + JS). Safe because we hard-code the allowed filenames.
+// Static assets (CSS + JS + icons). Hard-coded allowlist for safety.
 const ALLOWED_ASSETS = {
   'dashboard.css': 'text/css; charset=utf-8',
   'dashboard.js': 'application/javascript; charset=utf-8',
   'dashboard.render.js': 'application/javascript; charset=utf-8',
-  'dashboard.actions.js': 'application/javascript; charset=utf-8'
+  'dashboard.actions.js': 'application/javascript; charset=utf-8',
+  'dashboard.settings.js': 'application/javascript; charset=utf-8',
+  'icon-192.svg': 'image/svg+xml; charset=utf-8',
+  'icon-512.svg': 'image/svg+xml; charset=utf-8'
 };
 
 router.get('/assets/:name', (req, res) => {
@@ -42,10 +45,18 @@ router.get('/assets/:name', (req, res) => {
   const mime = ALLOWED_ASSETS[name];
   if (!mime) return res.status(404).send('Not found');
   try {
-    res.type(mime).send(readView(name));
+    res.set('Cache-Control', 'public, max-age=600').type(mime).send(readView(name));
   } catch (e) {
     res.status(500).send('/* asset load error */');
   }
+});
+
+// PWA manifest + service worker (public, no API key needed to install)
+router.get('/manifest.json', (req, res) => {
+  res.type('application/manifest+json').send(readView('manifest.json'));
+});
+router.get('/sw.js', (req, res) => {
+  res.type('application/javascript').send(readView('sw.js'));
 });
 
 module.exports = router;

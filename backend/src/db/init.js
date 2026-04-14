@@ -253,6 +253,15 @@ async function initDb() {
         created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
       );
 
+      -- Key / value settings store for runtime-editable configuration
+      -- (Make.com webhook URLs, timezone, daily goals, etc.)
+      CREATE TABLE IF NOT EXISTS app_settings (
+        key VARCHAR(100) PRIMARY KEY,
+        value JSONB NOT NULL DEFAULT 'null'::jsonb,
+        description TEXT,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+      );
+
       -- Free-form items attached to custom categories
       CREATE TABLE IF NOT EXISTS custom_items (
         id SERIAL PRIMARY KEY,
@@ -293,6 +302,21 @@ async function initDb() {
       CREATE INDEX IF NOT EXISTS idx_marketing_status ON marketing_items(status);
       CREATE INDEX IF NOT EXISTS idx_custom_items_category ON custom_items(category_slug);
       CREATE INDEX IF NOT EXISTS idx_custom_items_status ON custom_items(status);
+    `);
+
+    // Seed default settings (idempotent)
+    await client.query(`
+      INSERT INTO app_settings (key, value, description)
+      VALUES
+        ('timezone',               '"America/Toronto"'::jsonb, 'IANA timezone used for date rollups'),
+        ('make_webhook_agent',     'null'::jsonb,              'Make.com webhook URL for pushing agent task output'),
+        ('make_webhook_marketing', 'null'::jsonb,              'Make.com webhook URL for publishing marketing content'),
+        ('make_webhook_crm',       'null'::jsonb,              'Make.com webhook URL for writing back to Follow-Up Boss'),
+        ('daily_goal_calories',    '2200'::jsonb,              'Target daily calories'),
+        ('daily_goal_protein',     '180'::jsonb,               'Target daily protein (g)'),
+        ('workout_week_target',    '5'::jsonb,                 'Target workouts per week'),
+        ('dashboard_greeting',     '"Let''s have a great day."'::jsonb, 'Greeting shown at top of dashboard')
+      ON CONFLICT (key) DO NOTHING;
     `);
 
     // Seed the built-in dashboard categories so the UI can render consistent ordering

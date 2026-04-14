@@ -476,6 +476,9 @@ function initDashboard() {
     if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') window.DB_RENDER.submitAgent();
   });
 
+  // Voice dictation using the Web Speech API (works on iPhone Safari + Chrome)
+  setupVoiceInput();
+
   // CRM filter chips
   document.querySelector('[data-section="crm"] .toolbar').addEventListener('click', (e) => {
     const btn = e.target.closest('.chip'); if (!btn) return;
@@ -495,3 +498,59 @@ function initDashboard() {
   setInterval(load, 120000);
 }
 window.initDashboard = initDashboard;
+
+function setupVoiceInput() {
+  const btn = document.getElementById('agent-voice');
+  const ta = document.getElementById('agent-instruction');
+  if (!btn || !ta) return;
+  const Rec = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!Rec) {
+    btn.title = 'Voice input not supported on this browser';
+    btn.style.opacity = '0.4';
+    btn.style.cursor = 'not-allowed';
+    btn.addEventListener('click', () => window.DB.toast('Voice input needs Chrome or Safari', 'error'));
+    return;
+  }
+  const recog = new Rec();
+  recog.continuous = true;
+  recog.interimResults = true;
+  recog.lang = 'en-CA';
+  let active = false;
+  let finalTranscript = '';
+  let originalValue = '';
+
+  recog.addEventListener('result', (e) => {
+    let interim = '';
+    for (let i = e.resultIndex; i < e.results.length; i++) {
+      const r = e.results[i];
+      if (r.isFinal) finalTranscript += r[0].transcript;
+      else interim += r[0].transcript;
+    }
+    ta.value = (originalValue + ' ' + finalTranscript + ' ' + interim).trim();
+  });
+  recog.addEventListener('error', (e) => {
+    window.DB.toast('Voice: ' + (e.error || 'error'), 'error');
+    stop();
+  });
+  recog.addEventListener('end', () => { if (active) stop(); });
+
+  function start() {
+    active = true;
+    originalValue = ta.value;
+    finalTranscript = '';
+    btn.style.background = '#ef4444';
+    btn.style.color = 'white';
+    btn.innerHTML = '&#9632;';
+    btn.title = 'Stop recording';
+    try { recog.start(); } catch (e) { stop(); }
+  }
+  function stop() {
+    active = false;
+    btn.style.background = '#f3f4f6';
+    btn.style.color = '';
+    btn.innerHTML = '&#127908;';
+    btn.title = 'Dictate (voice input)';
+    try { recog.stop(); } catch (e) {}
+  }
+  btn.addEventListener('click', () => active ? stop() : start());
+}

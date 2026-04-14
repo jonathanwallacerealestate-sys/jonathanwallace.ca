@@ -5,6 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <title>Agent Dashboard — Jonathan Wallace</title>
+  <link rel="manifest" href="/dashboard/manifest.json">
+  <meta name="theme-color" content="#0a1628">
+  <link rel="apple-touch-icon" href="/dashboard/assets/icon-192.svg">
+  <link rel="icon" type="image/svg+xml" href="/dashboard/assets/icon-192.svg">
   <link rel="stylesheet" href="/dashboard/assets/dashboard.css">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.1/marked.min.js"></script>
 </head>
@@ -36,7 +40,10 @@
     </header>
     <div class="compose">
       <textarea id="agent-instruction" placeholder="Ask the agent anything — generate marketing for a listing, draft a follow-up email, build a social post…"></textarea>
-      <button id="agent-submit" class="btn-primary">Send to Agent</button>
+      <div style="display:flex;gap:0.5rem;align-items:center">
+        <button id="agent-voice" class="icon-btn" title="Dictate (voice input)" style="background:#f3f4f6;color:var(--text);border:1px solid var(--border);flex-shrink:0">&#127908;</button>
+        <button id="agent-submit" class="btn-primary" style="flex:1">Send to Agent</button>
+      </div>
       <div id="agent-feedback" class="feedback"></div>
     </div>
     <div id="task-list" class="list"></div>
@@ -191,10 +198,21 @@
 
 <div id="toast" class="toast"></div>
 
-<script>window.DB_CONFIG = { apiKey: '__API_KEY__' };</script>
+<script>
+  window.DB_CONFIG = { apiKey: '__API_KEY__' };
+  // Remember the key so future visits to /dashboard (no query string) still work
+  try { if (window.DB_CONFIG.apiKey) localStorage.setItem('jw_api_key', window.DB_CONFIG.apiKey); } catch(e){}
+  // Register the service worker (makes the dashboard installable + offline-capable)
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('/dashboard/sw.js', { scope: '/dashboard' }).catch(() => {});
+    });
+  }
+</script>
 <script src="/dashboard/assets/dashboard.js"></script>
 <script src="/dashboard/assets/dashboard.render.js"></script>
 <script src="/dashboard/assets/dashboard.actions.js"></script>
+<script src="/dashboard/assets/dashboard.settings.js"></script>
 
 </body>
 </html>
