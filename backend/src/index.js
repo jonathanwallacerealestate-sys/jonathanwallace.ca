@@ -10,17 +10,14 @@ const sellerFormRoutes = require('./routes/sellerForm');
 const listingsRoutes = require('./routes/listings');
 const healthRoutes = require('./routes/health');
 const tasksRoutes = require('./routes/tasks');
+const dashboardRoutes = require('./routes/dashboard');
 const { initDb } = require('./db/init');
 const { startWorker } = require('./services/worker');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// ---------------------
-// Middleware
-// ---------------------
-
-app.use(helmet());
+app.use(helmet({ contentSecurityPolicy: false }));
 
 app.use(cors({
   origin: [
@@ -48,14 +45,12 @@ const limiter = rateLimit({
 });
 app.use('/api/', limiter);
 
-// ---------------------
-// Routes
-// ---------------------
 app.use('/api/health', healthRoutes);
 app.use('/api/contact', contactRoutes);
 app.use('/api/seller-form', sellerFormRoutes);
 app.use('/api/listings', listingsRoutes);
 app.use('/api/tasks', tasksRoutes);
+app.use('/dashboard', dashboardRoutes);
 
 app.get('/', (req, res) => {
   res.json({
@@ -78,9 +73,6 @@ app.use((err, req, res, next) => {
   });
 });
 
-// ---------------------
-// Start
-// ---------------------
 async function start() {
   try {
     await initDb();
@@ -88,7 +80,7 @@ async function start() {
 
     if (process.env.ANTHROPIC_API_KEY) {
       startWorker();
-      console.log('Task worker started — agent is ready for instructions');
+      console.log('Task worker started');
     } else {
       console.warn('WARNING: No ANTHROPIC_API_KEY set — task worker disabled');
     }
