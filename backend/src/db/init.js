@@ -3,9 +3,7 @@ const pool = require('./pool');
 async function initDb() {
   const client = await pool.connect();
   try {
-    // Create tables if they don't exist
     await client.query(`
-      -- Contact form submissions
       CREATE TABLE IF NOT EXISTS contacts (
         id SERIAL PRIMARY KEY,
         name VARCHAR(255) NOT NULL,
@@ -18,7 +16,6 @@ async function initDb() {
         synced_to_make BOOLEAN DEFAULT FALSE
       );
 
-      -- Seller pre-listing form submissions
       CREATE TABLE IF NOT EXISTS seller_forms (
         id SERIAL PRIMARY KEY,
         session_id VARCHAR(255) UNIQUE,
@@ -44,7 +41,6 @@ async function initDb() {
         updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
       );
 
-      -- Listings cache (synced from MLS / manual entry)
       CREATE TABLE IF NOT EXISTS listings (
         id SERIAL PRIMARY KEY,
         mls_number VARCHAR(50) UNIQUE,
@@ -65,7 +61,6 @@ async function initDb() {
         updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
       );
 
-      -- Webhook logs for debugging Make.com integrations
       CREATE TABLE IF NOT EXISTS webhook_logs (
         id SERIAL PRIMARY KEY,
         endpoint VARCHAR(255),
@@ -76,7 +71,23 @@ async function initDb() {
         created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
       );
 
-      -- Create indexes
+      CREATE TABLE IF NOT EXISTS tasks (
+        id SERIAL PRIMARY KEY,
+        type VARCHAR(100) NOT NULL,
+        instruction TEXT NOT NULL,
+        context JSONB DEFAULT '{}',
+        status VARCHAR(50) DEFAULT 'pending',
+        priority INTEGER DEFAULT 5,
+        result JSONB,
+        error TEXT,
+        attempts INTEGER DEFAULT 0,
+        max_attempts INTEGER DEFAULT 3,
+        source VARCHAR(100) DEFAULT 'api',
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+        started_at TIMESTAMP WITH TIME ZONE,
+        completed_at TIMESTAMP WITH TIME ZONE
+      );
+
       CREATE INDEX IF NOT EXISTS idx_contacts_email ON contacts(email);
       CREATE INDEX IF NOT EXISTS idx_contacts_created ON contacts(created_at);
       CREATE INDEX IF NOT EXISTS idx_seller_forms_session ON seller_forms(session_id);
@@ -84,6 +95,9 @@ async function initDb() {
       CREATE INDEX IF NOT EXISTS idx_listings_status ON listings(status);
       CREATE INDEX IF NOT EXISTS idx_listings_city ON listings(city);
       CREATE INDEX IF NOT EXISTS idx_webhook_logs_endpoint ON webhook_logs(endpoint);
+      CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
+      CREATE INDEX IF NOT EXISTS idx_tasks_type ON tasks(type);
+      CREATE INDEX IF NOT EXISTS idx_tasks_created ON tasks(created_at);
     `);
 
     console.log('Database tables verified/created');
