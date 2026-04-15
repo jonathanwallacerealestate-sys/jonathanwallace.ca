@@ -219,13 +219,17 @@ Cover, in this order:
 1. Wins worth naming — closings that closed, deals that went firm, marketing
    that landed, workouts hit, key follow-ups completed.
 2. Numbers that matter — GCI booked this week, deals in the pipeline, sale
-   volume YTD against trajectory.
+   volume YTD against trajectory. If fub data is present, cite
+   new_leads_this_week + tasks_completed_this_week.
 3. What slipped — overdue CRM, marketing past its scheduled date, workouts
    missed against the weekly target.
 4. Two or three priorities for the upcoming week. Concrete, named.
 
 Keep the whole thing under 280 words. End with one sentence of forward
-momentum, not a question.`;
+momentum, not a question.
+
+If fub.new_leads_sample has entries, mention one by name and source. If fub is
+null, don't reference FUB.`;
 
 router.get('/weekly', async (req, res) => {
   try {
@@ -297,8 +301,46 @@ async function buildWeeklySnapshot() {
     marketing_past_due: marketingMissed,
     workouts_last_7_days: workouts7,
     workout_target_per_week: workoutTarget[0]?.value || 5,
-    meal_days_logged: mealsDays.length
+    meal_days_logged: mealsDays.length,
+    fub: await safeWeeklyFubSnapshot()
   };
+}
+
+// Weekly FUB pipeline pulse — new leads, completed tasks, active deals
+async function safeWeeklyFubSnapshot() {
+  try {
+    const fub = require('../services/fub');
+    const key = await fub.getApiKey();
+    if (!key) return null;
+    const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+    const [recentPeople, allDeals, completedThisWeek] = await Promise.all([
+      fub.listPeople({ limit: 100, sort: '-created' }).catch(() => ({ people: [] })),
+      fub.listDeals({ limit: 100 }).catch(() => ({ deals: [] })),
+      fub.listTasks({ limit: 100, status: 'Completed' }).catch(() => ({ tasks: [] }))
+    ]);
+    const weekStart = new Date(weekAgo).getTime();
+    const newLeadsThisWeek = (recentPeople.people || [])
+      .filter(p => p.created && new Date(p.created).getTime() >= weekStart);
+    const tasksCompletedThisWeek = (completedThisWeek.tasks || [])
+      .filter(t => t.updated && new Date(t.updated).getTime() >= weekStart);
+    const deals = allDeals.deals || [];
+    const dealsByStatus = deals.reduce((acc, d) => {
+      const k = (d.status || 'unknown').toLowerCase();
+      acc[k] = (acc[k] || 0) + 1;
+      return acc;
+    }, {});
+    return {
+      new_leads_this_week: newLeadsThisWeek.length,
+      new_leads_sample: newLeadsThisWeek.slice(0, 5).map(p => ({
+        name: p.name, source: p.source, stage: p.stage
+      })),
+      tasks_completed_this_week: tasksCompletedThisWeek.length,
+      deals_total: deals.length,
+      deals_by_status: dealsByStatus
+    };
+  } catch (e) {
+    return null;
+  }
 }
 
 /**
