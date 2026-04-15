@@ -471,6 +471,190 @@ function mapTaskType(t) {
   return m[(t || '').toLowerCase()] || 'Other';
 }
 
+// ---------- Contract deadline auto-tasks ----------
+
+/**
+ * POST /api/fub/contract-deadlines
+ * Body: { closing_id?, dry_run? }
+ *
+ * For the specified closing (or all pending/firm closings if omitted),
+ * computes contextual deadline tasks and creates them in BOTH FUB (as
+ * tasks on the linked contact — via client_name search) and the local
+ * crm_followups table.
+ *
+ * Task types generated depending on available date fields:
+ *   - Pending (have offer_date): conditions waiver reminder 2 days
+ *     before firm, inspection follow-up within 3 days of offer
+ *   - Firm (have firm_date): financing confirmation 7 days before
+ *     closing, final walkthrough 2 days before closing, closing-day
+ *     check-in
+ *   - General: firm check-in 3 days after firm_date
+ *
+ * Idempotent via `contract_task_` prefix stamped into closing notes.
+ */
+router.post('/contract-deadlines', async (req, res) => {
+  try {
+    const { closing_id, dry_run } = req.body || {};
+    const key = await fub.getApiKey();
+
+    const where = closing_id
+      ? 'WHERE id = $1'
+      : "WHERE status IN ('pending','firm') AND closing_date IS NOT NULL";
+    const params = closing_id ? [closing_id] : [];
+    const { rows: closings } = await pool.query(
+      `SELECT * FROM closings ${where}`,
+      params
+    );
+
+    if (!closings.length) return res.json({ success: true, closings_scanned: 0, tasks: [] });
+
+    const plannedTasks = [];
+
+    for (const c of closings) {
+      // Skip if already stamped
+      if (!closing_id && (c.notes || '').includes('contract_tasks_generated')) continue;
+
+      // Build a schedule of tasks based on status + dates
+      const now = new Date();
+      const tasks = [];
+      const closingDate = c.closing_date ? new Date(c.closing_date) : null;
+      const firmDate = c.firm_date ? new Date(c.firm_date) : null;
+      const offerDate = c.offer_date ? new Date(c.offer_date) : null;
+
+      if (c.status === 'pending' && offerDate) {
+        tasks.push({
+          when: addDays(offerDate, 2),
+          type: 'Call',
+          name: `Inspection follow-up — ${c.property_address}`,
+          description: `Check in on inspection results / any concerns. Pending status, offer ${offerDate.toISOString().slice(0,10)}.`
+        });
+        if (firmDate) {
+          tasks.push({
+            when: addDays(firmDate, -2),
+            type: 'Call',
+            name: `Conditions waiver reminder — ${c.property_address}`,
+            description: `Deal goes firm ${firmDate.toISOString().slice(0,10)}. Confirm all conditions are satisfied / waived.`
+          });
+        }
+      }
+
+      if (firmDate && now <= addDays(firmDate, 7)) {
+        tasks.push({
+          when: addDays(firmDate, 3),
+          type: 'Email',
+          name: `Post-firm check-in — ${c.property_address}`,
+          description: `Deal went firm ${firmDate.toISOString().slice(0,10)}. Check in on moving logistics, mover referrals, any loose ends.`
+        });
+      }
+
+      if (closingDate) {
+        tasks.push({
+          when: addDays(closingDate, -7),
+          type: 'Call',
+          name: `Financing confirmation — ${c.property_address}`,
+          description: `Closes ${closingDate.toISOString().slice(0,10)}. Confirm lender has funded / will fund on time.`
+        });
+        tasks.push({
+          when: addDays(closingDate, -2),
+          type: 'Meeting',
+          name: `Final walkthrough — ${c.property_address}`,
+          description: `Closes ${closingDate.toISOString().slice(0,10)}. Schedule the pre-closing walkthrough.`
+        });
+        tasks.push({
+          when: closingDate,
+          type: 'Call',
+          name: `Closing day — ${c.property_address}`,
+          description: `Closing day! Confirm keys / funds have moved. Congratulate ${c.client_name || 'client'}.`
+        });
+        tasks.push({
+          when: addDays(closingDate, 30),
+          type: 'Call',
+          name: `30-day post-close check-in — ${c.property_address}`,
+          description: `Called as part of standard post-close program. Ask for a referral if things are going smoothly.`
+        });
+      }
+
+      // Filter out any tasks already in the past (more than 1 day old)
+      const pruned = tasks.filter(t => t.when && t.when >= addDays(now, -1));
+
+      // Resolve FUB person id if possible
+      let fubPersonId = null;
+      if (key && c.client_name) {
+        try {
+          const m = await fub.listPeople({ search: c.client_name, limit: 1 });
+          if (m.people && m.people[0]) fubPersonId = m.people[0].id;
+        } catch (e) { /* ignore */ }
+      }
+
+      if (dry_run) {
+        plannedTasks.push({ closing_id: c.id, property: c.property_address, client: c.client_name, fub_person_id: fubPersonId, planned: pruned });
+        continue;
+      }
+
+      let pushedFub = 0, pushedLocal = 0;
+      for (const t of pruned) {
+        try {
+          // Local CRM follow-up
+          await pool.query(
+            `INSERT INTO crm_followups
+              (contact_name, fub_person_id, follow_up_type, due_date, notes, status)
+             VALUES ($1, $2, $3, $4, $5, 'open')`,
+            [c.client_name, fubPersonId ? String(fubPersonId) : null,
+             t.type.toLowerCase(), t.when.toISOString().slice(0,10),
+             t.name + ' — ' + t.description]
+          );
+          pushedLocal++;
+        } catch (e) { /* ignore dupes */ }
+
+        // FUB task if we have the person
+        if (key && fubPersonId) {
+          try {
+            await fub.createTask({
+              personId: fubPersonId,
+              name: t.name,
+              type: t.type,
+              dueDate: t.when.toISOString(),
+              description: t.description,
+              status: 'Active'
+            });
+            pushedFub++;
+          } catch (e) { /* ignore dupes */ }
+        }
+      }
+
+      // Stamp so we don't regenerate on re-run
+      if (pushedLocal || pushedFub) {
+        const stamp = `contract_tasks_generated=${new Date().toISOString().slice(0,10)}`;
+        await pool.query(
+          `UPDATE closings SET notes = CASE
+             WHEN notes IS NULL OR notes = '' THEN $1
+             ELSE notes || E'\\n\\n' || $1 END,
+             updated_at = NOW()
+           WHERE id = $2`,
+          [stamp, c.id]
+        );
+      }
+
+      plannedTasks.push({
+        closing_id: c.id,
+        property: c.property_address,
+        client: c.client_name,
+        fub_person_id: fubPersonId,
+        generated: { fub: pushedFub, local: pushedLocal, total: pruned.length }
+      });
+    }
+
+    publish({ type: 'fub', event: 'contract_deadlines_generated', closings: plannedTasks.length });
+    res.json({ success: true, dry_run: !!dry_run, closings_scanned: closings.length, tasks: plannedTasks });
+  } catch (e) { handleFubError(res, e); }
+});
+
+function addDays(d, n) {
+  const out = new Date(d);
+  out.setDate(out.getDate() + n);
+  return out;
+}
+
 // ---------- Showing-day prep brief ----------
 
 /**

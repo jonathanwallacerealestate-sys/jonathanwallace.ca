@@ -89,6 +89,23 @@
       finally { pushClosingsBtn.disabled = false; pushClosingsBtn.textContent = original; }
     });
 
+    // Generate contract deadline tasks for all pending/firm closings
+    const genDeadlineBtn = document.getElementById('gen-deadline-tasks-btn');
+    if (genDeadlineBtn) genDeadlineBtn.addEventListener('click', async () => {
+      if (!confirm('Generate reminder tasks (inspection, conditions waiver, financing, walkthrough, closing day, 30-day post-close) for every pending/firm closing that does not already have them?')) return;
+      const original = genDeadlineBtn.textContent;
+      genDeadlineBtn.disabled = true;
+      genDeadlineBtn.textContent = 'Generating…';
+      try {
+        const r = await api('/api/fub/contract-deadlines', { method: 'POST', body: '{}' });
+        const total = (r.tasks || []).reduce((acc, t) => acc + ((t.generated?.local) || 0), 0);
+        const fubTotal = (r.tasks || []).reduce((acc, t) => acc + ((t.generated?.fub) || 0), 0);
+        toast(`Generated ${total} local follow-up${total === 1 ? '' : 's'}${fubTotal ? ` + ${fubTotal} FUB task${fubTotal === 1 ? '' : 's'}` : ''}`, 'success');
+        if (typeof window.load === 'function') window.load();
+      } catch (e) { toast(e.message, 'error'); }
+      finally { genDeadlineBtn.disabled = false; genDeadlineBtn.textContent = original; }
+    });
+
     // Lead source attribution report (FUB × closings)
     const attrBtn = document.getElementById('show-attribution-btn');
     if (attrBtn) attrBtn.addEventListener('click', async () => {
