@@ -184,6 +184,47 @@
           if (window.DB_FUB && window.DB_FUB.openPersonDetail) return window.DB_FUB.openPersonDetail(id);
           return toast('FUB UI not loaded', 'error');
 
+        case 'showing-prep': {
+          const apptId = btn.dataset.appt;
+          if (!apptId) return;
+          const esc = (s) => String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+          openModal('Showing Prep', `
+            <div id="sp-body" style="min-height:120px;font-size:0.95rem;line-height:1.55;color:var(--text)">
+              <div style="display:flex;align-items:center;gap:0.75rem;color:var(--muted)">
+                <div style="width:10px;height:10px;border-radius:50%;background:var(--accent);animation:pulse 1.2s ease-in-out infinite"></div>
+                <span>Building your pre-showing brief…</span>
+              </div>
+            </div>
+          `, `
+            <button class="btn-secondary" id="sp-speak-btn" style="display:none">🔊 Speak it</button>
+            <button class="btn-secondary" onclick="DB.closeModal()">Close</button>
+          `);
+          try {
+            const r = await api('/api/fub/showing-prep', {
+              method: 'POST',
+              body: JSON.stringify({ appointment_id: apptId })
+            });
+            const host = document.getElementById('sp-body');
+            const paras = (r.brief || '').split(/\n{2,}/).map(p =>
+              `<p style="margin:0 0 0.75rem">${esc(p.trim())}</p>`
+            ).join('');
+            if (host) host.innerHTML = paras;
+            const speakBtn = document.getElementById('sp-speak-btn');
+            if (speakBtn && r.brief) {
+              speakBtn.style.display = '';
+              speakBtn.onclick = () => { if (window.DB_VOICE && window.DB_VOICE.speak) window.DB_VOICE.speak(r.brief); };
+              // Auto-speak on mobile viewport (likely driving / pocket use)
+              if (window.innerWidth < 700 && window.DB_VOICE && window.DB_VOICE.speak) {
+                window.DB_VOICE.speak(r.brief);
+              }
+            }
+          } catch (e) {
+            const host = document.getElementById('sp-body');
+            if (host) host.innerHTML = `<p style="color:#991b1b">${e.message}</p>`;
+          }
+          return;
+        }
+
         case 'edit-closing':
           return openClosingForm(id);
 

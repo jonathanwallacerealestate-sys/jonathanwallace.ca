@@ -471,6 +471,166 @@ function mapTaskType(t) {
   return m[(t || '').toLowerCase()] || 'Other';
 }
 
+// ---------- Showing-day prep brief ----------
+
+/**
+ * POST /api/fub/showing-prep
+ * Body: { appointment_id?, person_id?, listing_id? }
+ *
+ * Compiles a pre-showing brief: who you're meeting, their FUB history,
+ * open tasks, recent notes, and (if a listing is referenced) the listing
+ * details + quick talking points. Returns a Claude-rendered 250-word brief
+ * Jonathan can read or have spoken to him in the car on the way.
+ *
+ * At least one of appointment_id (FUB) or person_id must be provided.
+ * listing_id is optional — if absent, the agent tries to infer from the
+ * appointment's title / location.
+ */
+router.post('/showing-prep', async (req, res) => {
+  try {
+    const key = await fub.getApiKey();
+    if (!key) return res.status(503).json({ error: 'FUB not configured' });
+    if (!process.env.ANTHROPIC_API_KEY) return res.status(503).json({ error: 'Claude not configured' });
+
+    const { appointment_id, person_id, listing_id } = req.body || {};
+    if (!appointment_id && !person_id) {
+      return res.status(400).json({ error: 'appointment_id or person_id required' });
+    }
+
+    let appointment = null;
+    let pid = person_id;
+
+    // Resolve appointment from FUB if given
+    if (appointment_id) {
+      try {
+        const ap = await fub.request('GET', '/appointments/' + encodeURIComponent(appointment_id));
+        appointment = ap;
+        if (!pid && ap.personIds && ap.personIds.length) pid = ap.personIds[0];
+        if (!pid && ap.personId) pid = ap.personId;
+      } catch (e) { /* appointment may be local-only or missing */ }
+    }
+
+    // Pull the person + history
+    let personBundle = null;
+    if (pid) {
+      const [person, events, notes, tasks] = await Promise.all([
+        fub.getPerson(pid).catch(() => null),
+        fub.personEvents(pid, { limit: 15 }).catch(() => ({ events: [] })),
+        fub.personNotes(pid, { limit: 8 }).catch(() => ({ notes: [] })),
+        fub.personTasks(pid, { limit: 8 }).catch(() => ({ tasks: [] }))
+      ]);
+      personBundle = { person, events: events.events || [], notes: notes.notes || [], tasks: tasks.tasks || [] };
+    }
+
+    // Try to find the listing — explicit id wins, else fuzzy-match on
+    // appointment title/location against active listings
+    let listing = null;
+    if (listing_id) {
+      const r = await pool.query('SELECT * FROM listings WHERE id = $1', [listing_id]);
+      listing = r.rows[0] || null;
+    } else if (appointment) {
+      const blob = [(appointment.title || ''), (appointment.location || ''), (appointment.description || '')].join(' ').toLowerCase();
+      const r = await pool.query(
+        `SELECT * FROM listings WHERE status IN ('active','new') LIMIT 50`
+      );
+      for (const L of r.rows) {
+        const address = (L.address || '').toLowerCase();
+        if (address && blob.includes(address.split(',')[0].trim())) { listing = L; break; }
+      }
+    }
+
+    // Pull 5 nearby comps (same city, similar price) if we have a listing
+    let comps = [];
+    if (listing && listing.city) {
+      const r = await pool.query(
+        `SELECT address, city, price, bedrooms, bathrooms, square_footage, property_type, listed_date
+           FROM listings
+          WHERE id <> $1
+            AND city = $2
+            AND status IN ('active','new','sold')
+          ORDER BY ABS(price - COALESCE($3, 0)) ASC
+          LIMIT 5`,
+        [listing.id, listing.city, listing.price || 0]
+      );
+      comps = r.rows;
+    }
+
+    // Assemble a tight data payload for Claude
+    const data = {
+      appointment: appointment ? {
+        title: appointment.title,
+        when: appointment.start,
+        location: appointment.location,
+        description: appointment.description
+      } : null,
+      contact: personBundle?.person ? {
+        name: personBundle.person.name,
+        stage: personBundle.person.stage,
+        source: personBundle.person.source,
+        emails: personBundle.person.emails?.map(e => e.value),
+        phones: personBundle.person.phones?.map(p => p.value),
+        last_activity: personBundle.person.lastActivity
+      } : null,
+      recent_notes: (personBundle?.notes || []).slice(0, 5).map(n => ({
+        subject: n.subject,
+        body: (n.body || '').replace(/<[^>]*>/g, '').slice(0, 400),
+        created: n.created
+      })),
+      open_tasks: (personBundle?.tasks || []).filter(t => t.status !== 'Completed').map(t => ({
+        name: t.name, type: t.type, due: t.dueDate
+      })),
+      listing,
+      comps
+    };
+
+    let ctxBlock = '';
+    try { ctxBlock = await require('../services/intuition').buildContextBlock(); } catch (e) {}
+
+    const Anthropic = require('@anthropic-ai/sdk');
+    const anthropic = new Anthropic();
+
+    const sys = `You are building a pre-showing brief for Jonathan Wallace — a real estate
+agent in Southern Georgian Bay heading into an appointment.
+
+Return 250 words, plain prose, 4 labeled paragraphs:
+
+WHO YOU'RE MEETING — one sentence on the contact: name, stage, where
+they came from, their vibe from the notes. Skip if no contact data.
+
+PROPERTY SNAPSHOT — address, beds/baths/sqft, price, what stands out.
+If no listing data, write 'Listing not linked — confirm on arrival' and
+move on.
+
+WHAT THEY'LL ASK — 2-3 things likely to come up in this showing based
+on the contact's history and the property. E.g. 'He's mentioned the
+school district before — come ready with that.'
+
+HOW TO OPEN — a specific opener for the moment you meet. Not a script,
+just a starter. Reference something real.
+
+Rules: no cliches ('dream home', 'won't last', etc.), no fluff, specific
+over vague. If critical data is missing, say so plainly.
+${ctxBlock ? '\n' + ctxBlock : ''}`;
+
+    const r = await anthropic.messages.create({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 900,
+      system: sys,
+      messages: [{ role: 'user', content: 'Showing prep input:\n' + JSON.stringify(data, null, 2) }]
+    });
+    const brief = r.content.filter(b => b.type === 'text').map(b => b.text).join('').trim();
+
+    res.json({
+      brief,
+      appointment: data.appointment,
+      contact: data.contact,
+      listing: data.listing ? { address: data.listing.address, city: data.listing.city, price: data.listing.price } : null,
+      comp_count: comps.length,
+      tokens: r.usage
+    });
+  } catch (e) { handleFubError(res, e); }
+});
+
 // ---------- Listing-match alerts ----------
 
 /**

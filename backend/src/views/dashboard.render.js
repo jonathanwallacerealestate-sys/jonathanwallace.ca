@@ -253,10 +253,15 @@
       list.innerHTML = '<div class="empty">Nothing scheduled today. Plan wisely.</div>';
       return;
     }
-    list.innerHTML = events.map(e => `
+    list.innerHTML = events.map(e => {
+      // FUB-sourced events have google_event_id like 'fub:<id>'
+      const fubApptId = (e.google_event_id || '').startsWith('fub:')
+        ? (e.google_event_id || '').slice(4)
+        : null;
+      return `
       <div class="row">
         <div class="row-main">
-          <div class="row-title">${escapeHtml(e.title)}</div>
+          <div class="row-title">${escapeHtml(e.title)}${fubApptId ? ' <span class="badge normal" style="margin-left:0.3rem;background:#e0e7ff;color:#3730a3">FUB</span>' : ''}</div>
           <div class="row-meta">
             <span>${e.all_day ? 'All day' : (fmtTimeShort(e.start_time) + (e.end_time ? ' – ' + fmtTimeShort(e.end_time) : ''))}</span>
             ${e.location ? `<span>&#128205; ${escapeHtml(e.location)}</span>` : ''}
@@ -264,8 +269,12 @@
           </div>
           ${e.meeting_link ? `<div class="row-sub"><a href="${escapeHtml(e.meeting_link)}" target="_blank" rel="noopener">Join meeting</a></div>` : ''}
         </div>
-      </div>
-    `).join('');
+        ${fubApptId ? `
+        <div class="row-actions">
+          <button class="primary" data-action="showing-prep" data-appt="${escapeHtml(fubApptId)}" title="Pre-showing brief">🎯 Prep me</button>
+        </div>` : ''}
+      </div>`;
+    }).join('');
   }
 
   // ---------- Closings & P&L ----------
