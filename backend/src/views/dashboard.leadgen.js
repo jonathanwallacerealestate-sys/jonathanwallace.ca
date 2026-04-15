@@ -317,35 +317,130 @@
   async function startCall() {
     if (!state.activeSession) return toast('No active Hour of Power', 'error');
     if (!state.consentGiven) return showConsent();
+    openStartCallModal();
+  }
 
-    const name = window.prompt('Who are you calling? (name or company)');
-    if (name === null) return;
+  function openStartCallModal() {
+    openModal('Start call', `
+      <p style="font-size:0.85rem;color:var(--muted);margin-bottom:0.75rem">
+        Who are you calling? Search your FUB contacts or type a name for a
+        freestanding call (no CRM link).
+      </p>
+      <div class="form-field">
+        <label>Contact</label>
+        <input id="phc-search" placeholder="Type 2+ characters — name / email / phone" autocomplete="off">
+        <div id="phc-results" style="margin-top:0.4rem;max-height:180px;overflow-y:auto;border-radius:6px"></div>
+      </div>
+      <div class="form-field">
+        <label>Or use just a name (no FUB link)</label>
+        <input id="phc-freetext" placeholder="e.g. Sarah from open house">
+      </div>
+      <div id="phc-brief" style="margin-top:1rem"></div>
+    `, `
+      <button class="btn-secondary" onclick="DB.closeModal()">Cancel</button>
+      <button class="btn-secondary" id="phc-brief-btn" style="display:none">Pre-call brief</button>
+      <button class="btn-primary" id="phc-start-btn">Start recording</button>
+    `);
 
-    // Create the call row server-side
-    let call;
-    try {
-      const r = await api('/api/power-hour/' + state.activeSession.id + '/calls', {
-        method: 'POST', body: JSON.stringify({ contact_name: (name || '').trim() || null })
-      });
-      call = r.call;
-    } catch (e) { return toast(e.message, 'error'); }
+    let chosen = null; // { person_id, name, email, phone }
+    let debounceTimer = null;
 
-    state.activeCall = {
-      id: call.id,
-      contact_name: call.contact_name,
-      startedAt: Date.now(),
-      transcript: ''
+    const searchInput = document.getElementById('phc-search');
+    const resultsHost = document.getElementById('phc-results');
+    searchInput.addEventListener('input', () => {
+      const q = searchInput.value.trim();
+      if (q.length < 2) { resultsHost.innerHTML = ''; resultsHost.style.border = ''; return; }
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(async () => {
+        try {
+          const data = await api('/api/fub/people?limit=6&search=' + encodeURIComponent(q));
+          const people = data.people || [];
+          if (!people.length) { resultsHost.innerHTML = '<div style="padding:0.5rem;color:var(--muted);font-size:0.8rem">No FUB matches.</div>'; return; }
+          resultsHost.style.border = '1px solid var(--border)';
+          resultsHost.innerHTML = people.map(p => {
+            const email = p.emails?.[0]?.value || '';
+            const phone = p.phones?.[0]?.value || '';
+            return `
+              <div class="phc-row" data-id="${p.id}" data-name="${escapeAttr(p.name || email || phone || '')}" data-email="${escapeAttr(email)}" data-phone="${escapeAttr(phone)}"
+                   style="padding:0.5rem 0.6rem;cursor:pointer;border-bottom:1px solid var(--border);font-size:0.85rem">
+                <div style="font-weight:600">${escapeHtml(p.name || '(no name)')}</div>
+                <div style="color:var(--muted);font-size:0.72rem">
+                  ${email ? escapeHtml(email) : ''}${email && phone ? ' · ' : ''}${phone ? escapeHtml(phone) : ''}${p.stage ? ' · ' + escapeHtml(p.stage) : ''}
+                </div>
+              </div>`;
+          }).join('');
+          resultsHost.querySelectorAll('.phc-row').forEach(row => {
+            row.addEventListener('click', () => {
+              chosen = {
+                person_id: Number(row.dataset.id),
+                name: row.dataset.name,
+                email: row.dataset.email || null,
+                phone: row.dataset.phone || null
+              };
+              resultsHost.innerHTML = '<div style="padding:0.5rem;color:var(--success);font-size:0.85rem">Selected: <strong>' + escapeHtml(chosen.name) + '</strong></div>';
+              searchInput.value = chosen.name;
+              document.getElementById('phc-brief-btn').style.display = '';
+              document.getElementById('phc-freetext').value = '';
+              document.getElementById('phc-freetext').disabled = true;
+            });
+          });
+        } catch (e) {
+          // If FUB not configured, let the user freetype
+          resultsHost.innerHTML = '<div style="padding:0.5rem;color:var(--muted);font-size:0.75rem">FUB not configured — use the freetext field below.</div>';
+        }
+      }, 280);
+    });
+
+    document.getElementById('phc-brief-btn').onclick = async () => {
+      if (!chosen) return;
+      const host = document.getElementById('phc-brief');
+      host.innerHTML = `<div style="padding:0.75rem;background:#fafafa;border-left:3px solid var(--accent);border-radius:4px;font-size:0.88rem;color:var(--muted)">Generating pre-call brief…</div>`;
+      try {
+        const r = await api('/api/power-hour/pre-call-brief?person_id=' + chosen.person_id);
+        host.innerHTML = `<div style="padding:0.75rem;background:#fafafa;border-left:3px solid var(--accent);border-radius:4px;font-size:0.9rem;line-height:1.55">${escapeHtml(r.brief)}</div>`;
+        if (window.DB_VOICE && window.DB_VOICE.speak) window.DB_VOICE.speak(r.brief);
+      } catch (e) {
+        host.innerHTML = `<div style="padding:0.75rem;color:#991b1b;font-size:0.85rem">${escapeHtml(e.message)}</div>`;
+      }
     };
-    state.transcript = '';
-    state.recording = true;
 
-    if (!startTranscription()) {
-      // Browser doesn't support speech recognition — still allow manual notes
-      toast('Voice transcription unsupported on this browser — call started without live transcript', 'error');
-    }
+    document.getElementById('phc-start-btn').onclick = async () => {
+      const freeText = document.getElementById('phc-freetext').value.trim();
+      const body = chosen
+        ? { contact_name: chosen.name, contact_email: chosen.email, contact_phone: chosen.phone, fub_person_id: chosen.person_id }
+        : { contact_name: freeText || null };
+      if (!chosen && !freeText) return toast('Pick a contact or type a name first', 'error');
 
-    // Pulse the recording indicator from the floating voice pill if present
-    if (typeof window.load === 'function') window.load();
+      let call;
+      try {
+        const r = await api('/api/power-hour/' + state.activeSession.id + '/calls', {
+          method: 'POST', body: JSON.stringify(body)
+        });
+        call = r.call;
+      } catch (e) { return toast(e.message, 'error'); }
+
+      closeModal();
+
+      state.activeCall = {
+        id: call.id,
+        contact_name: call.contact_name,
+        fub_person_id: chosen ? chosen.person_id : null,
+        startedAt: Date.now(),
+        transcript: ''
+      };
+      state.transcript = '';
+      state.recording = true;
+
+      if (!startTranscription()) {
+        toast('Voice transcription unsupported on this browser — call started without live transcript', 'error');
+      }
+      if (typeof window.load === 'function') window.load();
+    };
+  }
+
+  function escapeAttr(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;');
   }
 
   async function endCall() {

@@ -413,6 +413,7 @@ async function initDb() {
         contact_name VARCHAR(255),
         contact_phone VARCHAR(50),
         contact_email VARCHAR(255),
+        fub_person_id VARCHAR(50),
         crm_followup_id INTEGER REFERENCES crm_followups(id) ON DELETE SET NULL,
         started_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
         ended_at TIMESTAMP WITH TIME ZONE,
@@ -425,6 +426,7 @@ async function initDb() {
         client_commitments JSONB DEFAULT '[]',
         follow_ups JSONB DEFAULT '[]',
         coaching_notes TEXT,
+        pushed_to_fub_at TIMESTAMP WITH TIME ZONE,
         analyzed_at TIMESTAMP WITH TIME ZONE,
         created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
       );
@@ -575,6 +577,17 @@ async function initDb() {
       CREATE INDEX IF NOT EXISTS idx_workflow_name ON chrome_workflows(name);
       CREATE INDEX IF NOT EXISTS idx_tools_folder ON business_tools(folder_path);
       CREATE INDEX IF NOT EXISTS idx_tools_archived ON business_tools(archived);
+    `);
+
+    // Additive column migrations for existing deploys. Idempotent via
+    // IF NOT EXISTS (Postgres 9.6+). New columns added after launch go here
+    // so we don't have to rebuild the CREATE TABLE IF NOT EXISTS block every
+    // time — fresh deploys pick up the columns from the CREATE TABLE; long-
+    // running DBs pick them up here.
+    await client.query(`
+      ALTER TABLE power_hour_calls ADD COLUMN IF NOT EXISTS fub_person_id VARCHAR(50);
+      ALTER TABLE power_hour_calls ADD COLUMN IF NOT EXISTS pushed_to_fub_at TIMESTAMP WITH TIME ZONE;
+      CREATE INDEX IF NOT EXISTS idx_power_call_fub_person ON power_hour_calls(fub_person_id);
     `);
 
     // Seed real-estate vocabulary Jonathan uses every day. Idempotent.

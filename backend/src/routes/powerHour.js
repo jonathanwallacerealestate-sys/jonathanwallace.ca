@@ -155,11 +155,12 @@ router.post('/:id/end', async (req, res) => {
 // POST /api/power-hour/:id/calls — start a new call (creates a row, returns id)
 router.post('/:id/calls', async (req, res) => {
   try {
-    const { contact_name, contact_phone, contact_email, crm_followup_id } = req.body;
+    const { contact_name, contact_phone, contact_email, crm_followup_id, fub_person_id } = req.body;
     const { rows } = await pool.query(
-      `INSERT INTO power_hour_calls (session_id, contact_name, contact_phone, contact_email, crm_followup_id)
-       VALUES ($1,$2,$3,$4,$5) RETURNING *`,
-      [req.params.id, contact_name || null, contact_phone || null, contact_email || null, crm_followup_id || null]
+      `INSERT INTO power_hour_calls (session_id, contact_name, contact_phone, contact_email, crm_followup_id, fub_person_id)
+       VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
+      [req.params.id, contact_name || null, contact_phone || null, contact_email || null,
+       crm_followup_id || null, fub_person_id ? String(fub_person_id) : null]
     );
     await pool.query(
       `UPDATE power_hour_sessions SET calls_count = calls_count + 1, updated_at = NOW() WHERE id = $1`,
@@ -169,6 +170,70 @@ router.post('/:id/calls', async (req, res) => {
   } catch (err) {
     console.error('call create error:', err);
     res.status(500).json({ error: 'Failed to start call' });
+  }
+});
+
+/**
+ * GET /api/power-hour/pre-call-brief?person_id=123
+ * Fetches FUB person + recent events/notes/tasks and asks Claude for a
+ * 30-second read before dialing. Spoken by the browser via TTS.
+ */
+router.get('/pre-call-brief', async (req, res) => {
+  try {
+    if (!process.env.ANTHROPIC_API_KEY) return res.status(503).json({ error: 'Claude not configured' });
+    const personId = req.query.person_id;
+    if (!personId) return res.status(400).json({ error: 'person_id required' });
+    const fub = require('../services/fub');
+    if (!(await fub.getApiKey())) return res.status(503).json({ error: 'FUB not configured' });
+
+    const [person, events, notes, tasks] = await Promise.all([
+      fub.getPerson(personId).catch(() => null),
+      fub.personEvents(personId, { limit: 10 }).catch(() => ({ events: [] })),
+      fub.personNotes(personId, { limit: 5 }).catch(() => ({ notes: [] })),
+      fub.personTasks(personId, { limit: 5 }).catch(() => ({ tasks: [] }))
+    ]);
+    if (!person) return res.status(404).json({ error: 'Person not found in FUB' });
+
+    const intuition = require('../services/intuition');
+    const ctx = await intuition.buildContextBlock();
+    const Anthropic = require('@anthropic-ai/sdk');
+    const anthropic = new Anthropic();
+
+    const data = {
+      name: person.name || [person.firstName, person.lastName].filter(Boolean).join(' '),
+      email: person.emails?.[0]?.value || '',
+      phone: person.phones?.[0]?.value || '',
+      stage: person.stage,
+      source: person.source,
+      last_activity: person.lastActivity,
+      recent_events: (events.events || []).map(e => ({ type: e.type, description: e.description, created: e.created })),
+      recent_notes: (notes.notes || []).map(n => ({ subject: n.subject, body: (n.body || '').replace(/<[^>]*>/g, '').slice(0, 400), created: n.created })),
+      open_tasks: (tasks.tasks || []).filter(t => t.status !== 'Completed').map(t => ({ name: t.name, type: t.type, due: t.dueDate }))
+    };
+
+    const sys = `You are Jonathan Wallace's call-prep coach. Given a CRM contact's recent
+history, give him a 30-second spoken read BEFORE he dials. Plain prose, no
+markdown, no bullet points. Under 90 words.
+
+Cover, tightly:
+1. Who they are (one line — name, stage, source).
+2. The single most recent meaningful touch.
+3. Any open commitments (his OR theirs) that might come up.
+4. One suggested opening line for the call if something specific would land.
+
+If nothing useful exists, say so in one sentence and suggest a discovery opener.${ctx ? '\n\n' + ctx : ''}`;
+
+    const response = await anthropic.messages.create({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 300,
+      system: sys,
+      messages: [{ role: 'user', content: 'Pre-call brief for:\n' + JSON.stringify(data, null, 2) }]
+    });
+    const brief = response.content.filter(b => b.type === 'text').map(b => b.text).join('').trim();
+    res.json({ brief, person: data });
+  } catch (err) {
+    console.error('pre-call-brief error:', err);
+    res.status(500).json({ error: 'Failed to build brief', message: err.message });
   }
 });
 
@@ -336,15 +401,94 @@ async function analyzeCall(call) {
         : null;
       const ins = await pool.query(
         `INSERT INTO crm_followups (contact_name, contact_phone, contact_email,
-            follow_up_type, due_date, notes, status)
-         VALUES ($1,$2,$3,$4,$5,$6,'open') RETURNING id`,
+            fub_person_id, follow_up_type, due_date, notes, status)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,'open') RETURNING id`,
         [call.contact_name, call.contact_phone, call.contact_email,
+         call.fub_person_id || null,
          fu.type || 'call', due, [fu.subject, fu.notes].filter(Boolean).join(' — ')]
       );
       created.push(ins.rows[0].id);
     } catch (e) { /* best effort */ }
   }
-  return { ...parsed, created_followup_ids: created, tokens: response.usage };
+
+  // If this call is linked to a FUB contact, push a summary note + the
+  // follow-ups into FUB so they live in the source of truth.
+  const fubPushed = { note_id: null, task_ids: [] };
+  if (call.fub_person_id) {
+    try {
+      const fub = require('../services/fub');
+      const apiKey = await fub.getApiKey();
+      if (apiKey) {
+        // Build a clean note body from the analysis
+        const noteLines = [];
+        if (parsed.summary) noteLines.push(parsed.summary);
+        if ((parsed.jonathan_commitments || []).length) {
+          noteLines.push('\nMy commitments:');
+          parsed.jonathan_commitments.forEach(x => noteLines.push('  - ' + x));
+        }
+        if ((parsed.client_commitments || []).length) {
+          noteLines.push('\nTheir commitments:');
+          parsed.client_commitments.forEach(x => noteLines.push('  - ' + x));
+        }
+        if (parsed.coaching_notes) noteLines.push('\nReflection: ' + parsed.coaching_notes);
+        noteLines.push('\n— Logged automatically by dashboard Hour of Power');
+
+        const subject = `Call ${call.duration_seconds ? '(' + Math.round(call.duration_seconds/60) + ' min) ' : ''}— ${parsed.sentiment || 'logged'}`;
+        try {
+          const note = await fub.createNote({
+            personId: parseInt(call.fub_person_id),
+            subject,
+            body: noteLines.join('\n'),
+            isHtml: false
+          });
+          fubPushed.note_id = note.id;
+        } catch (e) { console.error('[FUB] note push failed:', e.message); }
+
+        // Create a FUB task for each follow-up
+        for (const fu of (parsed.follow_ups || [])) {
+          if (!fu.subject) continue;
+          try {
+            const due = fu.due_in_days != null
+              ? new Date(Date.now() + Number(fu.due_in_days) * 86400000).toISOString()
+              : undefined;
+            const t = await fub.createTask({
+              personId: parseInt(call.fub_person_id),
+              name: fu.subject,
+              type: mapFollowupType(fu.type),
+              dueDate: due,
+              description: fu.notes || undefined,
+              status: 'Active'
+            });
+            fubPushed.task_ids.push(t.id);
+          } catch (e) { console.error('[FUB] task push failed:', e.message); }
+        }
+
+        if (fubPushed.note_id || fubPushed.task_ids.length) {
+          await pool.query(
+            `UPDATE power_hour_calls SET pushed_to_fub_at = NOW() WHERE id = $1`,
+            [call.id]
+          );
+        }
+      }
+    } catch (e) {
+      console.error('[FUB] push-analysis error:', e.message);
+    }
+  }
+
+  return { ...parsed, created_followup_ids: created, fub_pushed: fubPushed, tokens: response.usage };
+}
+
+// Map our analysis follow-up types into FUB's Task type enum
+function mapFollowupType(t) {
+  const m = {
+    call: 'Call', phone: 'Call',
+    email: 'Email',
+    text: 'Text', sms: 'Text',
+    meeting: 'Meeting',
+    showing: 'Showing',
+    loo: 'Other', cma: 'Other'
+  };
+  return m[(t || '').toLowerCase()] || 'Other';
 }
 
 const DEBRIEF_PROMPT = `You are coaching Jonathan after his Hour of Power prospecting block.
