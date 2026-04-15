@@ -471,6 +471,118 @@ function mapTaskType(t) {
   return m[(t || '').toLowerCase()] || 'Other';
 }
 
+// ---------- Contact enrichment ----------
+
+/**
+ * POST /api/fub/people/:id/enrich
+ * Body: { push_note?: true }   // defaults to false = preview only
+ *
+ * Pulls the full FUB contact record + all events/notes/tasks, feeds to
+ * Claude for a research note answering:
+ *   - What do we actually know?
+ *   - What's suspiciously missing that matters?
+ *   - What should the next touch look like?
+ *   - 2-3 conversational openers personalized to them.
+ * Returns the rendered note. With push_note=true, also creates a FUB note
+ * stamped as 'Claude research note'.
+ */
+router.post('/people/:id/enrich', async (req, res) => {
+  try {
+    const key = await fub.getApiKey();
+    if (!key) return res.status(503).json({ error: 'FUB not configured' });
+    if (!process.env.ANTHROPIC_API_KEY) return res.status(503).json({ error: 'Claude not configured' });
+
+    const [person, events, notes, tasks] = await Promise.all([
+      fub.getPerson(req.params.id),
+      fub.personEvents(req.params.id, { limit: 50 }).catch(() => ({ events: [] })),
+      fub.personNotes(req.params.id, { limit: 20 }).catch(() => ({ notes: [] })),
+      fub.personTasks(req.params.id, { limit: 20 }).catch(() => ({ tasks: [] }))
+    ]);
+    if (!person) return res.status(404).json({ error: 'Person not found' });
+
+    let ctxBlock = '';
+    try { ctxBlock = await require('../services/intuition').buildContextBlock(); } catch (e) {}
+
+    const Anthropic = require('@anthropic-ai/sdk');
+    const anthropic = new Anthropic();
+
+    const SYSTEM = `You are researching a CRM contact for Jonathan Wallace (real estate agent,
+Southern Georgian Bay) so he walks into the next touch prepared.
+
+Return plain prose, under 280 words, with FOUR labeled paragraphs in this order:
+
+WHAT WE KNOW — name the facts that matter: stage, source, any past deal history,
+known timeline or property preferences, last 1-2 notable interactions.
+
+WHAT'S MISSING — flag the gaps that would block a deal. Price range? Financing?
+Decision timeline? Spouse/partner involvement? Don't speculate; name what we
+don't know that we should.
+
+RECOMMENDED NEXT TOUCH — one concrete action. Call/text/email, specific topic,
+why this next.
+
+CONVERSATIONAL OPENERS — three short opener options Jonathan could actually
+use, tuned to what we know. Not scripts — just starters. One should be
+referential ('I remember you mentioning...'), one should be value-forward
+('wanted to share something specific about the Midland market...'), one
+should be open-ended ('how's the search coming along?').
+
+Rules: no real-estate cliches, no fluff, no 'dream home'. If the contact is
+genuinely cold (no recent activity), say so plainly and treat the openers as
+re-engagement prompts.
+${ctxBlock ? '\n' + ctxBlock : ''}`;
+
+    const userMsg = `Contact record:\n${JSON.stringify({
+      id: person.id,
+      name: person.name,
+      firstName: person.firstName,
+      lastName: person.lastName,
+      stage: person.stage,
+      source: person.source,
+      tags: person.tags,
+      emails: person.emails?.map(e => e.value),
+      phones: person.phones?.map(p => p.value),
+      created: person.created,
+      lastActivity: person.lastActivity,
+      assignedUserId: person.assignedUserId
+    }, null, 2)}
+
+Recent events (${(events.events || []).length}):
+${JSON.stringify((events.events || []).slice(0, 15).map(e => ({ type: e.type, description: e.description, created: e.created })), null, 2)}
+
+Recent notes (${(notes.notes || []).length}):
+${JSON.stringify((notes.notes || []).slice(0, 8).map(n => ({ subject: n.subject, body: (n.body || '').replace(/<[^>]*>/g, '').slice(0, 500), created: n.created })), null, 2)}
+
+Open tasks:
+${JSON.stringify((tasks.tasks || []).filter(t => t.status !== 'Completed').map(t => ({ name: t.name, type: t.type, due: t.dueDate })), null, 2)}`;
+
+    const r = await anthropic.messages.create({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 1000,
+      system: SYSTEM,
+      messages: [{ role: 'user', content: userMsg }]
+    });
+    const rendered = r.content.filter(b => b.type === 'text').map(b => b.text).join('').trim();
+
+    let pushed = null;
+    if (req.body?.push_note === true) {
+      try {
+        const note = await fub.createNote({
+          personId: parseInt(req.params.id),
+          subject: 'Claude research note',
+          body: rendered,
+          isHtml: false
+        });
+        pushed = { note_id: note.id };
+      } catch (e) {
+        return res.json({ rendered, pushed: null, push_error: e.message });
+      }
+    }
+
+    res.json({ rendered, pushed, tokens: r.usage });
+  } catch (e) { handleFubError(res, e); }
+});
+
 // ---------- Appointments / Calendar sync ----------
 
 /**

@@ -357,7 +357,9 @@
         <div style="display:flex;gap:0.5rem;margin-top:0.5rem;flex-wrap:wrap">
           <button class="btn-primary" id="fubd-save-note" style="padding:0.5rem 0.9rem;font-size:0.85rem">Save Note to FUB</button>
           <button class="btn-secondary" id="fubd-add-task" style="padding:0.5rem 0.9rem;font-size:0.85rem">+ Task for this contact</button>
+          <button class="btn-secondary" id="fubd-enrich" data-person-id="${p.id}" style="padding:0.5rem 0.9rem;font-size:0.85rem">🔍 Research this contact</button>
         </div>
+        <div id="fubd-enrich-result" style="margin-top:0.75rem"></div>
       </div>`;
 
     openModal(name, meta + taskBlock + noteBlock + eventBlock + quickActions, `
@@ -388,6 +390,44 @@
 
     document.getElementById('fubd-add-task').onclick = () => {
       openAddTask({ person_id: p.id, person_label: name });
+    };
+
+    // Research / enrich contact
+    const enrichBtn = document.getElementById('fubd-enrich');
+    if (enrichBtn) enrichBtn.onclick = async () => {
+      const resultHost = document.getElementById('fubd-enrich-result');
+      enrichBtn.disabled = true;
+      enrichBtn.textContent = 'Claude is thinking…';
+      resultHost.innerHTML = `<div style="padding:0.75rem;color:var(--muted);font-size:0.85rem">Building research note…</div>`;
+      try {
+        const r = await api('/api/fub/people/' + p.id + '/enrich', {
+          method: 'POST', body: JSON.stringify({ push_note: false })
+        });
+        const rendered = r.rendered || '(no output)';
+        resultHost.innerHTML = `
+          <div style="padding:0.8rem 1rem;background:#fafafa;border-left:3px solid #c9a96e;border-radius:4px;font-size:0.88rem;line-height:1.55;white-space:pre-wrap">${escapeHtml(rendered)}</div>
+          <div style="display:flex;gap:0.5rem;margin-top:0.5rem">
+            <button class="btn-primary" id="fubd-enrich-push" style="padding:0.4rem 0.9rem;font-size:0.8rem">Save as FUB note</button>
+            <button class="btn-secondary" id="fubd-enrich-speak" style="padding:0.4rem 0.9rem;font-size:0.8rem">🔊 Speak it</button>
+          </div>
+        `;
+        document.getElementById('fubd-enrich-push').onclick = async () => {
+          try {
+            await api('/api/fub/people/' + p.id + '/enrich', {
+              method: 'POST', body: JSON.stringify({ push_note: true })
+            });
+            toast('Saved as FUB note', 'success');
+          } catch (e) { toast(e.message, 'error'); }
+        };
+        document.getElementById('fubd-enrich-speak').onclick = () => {
+          if (window.DB_VOICE && window.DB_VOICE.speak) window.DB_VOICE.speak(rendered);
+        };
+      } catch (e) {
+        resultHost.innerHTML = `<div style="color:#991b1b;font-size:0.85rem">${escapeHtml(e.message)}</div>`;
+      } finally {
+        enrichBtn.disabled = false;
+        enrichBtn.textContent = '🔍 Research this contact';
+      }
     };
   }
 
