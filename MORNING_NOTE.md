@@ -1,9 +1,9 @@
-# Morning Note — FUB is deeply integrated, Claude can operate it, and it's watching for you
+# Morning Note — FUB is deeply integrated, Claude operates it, it watches for you, and it preps you for showings
 
-> **22 total FUB commits.** Last overnight run added 8 more rounds. Claude
-> can now run bulk outreach, research contacts, pull attribution reports,
-> auto-respond to fresh leads, and flag listing matches as they come in —
-> all on command or on a schedule.
+> **23 total FUB commits.** The latest work added showing-day prep
+> briefs, listing-match alerts, auto-respond to new leads, attribution
+> digests, nurture templates, contact enrichment, calendar sync, and
+> smart-list bulk actions with Claude personalization.
 
 > For Jonathan, to read when you're back.
 > Everything that shipped while you slept, plus what to do first.
@@ -104,9 +104,10 @@ named Mitchell"* is a 3-field combo away.
 
 ---
 
-## What shipped overall (newest first, 22 FUB-related commits)
+## What shipped overall (newest first, 23 FUB-related commits)
 
 ```
+d2573a4  FUB round 23: showing-day prep brief (per-appointment Claude read)
 85b7111  FUB round 22: listing-match alerts (lead ↔ active listings)
 409eb4b  FUB round 21: auto-respond to new leads + weekly attribution email
 2c653d4  FUB round 20: 5 new Claude agent tools for new capabilities
@@ -242,6 +243,17 @@ explanations and a one-click path to open the contact. 10-min
 client-side cache. Effort to set up: zero — works against your
 existing listings table + fresh FUB leads.
 
+**Round 23 — Showing-day prep brief (the killer driving feature)**
+Every FUB appointment synced into the Calendar card now shows a
+small **FUB** badge + a **🎯 Prep me** button. Tap it and Claude
+produces a 250-word 4-paragraph brief: WHO YOU'RE MEETING, PROPERTY
+SNAPSHOT, WHAT THEY'LL ASK (based on their FUB history), HOW TO
+OPEN (specific opener for the moment you meet). On mobile screens
+it auto-speaks via TTS so you can hear it in the car on the way.
+Works even if the listing isn't linked (it fuzzy-matches the
+appointment title/location against active listings, and says so
+plainly if it can't resolve one). 45 seconds from cold to ready.
+
 ---
 
 ## Try this when you wake up
@@ -330,7 +342,7 @@ at the **Emails** card. FUB badges should appear automatically.
 - Try: "list my smart lists" then "send the market update to [list name]"
   — Claude will dry-run first and show you samples before pushing
 
-## Closed in this run (rounds 15-22)
+## Closed in this run (rounds 15-23)
 
 - ✅ Smart list → one-click bulk action (round 15)
 - ✅ FUB → Google Calendar two-way (round 16)
@@ -341,6 +353,7 @@ at the **Emails** card. FUB badges should appear automatically.
 - ✅ Auto-respond to fresh FUB leads (round 21)
 - ✅ Weekly attribution email digest (round 21)
 - ✅ Listing-match alerts on the Lead Gen card (round 22)
+- ✅ Showing-day prep briefs with voice narration (round 23)
 
 ## When you sit down
 
@@ -361,13 +374,17 @@ Also worth looking at:
 - **Text / SMS send** — bulk "text" still drafts a note; no direct SMS
   (FUB has a limited text-send API; may need Twilio integration)
 - **Smart list drag-reorder** for custom bulk-send sequences
-- **Showing-day prep** — auto-compile a showing brief (who, where,
-  comps for the property, their recent activity) 30 min before each
-  FUB appointment
 - **Kanban pipeline view** — drag a contact between FUB stages from
   the dashboard Contacts card
 - **Call log from phone → FUB** — shortcut ingest for "I just called
   this number" that logs to FUB via Twilio or a Make.com flow
+- **Pre-showing packet** — extend round 23 to assemble a printable/PDF
+  comps packet per showing
+- **Contract deadlines** — pull pending/firm closings + auto-create
+  FUB tasks 3/7/14 days before key dates (conditions waiver, funding,
+  inspection follow-up)
+- **Inbox zero round-trip** — when you reply to an email from the
+  dashboard, auto-log the reply as a FUB note against the sender
 
 Tell me what to tackle when you're back.
 
