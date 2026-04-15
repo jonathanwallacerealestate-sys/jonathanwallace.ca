@@ -1,8 +1,9 @@
-# Morning Note — FUB is deeply integrated AND Claude can operate it
+# Morning Note — FUB is deeply integrated, Claude can operate it, and it's watching for you
 
-> Round 2 of overnight work. 20 FUB commits total, 6 more since the last
-> note. Claude can now run bulk outreach, research contacts, and pull
-> attribution reports on command.
+> **22 total FUB commits.** Last overnight run added 8 more rounds. Claude
+> can now run bulk outreach, research contacts, pull attribution reports,
+> auto-respond to fresh leads, and flag listing matches as they come in —
+> all on command or on a schedule.
 
 > For Jonathan, to read when you're back.
 > Everything that shipped while you slept, plus what to do first.
@@ -103,9 +104,11 @@ named Mitchell"* is a 3-field combo away.
 
 ---
 
-## What shipped overall (newest first, 20 FUB-related commits)
+## What shipped overall (newest first, 22 FUB-related commits)
 
 ```
+85b7111  FUB round 22: listing-match alerts (lead ↔ active listings)
+409eb4b  FUB round 21: auto-respond to new leads + weekly attribution email
 2c653d4  FUB round 20: 5 new Claude agent tools for new capabilities
 35ecc78  FUB round 19: nurture templates — save, reuse, apply to lists
 95364ed  FUB round 18: lead source attribution report
@@ -215,6 +218,30 @@ Claude can now, via voice or chat, do any of:
 Safety default: `fub_bulk_action` defaults `dry_run=true` so Claude
 can never mass-push without showing you the renders first.
 
+**Round 21 — Auto-respond + weekly attribution digest**
+Two new scheduler kinds, both seeded as disabled schedules:
+- **FUB — auto-respond to new leads** (hourly): scans FUB for people
+  created in the last 24h with no open tasks, creates an "Initial
+  outreach" call task due in 24h for each. Optional: pass a
+  `template_name` and it'll also personalize a Gmail draft per lead
+  so you can send on a tap.
+- **FUB — weekly attribution digest** (Monday 7am, email): runs the
+  full attribution report and emails the Claude narrative + KPI
+  summary to you. Zero effort to see where leads came from weekly.
+
+Both show up in the Schedule Manager (Settings → Scheduled Jobs) for
+one-click enable.
+
+**Round 22 — Listing ↔ lead matches**
+Amber banner at the top of the Lead Gen card shows whenever recent
+FUB leads have criteria matching one of your active listings. Matches
+on city (Midland, etc.), property type, MLS number, or address
+fragments appearing in the lead's name/source/tags/custom fields.
+Click "See all matches" for the full list with per-match signal
+explanations and a one-click path to open the contact. 10-min
+client-side cache. Effort to set up: zero — works against your
+existing listings table + fresh FUB leads.
+
 ---
 
 ## Try this when you wake up
@@ -303,7 +330,7 @@ at the **Emails** card. FUB badges should appear automatically.
 - Try: "list my smart lists" then "send the market update to [list name]"
   — Claude will dry-run first and show you samples before pushing
 
-## Closed in this run
+## Closed in this run (rounds 15-22)
 
 - ✅ Smart list → one-click bulk action (round 15)
 - ✅ FUB → Google Calendar two-way (round 16)
@@ -311,18 +338,36 @@ at the **Emails** card. FUB badges should appear automatically.
 - ✅ Lead-source attribution report (round 18)
 - ✅ Nurture templates (round 19)
 - ✅ Claude agent tools for everything above (round 20)
+- ✅ Auto-respond to fresh FUB leads (round 21)
+- ✅ Weekly attribution email digest (round 21)
+- ✅ Listing-match alerts on the Lead Gen card (round 22)
+
+## When you sit down
+
+Two new schedules to flip on:
+1. Settings → Scheduled Jobs → **FUB — auto-respond to new leads** → toggle on
+2. Settings → Scheduled Jobs → **FUB — weekly attribution digest** → toggle on
+
+That gets you auto-follow-up coverage + a Monday email telling you where
+your leads came from last week.
+
+Also worth looking at:
+3. Lead Gen card — if any recent FUB leads match active listings, the
+   amber banner at the top will show. If nothing shows, it means nothing
+   matched — ping me if that feels wrong and I'll tune the matcher.
 
 ## Still on the "not done" list
 
-- **Text / SMS send** — right now bulk "text" just drafts a note; no
-  direct SMS sending (FUB has limited text send API; may need Twilio)
-- **Inline drag-and-drop reordering** of smart list bulk sends
-- **AutoRespond to fresh FUB leads** — scheduled job that auto-creates
-  a drip task on any person created in the last 24h with no touches
-- **Weekly attribution email digest** — wrap round 18 into a scheduled
-  job that emails the report every Monday morning
-- **Listing-match alerts** — when a new FUB lead enters with criteria
-  that matches an active listing, flag on the dashboard
+- **Text / SMS send** — bulk "text" still drafts a note; no direct SMS
+  (FUB has a limited text-send API; may need Twilio integration)
+- **Smart list drag-reorder** for custom bulk-send sequences
+- **Showing-day prep** — auto-compile a showing brief (who, where,
+  comps for the property, their recent activity) 30 min before each
+  FUB appointment
+- **Kanban pipeline view** — drag a contact between FUB stages from
+  the dashboard Contacts card
+- **Call log from phone → FUB** — shortcut ingest for "I just called
+  this number" that logs to FUB via Twilio or a Make.com flow
 
 Tell me what to tackle when you're back.
 
