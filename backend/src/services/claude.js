@@ -84,6 +84,11 @@ Follow Up Boss (Jonathan's CRM — "FUB"):
 - fub_find_person (ALWAYS call first if you only have a name — returns the FUB id)
 - fub_add_note      (log a thought / call recap against a contact)
 - fub_create_task   (schedule a follow-up tied to a contact)
+- fub_enrich_contact (Claude research note: what we know, what's missing, next touch, openers)
+- fub_attribution_report (where leads come from + GCI per source)
+- fub_bulk_action   (apply a template to a whole FUB smart list; ALWAYS dry_run=true first)
+- fub_list_smart_lists (list available smart lists before calling fub_bulk_action)
+- fub_apply_template (use a saved nurture template — preview or push per contact)
 - fub_complete_task (mark a FUB task done)
 - fub_update_stage  (move a contact through the pipeline)
 - fub_create_person (register a brand-new lead — open house, referral, inquiry)
@@ -92,6 +97,9 @@ Rules for FUB:
 - "Add Sarah Mitchell as a lead" → fub_create_person.
 - "Log that I just called Tom about the Midland listing" → fub_find_person then fub_add_note.
 - "Remind me to follow up with the Smiths next Tuesday" → fub_find_person then fub_create_task.
+- "Prep me for a call with Sarah Mitchell" → fub_find_person then fub_enrich_contact.
+- "Where are my deals coming from this quarter" → fub_attribution_report with period=90.
+- "Send the monthly market pulse to my hot leads" → fub_list_smart_lists then fub_bulk_action with the 'Monthly market pulse' template (dry_run=true first — show Jonathan the sample renders, wait for confirmation, then dry_run=false).
 - If fub_find_person returns needs_disambiguation: true, show the candidates to
   Jonathan and ask which one — don't guess.
 - Prefer the FUB tools over create_crm_followup when the contact already lives
@@ -366,6 +374,63 @@ const TOOLS = [
       },
       required: ['first_name']
     }
+  },
+  {
+    name: 'fub_enrich_contact',
+    description: 'Ask Claude (recursively) to produce a 4-paragraph research note for a specific FUB contact: what we know, what is missing, the recommended next touch, and 3 conversational openers. Use when Jonathan asks "what do I know about [person]" or "prep me for a conversation with [person]". Returns the rendered note text. Does not push by default — pass push_note=true to also save as a FUB note.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        person_id: { type: 'integer', description: 'FUB person id (call fub_find_person first if you only have a name)' },
+        push_note: { type: 'boolean', description: 'If true, also saves the research note on the contact in FUB', default: false }
+      },
+      required: ['person_id']
+    }
+  },
+  {
+    name: 'fub_attribution_report',
+    description: 'Run a lead-source attribution report that bucketizes FUB leads by source and joins with local closings for GCI/deals per source. Use when Jonathan asks "where are my leads coming from" or "which sources are converting". Returns numeric breakdown AND a Claude-written narrative.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        period: { type: 'string', description: '30, 90, or ytd', default: '30' }
+      }
+    }
+  },
+  {
+    name: 'fub_bulk_action',
+    description: 'Apply a message template to an entire FUB smart list, with Claude personalizing for each contact. Always run with dry_run=true first to let Jonathan review the renders, then again with dry_run=false to push. Three actions: note (attaches a FUB note per contact), task (creates a FUB task per contact), email_draft (creates a Gmail draft per contact — does NOT send). Requires a smart_list_id; use fub_list_smart_lists to discover them.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        smart_list_id: { type: 'string' },
+        action: { type: 'string', enum: ['note','task','email_draft'] },
+        template: { type: 'string', description: 'The message body; Claude will personalize per contact' },
+        subject: { type: 'string' },
+        task_type: { type: 'string', description: 'For action=task only: call|email|text|meeting|showing' },
+        due_in_days: { type: 'integer', description: 'For action=task only' },
+        dry_run: { type: 'boolean', default: true },
+        limit: { type: 'integer', description: 'Cap 100', default: 20 }
+      },
+      required: ['smart_list_id','action','template']
+    }
+  },
+  {
+    name: 'fub_list_smart_lists',
+    description: 'List Jonathan\'s Follow Up Boss smart lists. Useful before calling fub_bulk_action so you know which smart_list_id to target.',
+    input_schema: { type: 'object', properties: {} }
+  },
+  {
+    name: 'fub_apply_template',
+    description: 'Retrieve a saved nurture template by name (or list them with no arg) and optionally render + push it against a contact or smart list. When called with template_name only, returns the raw template body so you can show it to Jonathan. When combined with person_id, personalizes + pushes a single note or email draft for that contact.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        template_name: { type: 'string' },
+        person_id:     { type: 'integer', description: 'Optional — apply to a specific person' },
+        action:        { type: 'string', enum: ['preview','note','email_draft'], default: 'preview' }
+      }
+    }
   }
 ];
 
@@ -573,7 +638,12 @@ async function executeDashboardTool(toolName, input) {
 }
 
 // -------- Follow Up Boss tool execution --------
-const FUB_TOOLS = ['fub_find_person','fub_add_note','fub_create_task','fub_complete_task','fub_update_stage','fub_create_person'];
+const FUB_TOOLS = [
+  'fub_find_person','fub_add_note','fub_create_task','fub_complete_task',
+  'fub_update_stage','fub_create_person',
+  'fub_enrich_contact','fub_attribution_report','fub_bulk_action',
+  'fub_list_smart_lists','fub_apply_template'
+];
 let _fubClient = null;
 function getFub() {
   if (!_fubClient) _fubClient = require('./fub');
@@ -645,6 +715,137 @@ async function executeFubTool(toolName, input) {
         } catch (e) { /* best effort */ }
       }
       return { success: true, person_id: person.id, name: person.name };
+    }
+
+    case 'fub_enrich_contact': {
+      // Delegate to the /api/fub/people/:id/enrich route via an internal fetch
+      const port = process.env.PORT || 3000;
+      const url = `http://127.0.0.1:${port}/api/fub/people/${input.person_id}/enrich`;
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-API-Key': process.env.API_KEY || '' },
+        body: JSON.stringify({ push_note: !!input.push_note })
+      });
+      const data = await res.json();
+      if (!res.ok) return { error: true, message: data.error || 'enrich failed' };
+      return { success: true, rendered: data.rendered, pushed: !!data.pushed };
+    }
+
+    case 'fub_attribution_report': {
+      const port = process.env.PORT || 3000;
+      const url = `http://127.0.0.1:${port}/api/fub/attribution?period=${encodeURIComponent(input.period || '30')}`;
+      const res = await fetch(url, { headers: { 'X-API-Key': process.env.API_KEY || '' } });
+      const data = await res.json();
+      if (!res.ok) return { error: true, message: data.error || 'attribution failed' };
+      return {
+        success: true,
+        period_days: data.period_days,
+        total_leads: data.total_leads,
+        total_deals: data.total_deals,
+        total_gci: data.total_gci,
+        top_3: (data.by_source || []).slice(0, 3),
+        narrative: data.narrative
+      };
+    }
+
+    case 'fub_bulk_action': {
+      const port = process.env.PORT || 3000;
+      const url = `http://127.0.0.1:${port}/api/fub/smart-lists/${encodeURIComponent(input.smart_list_id)}/bulk-action`;
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-API-Key': process.env.API_KEY || '' },
+        body: JSON.stringify({
+          action: input.action,
+          template: input.template,
+          subject: input.subject,
+          task_type: input.task_type,
+          due_in_days: input.due_in_days,
+          dry_run: input.dry_run !== false, // default true for safety
+          limit: input.limit || 20
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) return { error: true, message: data.error || 'bulk action failed' };
+      return {
+        success: true,
+        dry_run: data.dry_run,
+        total: data.total,
+        pushed: data.pushed,
+        rendered: data.rendered,
+        error_count: (data.errors || []).length,
+        samples: (data.results || []).slice(0, 3).map(r => ({
+          name: r.name, rendered: (r.rendered || '').slice(0, 200) + ((r.rendered || '').length > 200 ? '…' : '')
+        }))
+      };
+    }
+
+    case 'fub_list_smart_lists': {
+      const r = await fub.listSmartLists();
+      const lists = r.smartlists || r.smartLists || r.lists || [];
+      return {
+        success: true,
+        count: lists.length,
+        lists: lists.map(l => ({ id: l.id, name: l.name, count: l.count }))
+      };
+    }
+
+    case 'fub_apply_template': {
+      const port = process.env.PORT || 3000;
+      // Fetch templates — accept either name or list-all
+      const listRes = await fetch(`http://127.0.0.1:${port}/api/templates`, {
+        headers: { 'X-API-Key': process.env.API_KEY || '' }
+      });
+      const listData = await listRes.json();
+      const templates = listData.templates || [];
+
+      if (!input.template_name) {
+        return { success: true, templates: templates.map(t => ({ name: t.name, purpose: t.purpose, channel: t.channel })) };
+      }
+      const tpl = templates.find(t => t.name.toLowerCase() === input.template_name.toLowerCase());
+      if (!tpl) return { error: true, message: `Template "${input.template_name}" not found. Available: ${templates.map(t => t.name).join(', ')}` };
+
+      const action = input.action || 'preview';
+      if (action === 'preview' || !input.person_id) {
+        return { success: true, template: { name: tpl.name, subject: tpl.subject, body: tpl.body, channel: tpl.channel } };
+      }
+
+      // Apply to a single person — personalize then push
+      const person = await fub.getPerson(input.person_id);
+      const firstName = person.firstName || (person.name || '').split(' ')[0] || 'friend';
+      const personalized = tpl.body
+        .replace(/\[first_name\]/gi, firstName)
+        .replace(/\[name\]/gi, person.name || firstName);
+
+      if (action === 'note') {
+        const note = await fub.createNote({
+          personId: input.person_id,
+          subject: tpl.subject || tpl.name,
+          body: personalized,
+          isHtml: false
+        });
+        // Bump template usage
+        try { await fetch(`http://127.0.0.1:${port}/api/templates/${tpl.id}/touch`, { method: 'POST', headers: { 'X-API-Key': process.env.API_KEY || '' } }); } catch (e) {}
+        return { success: true, pushed: 'note', note_id: note.id, personalized };
+      }
+      if (action === 'email_draft') {
+        const email = person.emails?.[0]?.value;
+        if (!email) return { error: true, message: 'No email on record for that contact' };
+        if (!process.env.GMAIL_REFRESH_TOKEN) return { error: true, message: 'Gmail not configured' };
+        const { google } = require('googleapis');
+        const oauth2 = new google.auth.OAuth2(process.env.GMAIL_CLIENT_ID, process.env.GMAIL_CLIENT_SECRET);
+        oauth2.setCredentials({ refresh_token: process.env.GMAIL_REFRESH_TOKEN });
+        const gmail = google.gmail({ version: 'v1', auth: oauth2 });
+        const from = process.env.GMAIL_USER || 'jonathanwallacerealestate@gmail.com';
+        const html = personalized.split('\n').map(l => '<p>' + l.replace(/</g, '&lt;') + '</p>').join('');
+        const raw = Buffer.from([
+          `From: ${from}`, `To: ${email}`, `Subject: ${tpl.subject || tpl.name}`,
+          'MIME-Version: 1.0', 'Content-Type: text/html; charset=UTF-8', '', html
+        ].join('\r\n')).toString('base64url');
+        const r = await gmail.users.drafts.create({ userId: 'me', requestBody: { message: { raw } } });
+        try { await fetch(`http://127.0.0.1:${port}/api/templates/${tpl.id}/touch`, { method: 'POST', headers: { 'X-API-Key': process.env.API_KEY || '' } }); } catch (e) {}
+        return { success: true, pushed: 'email_draft', draft_id: r.data.id, personalized };
+      }
+      return { error: true, message: 'Unknown action: ' + action };
     }
   }
   throw new Error('Unhandled FUB tool: ' + toolName);
