@@ -130,9 +130,16 @@ async function runGapAnalysis(job) {
 }
 
 async function runFubSync(job) {
-  const url = `http://127.0.0.1:${process.env.PORT || 3000}/api/fub/sync`;
-  const data = await internalPost(url);
-  return { upserted: data.upserted, fetched: data.fetched };
+  const base = `http://127.0.0.1:${process.env.PORT || 3000}`;
+  // Two concurrent pulls: tasks → crm_followups, appointments → calendar_events
+  const [tasksResp, apptsResp] = await Promise.all([
+    internalPost(base + '/api/fub/sync').catch(e => ({ error: e.message })),
+    internalPost(base + '/api/fub/appointments/sync').catch(e => ({ error: e.message }))
+  ]);
+  return {
+    tasks: { upserted: tasksResp.upserted, fetched: tasksResp.fetched, error: tasksResp.error },
+    appointments: { upserted: apptsResp.upserted, fetched: apptsResp.fetched, error: apptsResp.error }
+  };
 }
 
 async function runChromeWorkflow(job) {

@@ -471,6 +471,65 @@ function mapTaskType(t) {
   return m[(t || '').toLowerCase()] || 'Other';
 }
 
+// ---------- Appointments / Calendar sync ----------
+
+/**
+ * POST /api/fub/appointments/sync
+ * Pulls the next 30 days of FUB appointments into the local calendar_events
+ * table so they appear alongside Google Calendar events in the dashboard.
+ * Idempotent via UNIQUE (google_event_id) — FUB appointment IDs are prefixed
+ * 'fub:' so they don't collide with real Google Calendar events.
+ */
+router.post('/appointments/sync', async (req, res) => {
+  try {
+    const now = new Date();
+    const future = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+    const resp = await fub.listAppointments({
+      limit: 100,
+      after: now.toISOString(),
+      before: future.toISOString()
+    });
+    const appts = resp.appointments || [];
+
+    let upserted = 0;
+    for (const a of appts) {
+      if (!a.title && !a.type) continue;
+      if (!a.start) continue;
+      try {
+        await pool.query(
+          `INSERT INTO calendar_events
+            (google_event_id, calendar_id, title, description, location,
+             start_time, end_time, all_day, attendees, meeting_link, event_type, status, last_synced_at)
+           VALUES ($1, 'fub', $2, $3, $4, $5, $6, false, '[]'::jsonb, null, $7, 'confirmed', NOW())
+           ON CONFLICT (google_event_id) DO UPDATE SET
+             title = EXCLUDED.title,
+             description = EXCLUDED.description,
+             location = EXCLUDED.location,
+             start_time = EXCLUDED.start_time,
+             end_time = EXCLUDED.end_time,
+             event_type = EXCLUDED.event_type,
+             last_synced_at = NOW()`,
+          [
+            'fub:' + a.id,
+            a.title || a.type || 'FUB appointment',
+            a.description || a.note || null,
+            a.location || null,
+            a.start,
+            a.end || a.start,
+            (a.type || 'appointment').toLowerCase()
+          ]
+        );
+        upserted++;
+      } catch (e) {
+        console.error('[FUB] appointment upsert failed:', e.message);
+      }
+    }
+
+    publish({ type: 'fub', event: 'appointments_synced', upserted });
+    res.json({ success: true, fetched: appts.length, upserted });
+  } catch (e) { handleFubError(res, e); }
+});
+
 // ---------- Ingest: pull FUB tasks into local crm_followups ----------
 
 /**

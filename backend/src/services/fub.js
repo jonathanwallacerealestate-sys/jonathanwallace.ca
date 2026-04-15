@@ -157,6 +157,18 @@ async function listSmartLists() {
   return request('GET', '/smartLists', { query: { limit: 100 } });
 }
 
+// Appointments (Showings + other FUB calendar events)
+async function listAppointments({ limit = 100, personId, after, before } = {}) {
+  return request('GET', '/appointments', {
+    query: { limit, personId, after, before }
+  });
+}
+
+async function createAppointment(appointment) {
+  invalidateCache();
+  return request('POST', '/appointments', { body: appointment });
+}
+
 // ---------- Public API (write) ----------
 
 async function createPerson(person) {
@@ -229,6 +241,7 @@ module.exports = {
   // read
   whoami, listPeople, getPerson, personEvents, personNotes, personTasks,
   listTasks, listStages, listUsers, listDeals, listPipelines, listSmartLists,
+  listAppointments, createAppointment,
   findPersonByEmail, findPersonByPhone,
   // write
   createPerson, updatePerson,
