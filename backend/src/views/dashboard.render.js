@@ -527,6 +527,25 @@ function initDashboard() {
     window.DB_RENDER.renderCrm(window.DB.state.brief);
   });
 
+  // CRM — Pull from FUB / Add FUB task buttons
+  const fubSyncBtn = document.getElementById('crm-fub-sync');
+  if (fubSyncBtn) fubSyncBtn.addEventListener('click', async () => {
+    fubSyncBtn.disabled = true;
+    const original = fubSyncBtn.textContent;
+    fubSyncBtn.textContent = 'Syncing…';
+    try {
+      const r = await window.DB.api('/api/fub/sync', { method: 'POST', body: '{}' });
+      window.DB.toast('Synced ' + (r.upserted || 0) + ' tasks from FUB', 'success');
+      if (typeof load === 'function') load();
+    } catch (e) { window.DB.toast(e.message, 'error'); }
+    finally { fubSyncBtn.disabled = false; fubSyncBtn.textContent = original; }
+  });
+  const fubAddBtn = document.getElementById('crm-fub-add');
+  if (fubAddBtn) fubAddBtn.addEventListener('click', () => {
+    if (window.DB_FUB && window.DB_FUB.openAddTask) window.DB_FUB.openAddTask();
+    else window.DB.toast('FUB add-task UI not loaded', 'error');
+  });
+
   // Quick-add handlers
   bindQuickAdds();
 

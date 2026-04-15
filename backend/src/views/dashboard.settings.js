@@ -51,6 +51,26 @@
         </div>
 
         <h3 style="margin:1.25rem 0 0.75rem;font-size:0.85rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px">
+          Follow Up Boss
+        </h3>
+        <div class="form-grid">
+          <div class="form-field" style="grid-column:1/-1">
+            <label>FUB API Key <span style="color:var(--muted);font-weight:400;font-size:0.75rem">(FUB → Admin → API → Create API Key)</span></label>
+            <input data-setting="fub_api_key" type="password" placeholder="fka_..." value="${escapeAttr(strVal(settings.fub_api_key))}" autocomplete="off" />
+            <div style="font-size:0.72rem;color:var(--muted);margin-top:0.25rem">
+              Overridden by <code>FUB_API_KEY</code> env var if set in Railway (preferred for production).
+            </div>
+          </div>
+          <div class="form-field" style="grid-column:1/-1">
+            <div style="display:flex;gap:0.5rem;align-items:center;padding:0.6rem 0.8rem;background:#f9fafb;border:1px solid var(--border);border-radius:8px">
+              <span id="fub-status-label" style="font-size:0.85rem;color:var(--muted);flex:1">Check connection status…</span>
+              <button type="button" class="btn-secondary" id="fub-test-btn" style="padding:0.4rem 0.8rem;font-size:0.8rem">Test Connection</button>
+              <button type="button" class="btn-secondary" id="fub-sync-btn" style="padding:0.4rem 0.8rem;font-size:0.8rem">Sync Now</button>
+            </div>
+          </div>
+        </div>
+
+        <h3 style="margin:1.25rem 0 0.75rem;font-size:0.85rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px">
           Daily Targets
         </h3>
         <div class="form-grid">
@@ -143,6 +163,41 @@
       document.getElementById('sign-out-btn').onclick = () => {
         try { localStorage.removeItem('jw_api_key'); } catch(e) {}
         location.replace('/dashboard');
+      };
+
+      // ---- FUB connection status + test + sync buttons ----
+      async function updateFubStatus() {
+        const label = document.getElementById('fub-status-label');
+        if (!label) return;
+        label.textContent = 'Checking…';
+        try {
+          const s = await api('/api/fub/status');
+          if (!s.configured) { label.innerHTML = '<span style="color:#f59e0b">Not configured</span> — paste your FUB API key above and click Save All'; return; }
+          if (!s.connected)  { label.innerHTML = '<span style="color:#ef4444">Configured but connection failed.</span> ' + (s.error ? ('(' + escapeAttr(s.error.slice(0,120)) + ')') : ''); return; }
+          label.innerHTML = '<span style="color:#10b981">Connected</span>' + (s.whoami?.name ? (' as ' + escapeAttr(s.whoami.name)) : '');
+        } catch (e) {
+          label.innerHTML = '<span style="color:#ef4444">Error:</span> ' + escapeAttr(e.message);
+        }
+      }
+      updateFubStatus();
+
+      const testBtn = document.getElementById('fub-test-btn');
+      if (testBtn) testBtn.onclick = async () => {
+        testBtn.disabled = true; testBtn.textContent = 'Testing…';
+        try { await api('/api/fub/test', { method: 'POST', body: '{}' }); toast('FUB connected', 'success'); await updateFubStatus(); }
+        catch (e) { toast(e.message, 'error'); }
+        finally { testBtn.disabled = false; testBtn.textContent = 'Test Connection'; }
+      };
+
+      const syncBtn = document.getElementById('fub-sync-btn');
+      if (syncBtn) syncBtn.onclick = async () => {
+        syncBtn.disabled = true; syncBtn.textContent = 'Syncing…';
+        try {
+          const r = await api('/api/fub/sync', { method: 'POST', body: '{}' });
+          toast('Synced ' + (r.upserted || 0) + ' tasks from FUB', 'success');
+          if (typeof window.load === 'function') window.load();
+        } catch (e) { toast(e.message, 'error'); }
+        finally { syncBtn.disabled = false; syncBtn.textContent = 'Sync Now'; }
       };
     } catch (e) {
       toast(e.message, 'error');
