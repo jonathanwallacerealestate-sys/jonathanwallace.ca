@@ -92,7 +92,8 @@ async function buildBriefSnapshot() {
   const q = (s, p = []) => pool.query(s, p).then(r => r.rows);
 
   const [urgentEmails, crmToday, crmOverdue, calendarToday,
-         closingsSoon, personalToday, workoutsToday, marketingToday] =
+         closingsSoon, personalToday, workoutsToday, marketingToday,
+         activityToday, goalsToday] =
     await Promise.all([
       q(`SELECT subject, from_name, from_address, priority FROM flagged_emails
           WHERE status='needs_reply' ORDER BY
@@ -114,9 +115,15 @@ async function buildBriefSnapshot() {
       q(`SELECT title, workout_type, completed FROM workouts
           WHERE workout_date = CURRENT_DATE`),
       q(`SELECT title, platform, scheduled_for FROM marketing_items
-          WHERE status='scheduled' AND scheduled_for BETWEEN NOW() AND NOW() + INTERVAL '24 hours'`)
+          WHERE status='scheduled' AND scheduled_for BETWEEN NOW() AND NOW() + INTERVAL '24 hours'`),
+      q(`SELECT activity_type, COUNT(*)::int AS count,
+                COUNT(*) FILTER (WHERE outcome='connected')::int AS connected
+           FROM activity_log WHERE activity_date = CURRENT_DATE GROUP BY activity_type`),
+      q(`SELECT goal_type, daily_target FROM lead_gen_goals WHERE enabled = TRUE`)
     ]);
 
+  const activityMap = Object.fromEntries(activityToday.map(r => [r.activity_type, r]));
+  const goalMap = Object.fromEntries(goalsToday.map(r => [r.goal_type, r.daily_target]));
   return {
     urgent_emails: urgentEmails,
     crm_due_today: crmToday,
@@ -125,7 +132,12 @@ async function buildBriefSnapshot() {
     closings_coming_up: closingsSoon,
     personal_tasks: personalToday,
     workout_today: workoutsToday,
-    marketing_today: marketingToday
+    marketing_today: marketingToday,
+    lead_gen_today: {
+      calls: { actual: activityMap.call?.count || 0, connected: activityMap.call?.connected || 0, target: goalMap.calls || 0 },
+      emails: { actual: activityMap.email?.count || 0, target: goalMap.emails || 0 },
+      contacts_added: { actual: (activityMap.text?.count || 0) + (activityMap.drop_by?.count || 0) + (activityMap.social_dm?.count || 0) + (activityMap.meeting?.count || 0), target: goalMap.contacts_added || 0 }
+    }
   };
 }
 

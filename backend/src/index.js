@@ -30,6 +30,8 @@ const lettersRoutes = require('./routes/letters');
 const chromeRoutes = require('./routes/chrome');
 const toolsRoutes = require('./routes/tools');
 const schedulesRoutes = require('./routes/schedules');
+const activityRoutes = require('./routes/activity');
+const powerHourRoutes = require('./routes/powerHour');
 const { initDb } = require('./db/init');
 const { startWorker } = require('./services/worker');
 const { start: startScheduler } = require('./services/scheduler');
@@ -89,6 +91,8 @@ app.use('/api/letters', lettersRoutes);
 app.use('/api/chrome', chromeRoutes);
 app.use('/api/tools', toolsRoutes);
 app.use('/api/schedules', schedulesRoutes);
+app.use('/api/activity', activityRoutes);
+app.use('/api/power-hour', powerHourRoutes);
 app.use('/dashboard', dashboardRoutes);
 
 app.get('/', (req, res) => {

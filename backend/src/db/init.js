@@ -319,6 +319,76 @@ async function initDb() {
         UNIQUE (url)
       );
 
+      -- Activity ledger — every contact touch (call/email/text/meeting/dropby).
+      -- Drives the daily lead-gen counters and goals.
+      CREATE TABLE IF NOT EXISTS activity_log (
+        id SERIAL PRIMARY KEY,
+        activity_type VARCHAR(30) NOT NULL,
+        contact_name VARCHAR(255),
+        contact_phone VARCHAR(50),
+        contact_email VARCHAR(255),
+        crm_followup_id INTEGER REFERENCES crm_followups(id) ON DELETE SET NULL,
+        duration_seconds INTEGER,
+        outcome VARCHAR(50),
+        notes TEXT,
+        source VARCHAR(50) DEFAULT 'manual',
+        related_session_id INTEGER,
+        related_call_id INTEGER,
+        activity_date DATE NOT NULL DEFAULT CURRENT_DATE,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+      );
+
+      -- Lead-gen goals — flexible per-period targets the dashboard tracks.
+      CREATE TABLE IF NOT EXISTS lead_gen_goals (
+        id SERIAL PRIMARY KEY,
+        goal_type VARCHAR(50) NOT NULL UNIQUE,
+        daily_target INTEGER DEFAULT 0,
+        weekly_target INTEGER DEFAULT 0,
+        enabled BOOLEAN DEFAULT TRUE,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+      );
+
+      -- Hour of Power sessions — timed prospecting blocks.
+      CREATE TABLE IF NOT EXISTS power_hour_sessions (
+        id SERIAL PRIMARY KEY,
+        started_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+        ended_at TIMESTAMP WITH TIME ZONE,
+        planned_duration_minutes INTEGER DEFAULT 60,
+        status VARCHAR(20) DEFAULT 'active',
+        calls_count INTEGER DEFAULT 0,
+        connected_count INTEGER DEFAULT 0,
+        emails_count INTEGER DEFAULT 0,
+        contacts_added INTEGER DEFAULT 0,
+        notes TEXT,
+        debrief TEXT,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+      );
+
+      -- Individual calls inside a session.
+      CREATE TABLE IF NOT EXISTS power_hour_calls (
+        id SERIAL PRIMARY KEY,
+        session_id INTEGER NOT NULL REFERENCES power_hour_sessions(id) ON DELETE CASCADE,
+        contact_name VARCHAR(255),
+        contact_phone VARCHAR(50),
+        contact_email VARCHAR(255),
+        crm_followup_id INTEGER REFERENCES crm_followups(id) ON DELETE SET NULL,
+        started_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+        ended_at TIMESTAMP WITH TIME ZONE,
+        duration_seconds INTEGER,
+        transcript TEXT,
+        summary TEXT,
+        sentiment VARCHAR(20),
+        outcome VARCHAR(50),
+        jonathan_commitments JSONB DEFAULT '[]',
+        client_commitments JSONB DEFAULT '[]',
+        follow_ups JSONB DEFAULT '[]',
+        coaching_notes TEXT,
+        analyzed_at TIMESTAMP WITH TIME ZONE,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+      );
+
       -- Scheduled jobs — recurring agent tasks, briefings, gap analyses,
       -- weekly reviews, and Claude Chrome workflow reminders.
       -- Time fields are interpreted in America/Toronto.
@@ -450,6 +520,11 @@ async function initDb() {
       CREATE INDEX IF NOT EXISTS idx_memory_key ON agent_memory(key);
       CREATE INDEX IF NOT EXISTS idx_memory_importance ON agent_memory(importance DESC);
       CREATE INDEX IF NOT EXISTS idx_sched_next ON scheduled_tasks(enabled, next_run_at);
+      CREATE INDEX IF NOT EXISTS idx_activity_date ON activity_log(activity_date);
+      CREATE INDEX IF NOT EXISTS idx_activity_type ON activity_log(activity_type);
+      CREATE INDEX IF NOT EXISTS idx_power_session_status ON power_hour_sessions(status);
+      CREATE INDEX IF NOT EXISTS idx_power_session_started ON power_hour_sessions(started_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_power_call_session ON power_hour_calls(session_id);
       CREATE INDEX IF NOT EXISTS idx_loo_status ON letter_opinions(status);
       CREATE INDEX IF NOT EXISTS idx_loo_prepared ON letter_opinions(prepared_date DESC);
       CREATE INDEX IF NOT EXISTS idx_loo_seller_form ON letter_opinions(seller_form_id);
@@ -520,6 +595,17 @@ async function initDb() {
             category = EXCLUDED.category,
             importance = EXCLUDED.importance,
             updated_at = NOW();
+    `);
+
+    // Seed default lead-gen goals (industry standard for an active agent).
+    await client.query(`
+      INSERT INTO lead_gen_goals (goal_type, daily_target, weekly_target) VALUES
+        ('calls',                30,  150),
+        ('connected_calls',      10,  50),
+        ('emails',               20,  100),
+        ('contacts_added',       5,   25),
+        ('follow_ups_completed', 15,  75)
+      ON CONFLICT (goal_type) DO NOTHING;
     `);
 
     // Seed a Realm credential placeholder (URL only — password must be entered

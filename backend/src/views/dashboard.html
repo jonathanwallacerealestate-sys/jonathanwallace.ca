@@ -87,6 +87,25 @@
     <div id="calendar-list" class="list"></div>
   </section>
 
+  <!-- Lead Generation + Hour of Power -->
+  <section class="card" data-section="leadgen">
+    <header class="card-header">
+      <h2><span class="dot" style="background:#dc2626"></span>Lead Generation</h2>
+      <div class="card-stats" id="leadgen-stats"></div>
+    </header>
+    <div id="leadgen-goals" class="kpi-row" style="margin-bottom:1rem"></div>
+
+    <div class="quick-add" style="margin-bottom:0.5rem">
+      <input id="quick-contact" placeholder="Contact name (optional)" style="flex:2">
+      <button class="btn-secondary" data-quick-log="call">+ Call</button>
+      <button class="btn-secondary" data-quick-log="email">+ Email</button>
+      <button class="btn-secondary" data-quick-log="text">+ Text</button>
+      <button class="btn-secondary" data-quick-log="drop_by">+ Drop-by</button>
+    </div>
+
+    <div id="power-hour-host" style="margin-top:1rem"></div>
+  </section>
+
   <!-- Closings & P&L -->
   <section class="card" data-section="closings">
     <header class="card-header">
@@ -245,6 +264,7 @@
 <script src="/dashboard/assets/dashboard.intuition.js"></script>
 <script src="/dashboard/assets/dashboard.chrome.js"></script>
 <script src="/dashboard/assets/dashboard.schedules.js"></script>
+<script src="/dashboard/assets/dashboard.leadgen.js"></script>
 
 </body>
 </html>

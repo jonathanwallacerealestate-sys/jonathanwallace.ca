@@ -15,6 +15,7 @@
       { id: 'emails', label: 'Emails' },
       { id: 'crm', label: 'CRM' },
       { id: 'calendar', label: 'Calendar' },
+      { id: 'leadgen', label: 'Lead Gen' },
       { id: 'closings', label: 'P&L' },
       { id: 'personal', label: 'Personal' },
       { id: 'workouts', label: 'Workout' },
