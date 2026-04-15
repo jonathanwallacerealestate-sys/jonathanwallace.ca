@@ -105,9 +105,9 @@ async function whoami() {
   return request('GET', '/identity', { skipCache: true });
 }
 
-async function listPeople({ limit = 50, offset = 0, sort, stage, assignedTo, search } = {}) {
+async function listPeople({ limit = 50, offset = 0, sort, stage, assignedTo, search, smartListId } = {}) {
   return request('GET', '/people', {
-    query: { limit, offset, sort, stage, assignedTo, search, fields: 'allFields' }
+    query: { limit, offset, sort, stage, assignedTo, search, smartListId, fields: 'allFields' }
   });
 }
 

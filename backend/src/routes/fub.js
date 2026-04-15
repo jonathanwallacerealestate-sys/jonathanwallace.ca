@@ -80,7 +80,8 @@ router.get('/people', async (req, res) => {
       sort: req.query.sort,
       stage: req.query.stage,
       assignedTo: req.query.assignedTo,
-      search: req.query.search
+      search: req.query.search,
+      smartListId: req.query.smartListId
     });
     res.json(data);
   } catch (e) { handleFubError(res, e); }

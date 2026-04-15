@@ -21,6 +21,7 @@
     const host = document.getElementById('fub-people-list');
     if (!host) return;
     loadStages();
+    loadSmartLists();
     loadPeople();
 
     const refreshBtn = document.getElementById('fub-people-refresh');
@@ -36,6 +37,8 @@
     });
     const stageSel = document.getElementById('fub-people-stage');
     if (stageSel) stageSel.addEventListener('change', loadPeople);
+    const smartSel = document.getElementById('fub-people-smartlist');
+    if (smartSel) smartSel.addEventListener('change', loadPeople);
   });
 
   async function loadStages() {
@@ -51,17 +54,32 @@
     }
   }
 
+  async function loadSmartLists() {
+    const sel = document.getElementById('fub-people-smartlist');
+    if (!sel) return;
+    try {
+      const data = await api('/api/fub/smart-lists');
+      const lists = data.smartlists || data.smartLists || data.lists || [];
+      sel.innerHTML = '<option value="">No smart list</option>' +
+        lists.map(l => `<option value="${l.id}">${escapeHtml(l.name || ('List ' + l.id))}</option>`).join('');
+    } catch (e) {
+      // Leave as default
+    }
+  }
+
   async function loadPeople() {
     const host = document.getElementById('fub-people-list');
     const stats = document.getElementById('fub-people-stats');
     if (!host) return;
     const search = (document.getElementById('fub-people-search')?.value || '').trim();
     const stage = document.getElementById('fub-people-stage')?.value || '';
+    const smartListId = document.getElementById('fub-people-smartlist')?.value || '';
     host.innerHTML = '<div class="empty">Loading from FUB…</div>';
     try {
       const qs = new URLSearchParams({ limit: '30' });
       if (search) qs.set('search', search);
       if (stage) qs.set('stage', stage);
+      if (smartListId) qs.set('smartListId', smartListId);
       const data = await api('/api/fub/people?' + qs.toString());
       const people = data.people || [];
       const total = (data._metadata && data._metadata.total) || people.length;
