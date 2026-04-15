@@ -14,7 +14,49 @@
 
     const emailBtn = document.getElementById('email-day-btn');
     if (emailBtn) emailBtn.addEventListener('click', emailMyDay);
+
+    const weeklyBtn = document.getElementById('weekly-btn');
+    if (weeklyBtn) weeklyBtn.addEventListener('click', runWeeklyReview);
   });
+
+  async function runWeeklyReview() {
+    const { openModal, api, toast } = window.DB;
+    openModal('Weekly Review', `
+      <div id="weekly-content" style="min-height:120px;font-size:1rem;line-height:1.6;color:var(--text)">
+        <div style="display:flex;align-items:center;gap:0.75rem;color:var(--muted)">
+          <div class="pulse" style="width:10px;height:10px;border-radius:50%;background:var(--success);animation:pulse 1.2s ease-in-out infinite"></div>
+          <span>Reflecting on the past week…</span>
+        </div>
+      </div>
+    `, `
+      <button class="btn-secondary" id="weekly-replay" style="display:none">Speak it</button>
+      <button class="btn-secondary" onclick="DB.closeModal()">Close</button>
+    `);
+    try {
+      const data = await api('/api/brief/weekly');
+      const review = data.review || 'No review available.';
+      const content = document.getElementById('weekly-content');
+      if (content) {
+        content.innerHTML = '';
+        review.split(/\n{2,}/).forEach(p => {
+          const el = document.createElement('p');
+          el.style.margin = '0 0 0.75rem';
+          el.textContent = p.trim();
+          content.appendChild(el);
+        });
+      }
+      const replay = document.getElementById('weekly-replay');
+      if (replay) {
+        replay.style.display = '';
+        replay.onclick = () => speak(review);
+      }
+      speak(review);
+    } catch (e) {
+      const content = document.getElementById('weekly-content');
+      if (content) content.innerHTML = '<p style="color:#991b1b">Could not generate review: ' + escapeHtml(e.message) + '</p>';
+      toast(e.message, 'error');
+    }
+  }
 
   async function runGapAnalysis() {
     const { openModal, api, toast } = window.DB;

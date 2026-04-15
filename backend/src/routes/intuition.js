@@ -1,8 +1,11 @@
 const express = require('express');
 const router = express.Router();
 const pool = require('../db/pool');
+const Anthropic = require('@anthropic-ai/sdk');
 const { requireApiKey } = require('../middleware/apiKey');
 const intuition = require('../services/intuition');
+
+const anthropic = new Anthropic();
 
 router.use(requireApiKey);
 
@@ -157,6 +160,89 @@ router.delete('/memory/:id', async (req, res) => {
     res.json({ success: true, deleted: r.rowCount });
   } catch (err) {
     res.status(500).json({ error: 'Failed to delete' });
+  }
+});
+
+/**
+ * POST /api/intuition/learn-from-task/:id
+ * Reads a finished agent task (instruction + result) and asks Claude to
+ * propose 0-3 vocabulary or memory entries that would help future tasks.
+ * If body.apply === true, the suggestions are saved immediately.
+ * Otherwise we just return them so the dashboard can show them for review.
+ */
+router.post('/learn-from-task/:id', async (req, res) => {
+  try {
+    if (!process.env.ANTHROPIC_API_KEY) {
+      return res.status(503).json({ error: 'Claude not configured' });
+    }
+    const { rows } = await pool.query(
+      'SELECT id, type, instruction, result FROM tasks WHERE id = $1', [req.params.id]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'Task not found' });
+    const t = rows[0];
+
+    const ctx = await intuition.buildContextBlock();
+    const sys = `You are auditing a finished interaction with Jonathan Wallace's agent.
+Your job is to extract durable knowledge that should be remembered for future tasks.
+
+Return JSON ONLY (no commentary). Schema:
+{
+  "vocabulary": [{ "term": "...", "expansion": "...", "category": "real_estate|tools|geography|brand|operations|finance", "weight": 1-10 }],
+  "memory":     [{ "key": "...", "value": "...", "category": "preference|voice|operations|client|brand|tools", "importance": 1-10 }]
+}
+
+Rules:
+- Only include items that are clearly NEW and useful for future requests.
+- Do NOT propose entries that look already-known given the existing context.
+- 0 items in either list is fine. Cap each list at 3 items.
+- Phrase memory values as durable facts ("Jonathan prefers..." / "Jonathan's X is..."), not single-use observations.${ctx ? '\n\n' + ctx : ''}`;
+
+    const userMsg = `Instruction:\n${t.instruction}\n\nResult:\n${(t.result && t.result.content) ? t.result.content : '(no result)'}`;
+
+    const response = await anthropic.messages.create({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 800,
+      system: sys,
+      messages: [{ role: 'user', content: userMsg }]
+    });
+    const text = response.content.filter(b => b.type === 'text').map(b => b.text).join('').trim();
+    let suggestions = { vocabulary: [], memory: [] };
+    try {
+      const m = text.match(/\{[\s\S]*\}/);
+      suggestions = JSON.parse(m ? m[0] : text);
+    } catch (e) {
+      return res.status(500).json({ error: 'Could not parse suggestions', raw: text });
+    }
+
+    const applied = { vocabulary: [], memory: [] };
+    if (req.body && req.body.apply === true) {
+      for (const v of (suggestions.vocabulary || [])) {
+        if (!v.term || !v.expansion) continue;
+        const r = await pool.query(
+          `INSERT INTO agent_vocabulary (term, expansion, category, weight)
+           VALUES ($1,$2,COALESCE($3,'real_estate'),COALESCE($4,5))
+           ON CONFLICT (term) DO NOTHING RETURNING id, term`,
+          [v.term, v.expansion, v.category || null, v.weight || null]
+        );
+        if (r.rows.length) applied.vocabulary.push(r.rows[0]);
+      }
+      for (const m of (suggestions.memory || [])) {
+        if (!m.key || !m.value) continue;
+        const r = await pool.query(
+          `INSERT INTO agent_memory (key, value, category, importance, source)
+           VALUES ($1,$2,COALESCE($3,'preference'),COALESCE($4,5),'auto_learn')
+           ON CONFLICT (key) DO NOTHING RETURNING id, key`,
+          [m.key, m.value, m.category || null, m.importance || null]
+        );
+        if (r.rows.length) applied.memory.push(r.rows[0]);
+      }
+      if (applied.vocabulary.length || applied.memory.length) intuition.invalidate();
+    }
+
+    res.json({ suggestions, applied, tokens: response.usage });
+  } catch (err) {
+    console.error('learn-from-task error:', err);
+    res.status(500).json({ error: 'Failed to learn from task', message: err.message });
   }
 });
 

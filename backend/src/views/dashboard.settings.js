@@ -79,6 +79,14 @@
         </div>
 
         <h3 style="margin:1.25rem 0 0.75rem;font-size:0.85rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px">
+          Scheduled Jobs
+        </h3>
+        <div style="display:flex;gap:0.5rem;align-items:center;padding:0.75rem 1rem;background:#f9fafb;border:1px solid var(--border);border-radius:8px">
+          <span style="font-size:0.85rem;color:var(--muted);flex:1">Recurring briefings, weekly reviews, gap analyses, agent tasks, and Chrome workflow reminders.</span>
+          <button class="btn-secondary" onclick="window.DB_SCHED && window.DB_SCHED.openManager()">Manage</button>
+        </div>
+
+        <h3 style="margin:1.25rem 0 0.75rem;font-size:0.85rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px">
           Claude Chrome Workflows
         </h3>
         <div style="display:flex;gap:0.5rem;align-items:center;padding:0.75rem 1rem;background:#f9fafb;border:1px solid var(--border);border-radius:8px">

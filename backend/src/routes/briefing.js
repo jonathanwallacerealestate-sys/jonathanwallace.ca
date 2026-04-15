@@ -130,6 +130,102 @@ async function buildBriefSnapshot() {
 }
 
 /**
+ * Weekly review — Sunday-night style reflection on the past 7 days with
+ * GCI tracking, deal pipeline movement, missed targets, and 2-3 priorities
+ * for the upcoming week.
+ */
+const WEEKLY_SYSTEM_PROMPT = `You are Jonathan Wallace's accountability partner doing his weekly review.
+
+Speak like a peer who knows him — direct, specific, no fluff. Reflect on the
+last 7 days using the data provided. Format as plain prose, not lists.
+
+Cover, in this order:
+1. Wins worth naming — closings that closed, deals that went firm, marketing
+   that landed, workouts hit, key follow-ups completed.
+2. Numbers that matter — GCI booked this week, deals in the pipeline, sale
+   volume YTD against trajectory.
+3. What slipped — overdue CRM, marketing past its scheduled date, workouts
+   missed against the weekly target.
+4. Two or three priorities for the upcoming week. Concrete, named.
+
+Keep the whole thing under 280 words. End with one sentence of forward
+momentum, not a question.`;
+
+router.get('/weekly', async (req, res) => {
+  try {
+    if (!process.env.ANTHROPIC_API_KEY) {
+      return res.status(503).json({ error: 'Claude not configured' });
+    }
+    const data = await buildWeeklySnapshot();
+    const ctx = await intuition.buildContextBlock();
+
+    const userMessage = `Week ending ${new Date().toLocaleDateString('en-CA', { timeZone: 'America/Toronto', weekday: 'long', month: 'long', day: 'numeric' })}.\n\nData:\n${JSON.stringify(data, null, 2)}`;
+
+    const response = await anthropic.messages.create({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 700,
+      system: ctx ? `${WEEKLY_SYSTEM_PROMPT}\n\n${ctx}` : WEEKLY_SYSTEM_PROMPT,
+      messages: [{ role: 'user', content: userMessage }]
+    });
+    const text = response.content.filter(b => b.type === 'text').map(b => b.text).join('\n').trim();
+    res.json({ review: text, generated_at: new Date().toISOString(), tokens: response.usage, snapshot: data });
+  } catch (err) {
+    console.error('weekly review error:', err);
+    res.status(500).json({ error: 'Failed to generate weekly review', message: err.message });
+  }
+});
+
+async function buildWeeklySnapshot() {
+  const q = (s, p = []) => pool.query(s, p).then(r => r.rows);
+  const [
+    closingsClosed, closingsFirm, dealsPipeline, ytd,
+    crmDone, crmOverdue, marketingPosted, marketingMissed,
+    workouts7, workoutTarget, mealsDays
+  ] = await Promise.all([
+    q(`SELECT property_address, sale_price, gross_commission, net_profit, closing_date
+         FROM closings WHERE status='closed' AND closing_date >= CURRENT_DATE - INTERVAL '7 days'`),
+    q(`SELECT property_address, sale_price, gross_commission, firm_date
+         FROM closings WHERE status='firm' AND firm_date >= CURRENT_DATE - INTERVAL '7 days'`),
+    q(`SELECT COUNT(*) AS deals,
+              COALESCE(SUM(gross_commission),0) AS gross_commission_pipeline
+         FROM closings WHERE status IN ('pending','firm')`),
+    q(`SELECT COUNT(*) AS deals,
+              COALESCE(SUM(sale_price),0) AS sale_volume,
+              COALESCE(SUM(gross_commission),0) AS gross_commission,
+              COALESCE(SUM(net_profit),0) AS net_profit
+         FROM closings
+         WHERE EXTRACT(YEAR FROM closing_date) = EXTRACT(YEAR FROM CURRENT_DATE)
+           AND status IN ('closed','firm','pending')`),
+    q(`SELECT COUNT(*) AS done FROM crm_followups
+         WHERE status='done' AND completed_at >= CURRENT_DATE - INTERVAL '7 days'`),
+    q(`SELECT contact_name, due_date FROM crm_followups
+         WHERE status='open' AND due_date < CURRENT_DATE LIMIT 10`),
+    q(`SELECT title, platform, scheduled_for FROM marketing_items
+         WHERE status='posted' AND updated_at >= CURRENT_DATE - INTERVAL '7 days' LIMIT 20`),
+    q(`SELECT title, platform, scheduled_for FROM marketing_items
+         WHERE status='scheduled' AND scheduled_for < NOW() LIMIT 10`),
+    q(`SELECT workout_date, workout_type, completed FROM workouts
+         WHERE workout_date >= CURRENT_DATE - INTERVAL '7 days' ORDER BY workout_date DESC`),
+    q(`SELECT value FROM app_settings WHERE key = 'workout_week_target'`),
+    q(`SELECT meal_date, COUNT(*) AS meals_logged FROM meal_plan
+         WHERE meal_date >= CURRENT_DATE - INTERVAL '7 days' GROUP BY meal_date`)
+  ]);
+  return {
+    closings_closed_this_week: closingsClosed,
+    deals_went_firm_this_week: closingsFirm,
+    pipeline: dealsPipeline[0] || {},
+    ytd: ytd[0] || {},
+    crm_completed_this_week: Number(crmDone[0]?.done || 0),
+    crm_overdue: crmOverdue,
+    marketing_posted_this_week: marketingPosted,
+    marketing_past_due: marketingMissed,
+    workouts_last_7_days: workouts7,
+    workout_target_per_week: workoutTarget[0]?.value || 5,
+    meal_days_logged: mealsDays.length
+  };
+}
+
+/**
  * "What did I forget?" — compares recent activity + goals (from app_settings)
  * against upcoming commitments and flags blind spots.
  */

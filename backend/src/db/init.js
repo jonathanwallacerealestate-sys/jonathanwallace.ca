@@ -319,6 +319,32 @@ async function initDb() {
         UNIQUE (url)
       );
 
+      -- Scheduled jobs — recurring agent tasks, briefings, gap analyses,
+      -- weekly reviews, and Claude Chrome workflow reminders.
+      -- Time fields are interpreted in America/Toronto.
+      CREATE TABLE IF NOT EXISTS scheduled_tasks (
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(150) NOT NULL UNIQUE,
+        description TEXT,
+        kind VARCHAR(50) NOT NULL,                  -- agent_task | briefing | weekly_review | gap_analysis | chrome_workflow
+        payload JSONB DEFAULT '{}',
+        frequency VARCHAR(20) NOT NULL DEFAULT 'daily',  -- hourly | daily | weekly | monthly
+        run_at_hour INTEGER DEFAULT 7,             -- 0-23
+        run_at_minute INTEGER DEFAULT 0,           -- 0-59
+        run_at_dow INTEGER,                         -- 0-6 (0=Sunday) for weekly
+        run_at_dom INTEGER,                         -- 1-31 for monthly
+        deliver_via VARCHAR(20) DEFAULT 'dashboard',-- dashboard | email | both
+        deliver_to VARCHAR(255),                    -- email override
+        enabled BOOLEAN DEFAULT TRUE,
+        last_run_at TIMESTAMP WITH TIME ZONE,
+        last_status VARCHAR(20),
+        last_result JSONB,
+        next_run_at TIMESTAMP WITH TIME ZONE,
+        run_count INTEGER DEFAULT 0,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+      );
+
       -- Letters of Opinion (LOO / LOV). Written estimates of market value
       -- that Jonathan produces for sellers, lawyers, estate & divorce files.
       CREATE TABLE IF NOT EXISTS letter_opinions (
@@ -423,6 +449,7 @@ async function initDb() {
       CREATE INDEX IF NOT EXISTS idx_vocab_term ON agent_vocabulary(term);
       CREATE INDEX IF NOT EXISTS idx_memory_key ON agent_memory(key);
       CREATE INDEX IF NOT EXISTS idx_memory_importance ON agent_memory(importance DESC);
+      CREATE INDEX IF NOT EXISTS idx_sched_next ON scheduled_tasks(enabled, next_run_at);
       CREATE INDEX IF NOT EXISTS idx_loo_status ON letter_opinions(status);
       CREATE INDEX IF NOT EXISTS idx_loo_prepared ON letter_opinions(prepared_date DESC);
       CREATE INDEX IF NOT EXISTS idx_loo_seller_form ON letter_opinions(seller_form_id);

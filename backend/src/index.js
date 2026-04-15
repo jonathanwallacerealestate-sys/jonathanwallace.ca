@@ -29,8 +29,10 @@ const intuitionRoutes = require('./routes/intuition');
 const lettersRoutes = require('./routes/letters');
 const chromeRoutes = require('./routes/chrome');
 const toolsRoutes = require('./routes/tools');
+const schedulesRoutes = require('./routes/schedules');
 const { initDb } = require('./db/init');
 const { startWorker } = require('./services/worker');
+const { start: startScheduler } = require('./services/scheduler');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -86,6 +88,7 @@ app.use('/api/intuition', intuitionRoutes);
 app.use('/api/letters', lettersRoutes);
 app.use('/api/chrome', chromeRoutes);
 app.use('/api/tools', toolsRoutes);
+app.use('/api/schedules', schedulesRoutes);
 app.use('/dashboard', dashboardRoutes);
 
 app.get('/', (req, res) => {
@@ -120,6 +123,9 @@ async function start() {
     } else {
       console.warn('WARNING: No ANTHROPIC_API_KEY set — task worker disabled');
     }
+
+    startScheduler();
+    console.log('Scheduler started');
 
     app.listen(PORT, '0.0.0.0', () => {
       console.log('API server running on port ' + PORT);

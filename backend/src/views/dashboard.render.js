@@ -83,8 +83,11 @@
         body = '<p>Still processing — refresh in a moment.</p>';
       }
       openModal(task.type.replace(/_/g, ' ') + ' — ' + task.status, body,
-        `<button class="btn-secondary" onclick="DB.closeModal()">Close</button>
+        `${task.result && task.result.content ? `<button class="btn-secondary" id="teach-claude-btn">Teach Claude</button>` : ''}
+         <button class="btn-secondary" onclick="DB.closeModal()">Close</button>
          ${task.result && task.result.content ? `<button class="btn-primary" onclick="navigator.clipboard.writeText(${JSON.stringify(task.result.content)});DB.toast('Copied','success')">Copy</button>` : ''}`);
+      const teachBtn = document.getElementById('teach-claude-btn');
+      if (teachBtn) teachBtn.onclick = () => teachFromTask(task.id);
     } catch (e) { toast(e.message, 'error'); }
   }
 
@@ -420,11 +423,44 @@
     }).join('');
   }
 
+  async function teachFromTask(taskId) {
+    const { openModal, api, toast } = window.DB;
+    toast('Looking for new things to remember…');
+    try {
+      const data = await api('/api/intuition/learn-from-task/' + taskId, { method: 'POST', body: '{}' });
+      const v = (data.suggestions && data.suggestions.vocabulary) || [];
+      const m = (data.suggestions && data.suggestions.memory) || [];
+      if (!v.length && !m.length) {
+        return toast('Nothing new to teach — Claude already knew the relevant context');
+      }
+      const vList = v.map(x => `<li><strong>${escapeHtml(x.term)}</strong> — ${escapeHtml(x.expansion)} <span style="color:var(--muted);font-size:0.75rem">(${escapeHtml(x.category || 'real_estate')}, weight ${x.weight || 5})</span></li>`).join('');
+      const mList = m.map(x => `<li><strong>${escapeHtml(x.key)}</strong> — ${escapeHtml(x.value)} <span style="color:var(--muted);font-size:0.75rem">(${escapeHtml(x.category || 'preference')}, importance ${x.importance || 5})</span></li>`).join('');
+      openModal('Teach Claude — review suggestions', `
+        ${v.length ? `<h4 style="margin:0 0 0.4rem;font-size:0.85rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px">Vocabulary</h4><ul style="margin:0 0 1rem 1.25rem;font-size:0.9rem;line-height:1.5">${vList}</ul>` : ''}
+        ${m.length ? `<h4 style="margin:0 0 0.4rem;font-size:0.85rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px">Memory</h4><ul style="margin:0 0 0.5rem 1.25rem;font-size:0.9rem;line-height:1.5">${mList}</ul>` : ''}
+        <p style="font-size:0.8rem;color:var(--muted);margin-top:1rem">These will be added to Claude's vocabulary and long-term memory and will be used in every future request.</p>
+      `, `
+        <button class="btn-secondary" onclick="DB.closeModal()">Discard</button>
+        <button class="btn-primary" id="apply-teach">Save All</button>
+      `);
+      document.getElementById('apply-teach').onclick = async () => {
+        try {
+          const r = await api('/api/intuition/learn-from-task/' + taskId, {
+            method: 'POST', body: JSON.stringify({ apply: true })
+          });
+          const totalApplied = (r.applied.vocabulary.length + r.applied.memory.length);
+          toast(`Saved ${totalApplied} new entr${totalApplied === 1 ? 'y' : 'ies'}`, 'success');
+          window.DB.closeModal();
+        } catch (e) { toast(e.message, 'error'); }
+      };
+    } catch (e) { toast(e.message, 'error'); }
+  }
+
   // Expose renderers
   window.DB_RENDER = {
     renderNav, renderTasks, renderEmails, renderCrm, renderCalendar,
     renderClosings, renderPersonal, renderWorkouts, renderMeals,
-    renderMarketing, renderCustom, viewTask, submitAgent
+    renderMarketing, renderCustom, viewTask, submitAgent, teachFromTask
   };
 })();
 
