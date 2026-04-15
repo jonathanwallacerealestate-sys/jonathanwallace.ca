@@ -48,8 +48,49 @@
   }
 
   async function render() {
-    await Promise.all([renderGoals(), renderPowerHour()]);
+    await Promise.all([renderGoals(), renderPowerHour(), renderListingMatchBanner()]);
   }
+
+  // Cache matches for 10 min to avoid hitting FUB on every render
+  let _matchCache = { at: 0, data: null };
+  async function renderListingMatchBanner() {
+    const host = document.getElementById('listing-match-banner');
+    if (!host) return;
+    const now = Date.now();
+    let data = _matchCache.data;
+    if (!data || (now - _matchCache.at) > 10 * 60 * 1000) {
+      try {
+        data = await api('/api/fub/listing-matches?days=14');
+        _matchCache = { at: now, data };
+      } catch (e) {
+        host.style.display = 'none';
+        return;
+      }
+    }
+    if (!data || !data.match_count) { host.style.display = 'none'; return; }
+    const top = (data.matches || []).slice(0, 3);
+    host.style.display = '';
+    host.innerHTML = `
+      <div style="display:flex;align-items:flex-start;gap:0.75rem">
+        <div style="font-size:1.2rem;line-height:1.2">🎯</div>
+        <div style="flex:1;min-width:0">
+          <div style="font-weight:600;margin-bottom:0.25rem">
+            ${data.match_count} recent lead${data.match_count === 1 ? '' : 's'} match your active listings
+          </div>
+          <div style="font-size:0.8rem;color:#92400e;line-height:1.5">
+            ${top.map(m => {
+              const firstListing = m.listings[0];
+              return `<strong>${escapeHtml(m.person.name || 'Unknown')}</strong>
+                      <span style="color:#78350f">&nbsp;↔&nbsp; ${escapeHtml(firstListing.address)}${firstListing.city ? ', ' + escapeHtml(firstListing.city) : ''}</span>`;
+            }).join(' &nbsp;·&nbsp; ')}
+            ${data.match_count > 3 ? `<span style="color:#78350f"> &nbsp;·&nbsp; +${data.match_count - 3} more</span>` : ''}
+          </div>
+          <button class="btn-secondary" data-leadgen="show-listing-matches" style="margin-top:0.5rem;padding:0.3rem 0.7rem;font-size:0.75rem">See all matches</button>
+        </div>
+      </div>
+    `;
+  }
+
 
   // ---------- Activity goals ----------
   async function renderGoals() {
@@ -114,8 +155,42 @@
         case 'view-debrief':  return viewDebrief(id);
         case 'analyze-call':  return reanalyzeCall(id);
         case 'consent':       return showConsent();
+        case 'show-listing-matches': return openListingMatchesModal();
       }
     } catch (e) { toast(e.message, 'error'); }
+  }
+
+  async function openListingMatchesModal() {
+    const data = _matchCache.data || await api('/api/fub/listing-matches?days=30');
+    _matchCache = { at: Date.now(), data };
+    const matches = data.matches || [];
+    if (!matches.length) return toast('No active listing matches right now', 'error');
+
+    const rows = matches.map(m => `
+      <div style="padding:0.75rem 0.9rem;border:1px solid var(--border);border-radius:8px;margin-bottom:0.5rem">
+        <div style="font-weight:600;font-size:0.9rem">
+          ${escapeHtml(m.person.name || 'Unknown')}
+          ${m.person.stage ? `<span class="badge normal" style="margin-left:0.4rem">${escapeHtml(m.person.stage)}</span>` : ''}
+          ${m.person.source ? `<span style="color:var(--muted);font-size:0.72rem;font-weight:400;margin-left:0.3rem">· ${escapeHtml(m.person.source)}</span>` : ''}
+        </div>
+        <div style="margin-top:0.35rem">
+          ${m.listings.map(L => `
+            <div style="font-size:0.82rem;padding:0.3rem 0;border-top:1px dashed var(--border)">
+              <strong>${escapeHtml(L.address)}</strong>${L.city ? ', ' + escapeHtml(L.city) : ''}
+              ${L.price ? `<span style="color:var(--muted);margin-left:0.3rem">— $${Number(L.price).toLocaleString()}</span>` : ''}
+              <div style="color:var(--muted);font-size:0.7rem;margin-top:0.1rem">matched: ${escapeHtml(L.signals.join(' · '))}</div>
+            </div>
+          `).join('')}
+        </div>
+        <div style="margin-top:0.4rem">
+          <button class="btn-secondary" data-action="view-fub-person" data-id="${m.person.id}" style="padding:0.3rem 0.7rem;font-size:0.75rem">Open contact</button>
+        </div>
+      </div>
+    `).join('');
+
+    openModal(`Listing ↔ lead matches · last ${data.leads_scanned} leads vs ${data.listings_scanned} active listings`, rows, `
+      <button class="btn-secondary" onclick="DB.closeModal()">Close</button>
+    `);
   }
 
   async function logQuick(type) {

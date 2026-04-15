@@ -471,6 +471,99 @@ function mapTaskType(t) {
   return m[(t || '').toLowerCase()] || 'Other';
 }
 
+// ---------- Listing-match alerts ----------
+
+/**
+ * GET /api/fub/listing-matches
+ * For every FUB person created in the last N days (default 30), try to match
+ * their implied criteria against our local listings table and return any hits.
+ *
+ * Matching is deliberately fuzzy + lenient — we use the person's source,
+ * tags, and any free-text in their stage/source/notes plus their name, and
+ * match against listing address/city/property_type/description.
+ *
+ * Returns { matches: [{ person, listings: [...] }] }
+ * Useful as a dashboard alert: "3 leads match 5 of your active listings".
+ */
+router.get('/listing-matches', async (req, res) => {
+  try {
+    const key = await fub.getApiKey();
+    if (!key) return res.status(503).json({ error: 'FUB not configured' });
+    const days = parseInt(req.query.days) || 30;
+
+    // Pull recent leads (limit 100)
+    const peopleResp = await fub.listPeople({ limit: 100, sort: '-created' });
+    const cutoff = new Date(Date.now() - days * 86400000);
+    const recent = (peopleResp.people || []).filter(p => p.created && new Date(p.created) >= cutoff);
+
+    // Load active listings
+    const { rows: listings } = await pool.query(
+      `SELECT id, mls_number, address, city, price, bedrooms, bathrooms,
+              square_footage, property_type, description, features
+         FROM listings
+        WHERE status IN ('active', 'new')
+        ORDER BY listed_date DESC NULLS LAST
+        LIMIT 100`
+    );
+    if (!listings.length) return res.json({ matches: [], listings_scanned: 0, leads_scanned: recent.length });
+
+    const matches = [];
+    for (const p of recent) {
+      // Build a searchable blob from the person's data
+      const personBlob = [
+        p.name, p.firstName, p.lastName,
+        p.stage, p.source, (p.tags || []).join(' '),
+        (p.phones || []).map(x => x.value).join(' '),
+        (p.emails || []).map(x => x.value).join(' '),
+        (p.customFields ? JSON.stringify(p.customFields) : '')
+      ].filter(Boolean).join(' ').toLowerCase();
+
+      // Match each listing against the blob
+      const hits = [];
+      for (const L of listings) {
+        // Community name match (big signal — SOGB towns)
+        const city = (L.city || '').toLowerCase();
+        const matchSignals = [];
+        if (city && personBlob.includes(city)) matchSignals.push('city:' + L.city);
+        // Property type
+        const pt = (L.property_type || '').toLowerCase();
+        if (pt && personBlob.includes(pt)) matchSignals.push('type:' + L.property_type);
+        // MLS-number exact reference
+        if (L.mls_number && personBlob.includes(L.mls_number.toLowerCase())) matchSignals.push('mls:' + L.mls_number);
+        // Address fragment (last 1-3 words of street name)
+        if (L.address) {
+          const words = L.address.toLowerCase().split(/\s+/).filter(w => w.length > 3);
+          for (const w of words) {
+            if (personBlob.includes(w)) { matchSignals.push('address:' + w); break; }
+          }
+        }
+        if (matchSignals.length) {
+          hits.push({
+            listing_id: L.id,
+            address: L.address,
+            city: L.city,
+            price: L.price,
+            signals: matchSignals
+          });
+        }
+      }
+      if (hits.length) {
+        matches.push({
+          person: { id: p.id, name: p.name, source: p.source, stage: p.stage, created: p.created },
+          listings: hits.slice(0, 5)
+        });
+      }
+    }
+
+    res.json({
+      leads_scanned: recent.length,
+      listings_scanned: listings.length,
+      match_count: matches.length,
+      matches
+    });
+  } catch (e) { handleFubError(res, e); }
+});
+
 // ---------- Auto-respond to fresh leads ----------
 
 /**
