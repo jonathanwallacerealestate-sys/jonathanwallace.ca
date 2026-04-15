@@ -734,7 +734,8 @@ async function initDb() {
         ('dashboard_greeting',     '"Let''s have a great day."'::jsonb, 'Greeting shown at top of dashboard'),
         ('spotify_client_id',      'null'::jsonb,                       'Spotify Web API client ID (from developer.spotify.com app)'),
         ('spotify_client_secret',  'null'::jsonb,                       'Spotify Web API client secret'),
-        ('spotify_refresh_token',  'null'::jsonb,                       'Spotify refresh token saved after first OAuth flow')
+        ('spotify_refresh_token',  'null'::jsonb,                       'Spotify refresh token saved after first OAuth flow'),
+        ('fub_api_key',            'null'::jsonb,                       'Follow Up Boss API key (FUB → Admin → API). Jonathan pastes this into dashboard Settings → Integrations. Overridden by FUB_API_KEY env var if set.')
       ON CONFLICT (key) DO NOTHING;
     `);
 
