@@ -80,6 +80,23 @@ Dashboard (Jonathan's Agent Command Center):
 - complete_task (marks items as done across any section)
 - search_dashboard (find an item before referencing or completing it)
 
+Follow Up Boss (Jonathan's CRM — "FUB"):
+- fub_find_person (ALWAYS call first if you only have a name — returns the FUB id)
+- fub_add_note      (log a thought / call recap against a contact)
+- fub_create_task   (schedule a follow-up tied to a contact)
+- fub_complete_task (mark a FUB task done)
+- fub_update_stage  (move a contact through the pipeline)
+- fub_create_person (register a brand-new lead — open house, referral, inquiry)
+
+Rules for FUB:
+- "Add Sarah Mitchell as a lead" → fub_create_person.
+- "Log that I just called Tom about the Midland listing" → fub_find_person then fub_add_note.
+- "Remind me to follow up with the Smiths next Tuesday" → fub_find_person then fub_create_task.
+- If fub_find_person returns needs_disambiguation: true, show the candidates to
+  Jonathan and ask which one — don't guess.
+- Prefer the FUB tools over create_crm_followup when the contact already lives
+  in FUB; only use create_crm_followup for standalone dashboard-only follow-ups.
+
 When Jonathan says things like "Add an errand to pick up dry cleaning tomorrow" or
 "Log that I did legs for 45 minutes" or "Mark my call with the Smiths as done",
 use the dashboard tools to update his Command Center directly. Always confirm the
@@ -262,6 +279,92 @@ const TOOLS = [
         scope: { type: 'string', enum: ['all','personal','crm','closings','marketing'], description: 'Which table(s) to search' }
       },
       required: ['query']
+    }
+  },
+
+  // -------- Follow Up Boss tools (direct REST via services/fub.js) --------
+  // These let Jonathan say things like "add Sarah Mitchell as a lead, phone
+  // 705-555-1234, she's looking in Midland under $800k" or "tell FUB I just
+  // had a great 20-min call with the Smith lead" and Claude does it.
+  {
+    name: 'fub_find_person',
+    description: 'Search Follow Up Boss for a person by email, phone, or name. Returns the FUB person id + profile so you can follow up with fub_add_note, fub_create_task, or fub_update_stage. ALWAYS call this first if you only have a name.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        email: { type: 'string', description: 'Email to search for' },
+        phone: { type: 'string', description: 'Phone number to search for (digits only or any format)' },
+        name:  { type: 'string', description: 'Full name or partial name to search' }
+      }
+    }
+  },
+  {
+    name: 'fub_add_note',
+    description: 'Add a note to a person in Follow Up Boss. Use this for "log what was discussed", "capture a thought about this lead", or after a call/meeting.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        person_id: { type: 'integer', description: 'FUB person id (get via fub_find_person first)' },
+        subject:   { type: 'string',  description: 'Optional short subject line' },
+        body:      { type: 'string',  description: 'The note content (plain text or HTML)' }
+      },
+      required: ['person_id', 'body']
+    }
+  },
+  {
+    name: 'fub_create_task',
+    description: 'Create a follow-up task in Follow Up Boss. Use for "remind me to call Sarah Friday", "schedule a check-in", or any forward-looking reminder tied to a specific person.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        person_id:  { type: 'integer', description: 'FUB person id' },
+        name:       { type: 'string',  description: 'Task title (e.g. "Call about Midland lakefront")' },
+        type:       { type: 'string',  enum: ['Call','Email','Text','Meeting','Showing','Other'], description: 'Task type' },
+        due_date:   { type: 'string',  description: 'Due date YYYY-MM-DD or "today"/"tomorrow"/"next <weekday>"' },
+        description:{ type: 'string',  description: 'Optional longer description' }
+      },
+      required: ['person_id', 'name']
+    }
+  },
+  {
+    name: 'fub_complete_task',
+    description: 'Mark a FUB task as completed. Use after you\'ve actually done the thing.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        task_id: { type: 'integer' },
+        notes:   { type: 'string', description: 'Optional outcome notes to append' }
+      },
+      required: ['task_id']
+    }
+  },
+  {
+    name: 'fub_update_stage',
+    description: 'Update a person\'s stage in Follow Up Boss (e.g. move from "New Lead" to "Nurture", or to "Active Client").',
+    input_schema: {
+      type: 'object',
+      properties: {
+        person_id: { type: 'integer' },
+        stage:     { type: 'string', description: 'Exact stage name as it appears in FUB (case-sensitive)' }
+      },
+      required: ['person_id', 'stage']
+    }
+  },
+  {
+    name: 'fub_create_person',
+    description: 'Create a new lead/contact in Follow Up Boss. Use when meeting someone new at an open house, an online inquiry, or a referral — before any other FUB tool works on them.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        first_name: { type: 'string' },
+        last_name:  { type: 'string' },
+        email:      { type: 'string' },
+        phone:      { type: 'string' },
+        source:     { type: 'string', description: 'Where this lead came from (e.g. "Open House", "Website", "Referral")' },
+        stage:      { type: 'string', description: 'Initial stage (e.g. "Lead", "New Lead")' },
+        note:       { type: 'string', description: 'Optional first-contact note to attach' }
+      },
+      required: ['first_name']
     }
   }
 ];
@@ -469,6 +572,84 @@ async function executeDashboardTool(toolName, input) {
   throw new Error('Unhandled dashboard tool: ' + toolName);
 }
 
+// -------- Follow Up Boss tool execution --------
+const FUB_TOOLS = ['fub_find_person','fub_add_note','fub_create_task','fub_complete_task','fub_update_stage','fub_create_person'];
+let _fubClient = null;
+function getFub() {
+  if (!_fubClient) _fubClient = require('./fub');
+  return _fubClient;
+}
+
+async function executeFubTool(toolName, input) {
+  const fub = getFub();
+  switch (toolName) {
+    case 'fub_find_person': {
+      if (input.email) {
+        const p = await fub.findPersonByEmail(input.email);
+        if (p) return { success: true, person: p, match_by: 'email' };
+      }
+      if (input.phone) {
+        const p = await fub.findPersonByPhone(input.phone);
+        if (p) return { success: true, person: p, match_by: 'phone' };
+      }
+      if (input.name) {
+        const list = await fub.listPeople({ search: input.name, limit: 5 });
+        const people = (list && list.people) || [];
+        if (people.length === 1) return { success: true, person: people[0], match_by: 'name' };
+        if (people.length > 1) return { success: true, candidates: people.map(p => ({ id: p.id, name: p.name, email: p.emails?.[0]?.value, phone: p.phones?.[0]?.value, stage: p.stage })), needs_disambiguation: true };
+      }
+      return { success: false, message: 'No person found matching the provided identifiers.' };
+    }
+    case 'fub_add_note': {
+      const note = await fub.createNote({
+        personId: input.person_id,
+        subject: input.subject || null,
+        body: input.body,
+        isHtml: false
+      });
+      return { success: true, note_id: note.id, person_id: input.person_id };
+    }
+    case 'fub_create_task': {
+      const due = resolveDate(input.due_date);
+      const task = await fub.createTask({
+        personId: input.person_id,
+        name: input.name,
+        type: input.type || 'Call',
+        dueDate: due ? new Date(due + 'T09:00:00').toISOString() : undefined,
+        description: input.description || null,
+        status: 'Active'
+      });
+      return { success: true, task_id: task.id, due_date: due };
+    }
+    case 'fub_complete_task': {
+      const r = await fub.completeTask(input.task_id, { notes: input.notes });
+      return { success: true, task_id: input.task_id, status: r.status };
+    }
+    case 'fub_update_stage': {
+      await fub.updatePerson(input.person_id, { stage: input.stage });
+      return { success: true, person_id: input.person_id, stage: input.stage };
+    }
+    case 'fub_create_person': {
+      const body = {
+        firstName: input.first_name,
+        lastName: input.last_name || null,
+        source: input.source || 'Dashboard Agent',
+        stage: input.stage || 'Lead'
+      };
+      if (input.email) body.emails = [{ value: input.email, type: 'primary' }];
+      if (input.phone) body.phones = [{ value: input.phone, type: 'mobile' }];
+      const person = await fub.createPerson(body);
+      if (input.note) {
+        try {
+          await fub.createNote({ personId: person.id, body: input.note, isHtml: false });
+        } catch (e) { /* best effort */ }
+      }
+      return { success: true, person_id: person.id, name: person.name };
+    }
+  }
+  throw new Error('Unhandled FUB tool: ' + toolName);
+}
+
 async function executeToolCall(toolName, toolInput) {
   try {
     if (EMAIL_TOOLS.includes(toolName)) {
@@ -478,6 +659,10 @@ async function executeToolCall(toolName, toolInput) {
     if (DASHBOARD_TOOLS.includes(toolName)) {
       console.log(`[Claude] Routing ${toolName} via dashboard Postgres`);
       return await executeDashboardTool(toolName, toolInput);
+    }
+    if (FUB_TOOLS.includes(toolName)) {
+      console.log(`[Claude] Routing ${toolName} via Follow Up Boss API`);
+      return await executeFubTool(toolName, toolInput);
     }
     console.log(`[Claude] Routing ${toolName} via Make.com calendar gateway`);
     return await executeMakeWebhook(toolName, toolInput);
