@@ -10,6 +10,17 @@ This is a fully static, responsive website built with modern HTML, CSS, and Java
 **Service Area:** Southern Georgian Bay (Midland, Penetanguishene, Tiny Township, Tay Township, Wasaga Beach)  
 **Tagline:** Your Georgian Bay Real Estate Experts
 
+## Agent Command Center
+
+The Railway backend includes a private agent dashboard at `/dashboard?key=API_KEY`
+that aggregates daily tasks, email triage, Follow-Up Boss CRM follow-ups,
+calendar, closings + P&L, personal tasks, workouts, meal prep, and marketing —
+all in one browser page. Make.com scenarios push live data in from Gmail,
+Follow-Up Boss, and Google Calendar; Claude processes agent tasks on Railway.
+
+See [`backend/DASHBOARD.md`](backend/DASHBOARD.md) for full setup, API docs,
+and Make.com scenario templates.
+
 ## File Structure
 
 ```

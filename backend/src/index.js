@@ -11,8 +11,32 @@ const listingsRoutes = require('./routes/listings');
 const healthRoutes = require('./routes/health');
 const tasksRoutes = require('./routes/tasks');
 const dashboardRoutes = require('./routes/dashboard');
+const personalTasksRoutes = require('./routes/personalTasks');
+const flaggedEmailsRoutes = require('./routes/flaggedEmails');
+const crmFollowupsRoutes = require('./routes/crmFollowups');
+const calendarRoutes = require('./routes/calendar');
+const closingsRoutes = require('./routes/closings');
+const workoutsRoutes = require('./routes/workouts');
+const mealsRoutes = require('./routes/meals');
+const marketingRoutes = require('./routes/marketing');
+const categoriesRoutes = require('./routes/categories');
+const syncRoutes = require('./routes/sync');
+const dailyBriefRoutes = require('./routes/dailyBrief');
+const settingsRoutes = require('./routes/settings');
+const briefingRoutes = require('./routes/briefing');
+const eventsRoutes = require('./routes/events');
+const intuitionRoutes = require('./routes/intuition');
+const lettersRoutes = require('./routes/letters');
+const chromeRoutes = require('./routes/chrome');
+const toolsRoutes = require('./routes/tools');
+const schedulesRoutes = require('./routes/schedules');
+const activityRoutes = require('./routes/activity');
+const powerHourRoutes = require('./routes/powerHour');
+const learningRoutes = require('./routes/learning');
+const spotifyRoutes = require('./routes/spotify');
 const { initDb } = require('./db/init');
 const { startWorker } = require('./services/worker');
+const { start: startScheduler } = require('./services/scheduler');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -50,6 +74,29 @@ app.use('/api/contact', contactRoutes);
 app.use('/api/seller-form', sellerFormRoutes);
 app.use('/api/listings', listingsRoutes);
 app.use('/api/tasks', tasksRoutes);
+app.use('/api/personal-tasks', personalTasksRoutes);
+app.use('/api/emails', flaggedEmailsRoutes);
+app.use('/api/follow-ups', crmFollowupsRoutes);
+app.use('/api/calendar', calendarRoutes);
+app.use('/api/closings', closingsRoutes);
+app.use('/api/workouts', workoutsRoutes);
+app.use('/api/meals', mealsRoutes);
+app.use('/api/marketing', marketingRoutes);
+app.use('/api/categories', categoriesRoutes);
+app.use('/api/sync', syncRoutes);
+app.use('/api/daily-brief', dailyBriefRoutes);
+app.use('/api/settings', settingsRoutes);
+app.use('/api/brief', briefingRoutes);
+app.use('/api/events', eventsRoutes);
+app.use('/api/intuition', intuitionRoutes);
+app.use('/api/letters', lettersRoutes);
+app.use('/api/chrome', chromeRoutes);
+app.use('/api/tools', toolsRoutes);
+app.use('/api/schedules', schedulesRoutes);
+app.use('/api/activity', activityRoutes);
+app.use('/api/power-hour', powerHourRoutes);
+app.use('/api/learning', learningRoutes);
+app.use('/api/spotify', spotifyRoutes);
 app.use('/dashboard', dashboardRoutes);
 
 app.get('/', (req, res) => {
@@ -84,6 +131,9 @@ async function start() {
     } else {
       console.warn('WARNING: No ANTHROPIC_API_KEY set — task worker disabled');
     }
+
+    startScheduler();
+    console.log('Scheduler started');
 
     app.listen(PORT, '0.0.0.0', () => {
       console.log('API server running on port ' + PORT);

@@ -1,7 +1,30 @@
 const Anthropic = require('@anthropic-ai/sdk');
 const { google } = require('googleapis');
+const pool = require('../db/pool');
+const intuition = require('./intuition');
 
 const anthropic = new Anthropic();
+
+// Resolve "today", "tomorrow", "next <weekday>" to YYYY-MM-DD.
+// Falls back to returning the input unchanged if it's already a date string.
+function resolveDate(input) {
+  if (!input) return null;
+  const s = String(input).trim().toLowerCase();
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  if (s === 'today') return d.toISOString().slice(0, 10);
+  if (s === 'tomorrow') { d.setDate(d.getDate() + 1); return d.toISOString().slice(0, 10); }
+  const weekdays = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'];
+  const m = s.match(/^(?:next\s+)?(sun|mon|tue|wed|thu|fri|sat)/i);
+  if (m) {
+    const target = weekdays.findIndex(w => w.startsWith(m[1].toLowerCase()));
+    const diff = (target - d.getDay() + 7) % 7 || 7;
+    d.setDate(d.getDate() + diff);
+    return d.toISOString().slice(0, 10);
+  }
+  return null;
+}
 
 // Gmail API setup using OAuth2 refresh token
 const oauth2Client = new google.auth.OAuth2(
@@ -45,7 +68,23 @@ Keep formatting clean, easy to copy and paste. Avoid long paragraphs. Be clear a
 
 For non-marketing tasks, follow instructions precisely and return structured, actionable results.
 
-You have access to tools that let you take real actions: send emails, create calendar events, search calendars, and create email drafts. Use these tools when the user's instruction requires taking an action beyond generating text. Always confirm what action you are taking in your response.`;
+You have access to tools that let you take real actions on Jonathan's behalf:
+
+Email & Calendar:
+- send_email, create_email_draft
+- create_calendar_event, list_calendar_events
+- search_google_drive
+
+Dashboard (Jonathan's Agent Command Center):
+- create_personal_task, create_crm_followup, log_workout, add_meal, schedule_marketing
+- complete_task (marks items as done across any section)
+- search_dashboard (find an item before referencing or completing it)
+
+When Jonathan says things like "Add an errand to pick up dry cleaning tomorrow" or
+"Log that I did legs for 45 minutes" or "Mark my call with the Smiths as done",
+use the dashboard tools to update his Command Center directly. Always confirm the
+action concisely in your response — but don't list SQL IDs, just say what you did
+in plain English.`;
 
 // Tool definitions for Claude's native tool_use
 const TOOLS = [
@@ -110,6 +149,117 @@ const TOOLS = [
       type: 'object',
       properties: {
         query: { type: 'string', description: 'Search query for files/folders (e.g. "123 Main St photos")' }
+      },
+      required: ['query']
+    }
+  },
+
+  // -------- Dashboard-native tools (direct Postgres writes) --------
+  // These let the agent manage Jonathan's day-to-day dashboard items in
+  // response to natural-language instructions like "Add a personal task to
+  // call the dry cleaner tomorrow" or "Log that I did legs for 45 minutes."
+  {
+    name: 'create_personal_task',
+    description: 'Create a personal to-do in Jonathan\'s dashboard. Use for errands, family items, admin, learning goals — anything that isn\'t a business/CRM task.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        title: { type: 'string', description: 'Short task title' },
+        notes: { type: 'string', description: 'Optional additional details' },
+        category: { type: 'string', enum: ['personal','family','errand','admin','learning','health'], description: 'Category' },
+        priority: { type: 'integer', minimum: 1, maximum: 5, description: '1=lowest, 5=highest' },
+        due_date: { type: 'string', description: 'YYYY-MM-DD or "today"/"tomorrow"' }
+      },
+      required: ['title']
+    }
+  },
+  {
+    name: 'create_crm_followup',
+    description: 'Create a CRM follow-up for Jonathan (separate from Follow-Up Boss push — use this for manual additions the agent generates).',
+    input_schema: {
+      type: 'object',
+      properties: {
+        contact_name: { type: 'string' },
+        contact_email: { type: 'string' },
+        contact_phone: { type: 'string' },
+        follow_up_type: { type: 'string', description: 'call, email, text, meeting, showing, etc.' },
+        due_date: { type: 'string', description: 'YYYY-MM-DD or "today"/"tomorrow"' },
+        notes: { type: 'string' }
+      },
+      required: ['contact_name', 'follow_up_type']
+    }
+  },
+  {
+    name: 'log_workout',
+    description: 'Log today\'s workout in the dashboard. Use when Jonathan says he did a workout or wants to plan one.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        title: { type: 'string', description: 'Workout title (e.g. "Push Day", "5k run")' },
+        workout_type: { type: 'string', enum: ['strength','cardio','mobility','hiit','rest','sport'] },
+        duration_minutes: { type: 'integer', minimum: 0 },
+        intensity: { type: 'string', enum: ['low','moderate','high','max'] },
+        calories_burned: { type: 'integer' },
+        notes: { type: 'string' },
+        completed: { type: 'boolean', description: 'true if already done, false if planning ahead' }
+      },
+      required: ['workout_type']
+    }
+  },
+  {
+    name: 'add_meal',
+    description: 'Add a meal to today\'s meal plan with optional macros.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'Meal name' },
+        meal_type: { type: 'string', enum: ['breakfast','snack_morning','lunch','snack_afternoon','dinner','snack_evening'] },
+        calories: { type: 'integer' },
+        protein_g: { type: 'integer' },
+        carbs_g: { type: 'integer' },
+        fat_g: { type: 'integer' },
+        prep_notes: { type: 'string' }
+      },
+      required: ['meal_type']
+    }
+  },
+  {
+    name: 'schedule_marketing',
+    description: 'Create or schedule a marketing item (post, reel, email blast, ad).',
+    input_schema: {
+      type: 'object',
+      properties: {
+        title: { type: 'string' },
+        platform: { type: 'string', enum: ['instagram','facebook','tiktok','linkedin','youtube','email','google','print'] },
+        campaign_type: { type: 'string', enum: ['post','reel','story','ad','email_blast','newsletter','video','open_house'] },
+        content: { type: 'string', description: 'Caption / body copy' },
+        scheduled_for: { type: 'string', description: 'ISO 8601 datetime — when to publish' },
+        status: { type: 'string', enum: ['draft','scheduled'] }
+      },
+      required: ['title']
+    }
+  },
+  {
+    name: 'complete_task',
+    description: 'Mark a dashboard item as done. Use when Jonathan says "I did X" or "mark X as done". The type parameter tells which table to update.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        type: { type: 'string', enum: ['personal','crm','workout','meal','email','marketing'] },
+        id: { type: 'integer', description: 'ID of the item (from a prior search result)' },
+        title_match: { type: 'string', description: 'If no ID known, a fuzzy title substring to match (case-insensitive)' }
+      },
+      required: ['type']
+    }
+  },
+  {
+    name: 'search_dashboard',
+    description: 'Search across the dashboard (personal tasks, CRM follow-ups, closings, marketing) by keyword. Use to find an item before referencing or completing it.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'Keyword to search for' },
+        scope: { type: 'string', enum: ['all','personal','crm','closings','marketing'], description: 'Which table(s) to search' }
       },
       required: ['query']
     }
@@ -179,16 +329,158 @@ async function executeMakeWebhook(toolName, toolInput) {
 }
 
 const EMAIL_TOOLS = ['send_email', 'create_email_draft'];
+const DASHBOARD_TOOLS = [
+  'create_personal_task', 'create_crm_followup', 'log_workout', 'add_meal',
+  'schedule_marketing', 'complete_task', 'search_dashboard'
+];
+
+async function executeDashboardTool(toolName, input) {
+  switch (toolName) {
+    case 'create_personal_task': {
+      const due = resolveDate(input.due_date);
+      const r = await pool.query(
+        `INSERT INTO personal_tasks (title, notes, category, priority, due_date, source)
+         VALUES ($1,$2, COALESCE($3,'personal'), COALESCE($4,3), $5, 'claude')
+         RETURNING id, title, category, priority, due_date`,
+        [input.title, input.notes || null, input.category || null, input.priority || null, due]
+      );
+      return { success: true, created: 'personal_task', task: r.rows[0] };
+    }
+
+    case 'create_crm_followup': {
+      const due = resolveDate(input.due_date);
+      const r = await pool.query(
+        `INSERT INTO crm_followups (contact_name, contact_email, contact_phone,
+           follow_up_type, due_date, notes, status)
+         VALUES ($1,$2,$3,$4,$5,$6,'open')
+         RETURNING id, contact_name, follow_up_type, due_date`,
+        [input.contact_name, input.contact_email || null, input.contact_phone || null,
+         input.follow_up_type, due, input.notes || null]
+      );
+      return { success: true, created: 'crm_followup', followup: r.rows[0] };
+    }
+
+    case 'log_workout': {
+      const r = await pool.query(
+        `INSERT INTO workouts (workout_date, workout_type, title, duration_minutes,
+           intensity, calories_burned, notes, completed)
+         VALUES (CURRENT_DATE, $1, $2, $3, $4, $5, $6, COALESCE($7, false))
+         RETURNING id, title, workout_type, duration_minutes, completed`,
+        [input.workout_type, input.title || null, input.duration_minutes || null,
+         input.intensity || null, input.calories_burned || null,
+         input.notes || null, input.completed]
+      );
+      return { success: true, created: 'workout', workout: r.rows[0] };
+    }
+
+    case 'add_meal': {
+      const r = await pool.query(
+        `INSERT INTO meal_plan (meal_date, meal_type, name, calories,
+           protein_g, carbs_g, fat_g, prep_notes)
+         VALUES (CURRENT_DATE, $1, $2, $3, $4, $5, $6, $7)
+         RETURNING id, meal_type, name, calories`,
+        [input.meal_type, input.name || null, input.calories || null,
+         input.protein_g || null, input.carbs_g || null, input.fat_g || null,
+         input.prep_notes || null]
+      );
+      return { success: true, created: 'meal', meal: r.rows[0] };
+    }
+
+    case 'schedule_marketing': {
+      const r = await pool.query(
+        `INSERT INTO marketing_items (title, platform, campaign_type, content,
+           scheduled_for, status)
+         VALUES ($1, $2, $3, $4, $5, COALESCE($6, 'draft'))
+         RETURNING id, title, platform, scheduled_for, status`,
+        [input.title, input.platform || null, input.campaign_type || null,
+         input.content || null, input.scheduled_for || null, input.status]
+      );
+      return { success: true, created: 'marketing', item: r.rows[0] };
+    }
+
+    case 'complete_task': {
+      const TABLES = {
+        personal: { table: 'personal_tasks', titleCol: 'title', statusField: "status='done', completed_at=NOW()" },
+        crm:      { table: 'crm_followups',  titleCol: 'contact_name', statusField: "status='done', completed_at=NOW()" },
+        workout:  { table: 'workouts',       titleCol: 'title', statusField: "completed=true" },
+        meal:     { table: 'meal_plan',      titleCol: 'name', statusField: "prepped=true" },
+        email:    { table: 'flagged_emails', titleCol: 'subject', statusField: "status='handled', handled_at=NOW()" },
+        marketing:{ table: 'marketing_items',titleCol: 'title', statusField: "status='posted'" }
+      };
+      const conf = TABLES[input.type];
+      if (!conf) return { error: true, message: 'Unknown type: ' + input.type };
+      if (input.id) {
+        const r = await pool.query(
+          `UPDATE ${conf.table} SET ${conf.statusField} WHERE id = $1 RETURNING id`,
+          [input.id]
+        );
+        if (!r.rows.length) return { error: true, message: 'No row with id ' + input.id };
+        return { success: true, completed: input.type, id: r.rows[0].id };
+      }
+      if (input.title_match) {
+        const r = await pool.query(
+          `UPDATE ${conf.table} SET ${conf.statusField}
+           WHERE ${conf.titleCol} ILIKE $1 RETURNING id, ${conf.titleCol} AS matched`,
+          ['%' + input.title_match + '%']
+        );
+        return { success: true, completed: input.type, matched: r.rows };
+      }
+      return { error: true, message: 'Provide id or title_match' };
+    }
+
+    case 'search_dashboard': {
+      const q = '%' + input.query + '%';
+      const scope = input.scope || 'all';
+      const results = {};
+      if (scope === 'all' || scope === 'personal') {
+        const r = await pool.query(
+          `SELECT id, title, status, due_date FROM personal_tasks
+           WHERE title ILIKE $1 OR notes ILIKE $1 ORDER BY created_at DESC LIMIT 10`, [q]
+        );
+        results.personal = r.rows;
+      }
+      if (scope === 'all' || scope === 'crm') {
+        const r = await pool.query(
+          `SELECT id, contact_name, follow_up_type, due_date, status FROM crm_followups
+           WHERE contact_name ILIKE $1 OR contact_email ILIKE $1 OR notes ILIKE $1
+           ORDER BY COALESCE(due_date,'9999-12-31') ASC LIMIT 10`, [q]
+        );
+        results.crm = r.rows;
+      }
+      if (scope === 'all' || scope === 'closings') {
+        const r = await pool.query(
+          `SELECT id, property_address, client_name, status, closing_date FROM closings
+           WHERE property_address ILIKE $1 OR client_name ILIKE $1
+           ORDER BY closing_date DESC NULLS LAST LIMIT 10`, [q]
+        );
+        results.closings = r.rows;
+      }
+      if (scope === 'all' || scope === 'marketing') {
+        const r = await pool.query(
+          `SELECT id, title, platform, status, scheduled_for FROM marketing_items
+           WHERE title ILIKE $1 OR content ILIKE $1
+           ORDER BY created_at DESC LIMIT 10`, [q]
+        );
+        results.marketing = r.rows;
+      }
+      return { success: true, query: input.query, results };
+    }
+  }
+  throw new Error('Unhandled dashboard tool: ' + toolName);
+}
 
 async function executeToolCall(toolName, toolInput) {
   try {
     if (EMAIL_TOOLS.includes(toolName)) {
       console.log(`[Claude] Routing ${toolName} via Gmail API directly`);
       return await executeGmailTool(toolName, toolInput);
-    } else {
-      console.log(`[Claude] Routing ${toolName} via Make.com calendar gateway`);
-      return await executeMakeWebhook(toolName, toolInput);
     }
+    if (DASHBOARD_TOOLS.includes(toolName)) {
+      console.log(`[Claude] Routing ${toolName} via dashboard Postgres`);
+      return await executeDashboardTool(toolName, toolInput);
+    }
+    console.log(`[Claude] Routing ${toolName} via Make.com calendar gateway`);
+    return await executeMakeWebhook(toolName, toolInput);
   } catch (err) {
     console.error(`[Claude] Tool execution error for ${toolName}:`, err.message);
     return { error: true, message: `Tool call failed: ${err.message}` };
@@ -240,6 +532,13 @@ async function processTask(taskType, instruction, context = {}) {
 
   messages.push({ role: 'user', content: userMessage });
 
+  // Load Jonathan's vocabulary + long-term memory and fold it into the
+  // system prompt. Cached for 60s inside the intuition service.
+  const intuitionBlock = await intuition.buildContextBlock();
+  const composedSystem = intuitionBlock
+    ? SYSTEM_PROMPT + '\n\n' + intuitionBlock
+    : SYSTEM_PROMPT;
+
   // Agentic tool-use loop
   let totalInputTokens = 0;
   let totalOutputTokens = 0;
@@ -263,7 +562,7 @@ async function processTask(taskType, instruction, context = {}) {
         response = await anthropic.messages.create({
           model: 'claude-sonnet-4-20250514',
           max_tokens: 4096,
-          system: SYSTEM_PROMPT,
+          system: composedSystem,
           tools: TOOLS,
           messages
         });

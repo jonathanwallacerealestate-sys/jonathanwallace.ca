@@ -1,5 +1,6 @@
 const pool = require('../db/pool');
 const { processTask } = require('./claude');
+const { publish } = require('./events');
 
 const POLL_INTERVAL = 10000;
 const TASK_TIMEOUT = 180000; // 3 minutes max per task (increased for tool-use rounds)
@@ -54,6 +55,9 @@ async function processNextTask() {
       const tokens = result.usage.input_tokens + result.usage.output_tokens;
       const toolInfo = result.tool_calls ? ` | ${result.tool_calls.length} tool call(s)` : '';
       console.log(`[Worker] Task #${task.id} completed (${tokens} tokens${toolInfo}, total processed: ${taskCount})`);
+
+      publish({ type: 'task', task_id: task.id, task_type: task.type, status: 'completed',
+                has_tool_calls: !!(result.tool_calls && result.tool_calls.length) });
 
       await runPostProcessing(task, result);
 

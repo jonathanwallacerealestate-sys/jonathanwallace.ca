@@ -1,0 +1,31 @@
+{
+  "name": "Jonathan Wallace — Agent Command Center",
+  "short_name": "Agent",
+  "description": "Daily command center: tasks, emails, CRM, calendar, closings, personal, workouts, meals, marketing.",
+  "start_url": "/dashboard",
+  "scope": "/dashboard",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#0a1628",
+  "theme_color": "#0a1628",
+  "categories": ["business", "productivity"],
+  "icons": [
+    {
+      "src": "/dashboard/assets/icon-192.svg",
+      "sizes": "192x192",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/dashboard/assets/icon-512.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    { "name": "New agent task", "url": "/dashboard#tasks", "short_name": "Task" },
+    { "name": "Today's calendar", "url": "/dashboard#calendar", "short_name": "Calendar" },
+    { "name": "CRM follow-ups", "url": "/dashboard#crm", "short_name": "CRM" }
+  ]
+}
