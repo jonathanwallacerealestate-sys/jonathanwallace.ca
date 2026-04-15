@@ -588,6 +588,47 @@ async function initDb() {
       ALTER TABLE power_hour_calls ADD COLUMN IF NOT EXISTS fub_person_id VARCHAR(50);
       ALTER TABLE power_hour_calls ADD COLUMN IF NOT EXISTS pushed_to_fub_at TIMESTAMP WITH TIME ZONE;
       CREATE INDEX IF NOT EXISTS idx_power_call_fub_person ON power_hour_calls(fub_person_id);
+
+      CREATE TABLE IF NOT EXISTS nurture_templates (
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(120) UNIQUE NOT NULL,
+        purpose VARCHAR(120),               -- e.g. 'market update', 'past-client check-in'
+        channel VARCHAR(20) DEFAULT 'note', -- note | task | email_draft
+        subject VARCHAR(200),
+        body TEXT NOT NULL,
+        tags JSONB DEFAULT '[]',
+        use_count INTEGER DEFAULT 0,
+        last_used_at TIMESTAMP WITH TIME ZONE,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_nurture_templates_name ON nurture_templates(name);
+    `);
+
+    // Seed a small starter set of nurture templates Jonathan can edit or delete.
+    await client.query(`
+      INSERT INTO nurture_templates (name, purpose, channel, subject, body, tags) VALUES
+      ('Monthly market pulse', 'market update', 'email_draft',
+       'Quick Georgian Bay market pulse',
+       'Hi there, wanted to send you a quick pulse on the Georgian Bay market this month. If you''ve been keeping an eye on things, prices in Midland and Penetanguishene are holding firm while Wasaga Beach has softened slightly on the ask side. Happy to pull a more specific picture for your neighborhood anytime.\n\nNo rush, just a heads-up.\nJonathan',
+       '["market-update","newsletter"]'::jsonb),
+      ('Past client check-in', 'past-client touch', 'text',
+       null,
+       'Hey, been thinking about you — hope everything''s good. Anything on your mind on the real estate side lately? Always happy to catch up.',
+       '["past-client","nurture"]'::jsonb),
+      ('Referral ask (warm)', 'referral', 'email_draft',
+       'Quick favour to ask',
+       'Hey, hope all is well with the family. Quick favour to ask — my business grows almost entirely through people like you pointing me at friends who are thinking about moving. Is there anyone in your circle who''s mentioned a change recently? Could be a first-time buyer, someone downsizing, someone just curious. No pressure at all, just wanted to plant the seed. Thanks a ton.',
+       '["referral","ask"]'::jsonb),
+      ('Open house follow-up (warm)', 'open house', 'note',
+       'Open house follow-up',
+       'Thanks again for stopping by over the weekend. Wanted to follow up with a couple of homes that fit what you mentioned you were looking for, plus a few comps from the neighborhood so you can see what''s moved recently. If you''d like to see anything in person this week I can make it happen.',
+       '["open-house","buyer"]'::jsonb),
+      ('Seller LOO offer', 'valuation', 'email_draft',
+       'Quick Letter of Opinion for your property',
+       'Happy to put together a Letter of Opinion on your home — no obligation, no pressure. I''ll pull the recent comps in your immediate area, walk through what''s sold vs listed, and give you a tight range of what I think the home would move at today. Takes me a few hours; I''ll email the LOO as a PDF once it''s ready. Let me know if that sounds useful.',
+       '["seller","LOO","valuation"]'::jsonb)
+      ON CONFLICT (name) DO NOTHING;
     `);
 
     // Seed real-estate vocabulary Jonathan uses every day. Idempotent.

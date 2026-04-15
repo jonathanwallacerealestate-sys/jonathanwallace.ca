@@ -47,6 +47,7 @@ const ALLOWED_ASSETS = {
   'dashboard.leadgen.js': 'application/javascript; charset=utf-8',
   'dashboard.learning.js': 'application/javascript; charset=utf-8',
   'dashboard.fub.js': 'application/javascript; charset=utf-8',
+  'dashboard.templates.js': 'application/javascript; charset=utf-8',
   'icon-192.svg': 'image/svg+xml; charset=utf-8',
   'icon-512.svg': 'image/svg+xml; charset=utf-8'
 };

@@ -446,6 +446,13 @@
       </p>
 
       <div class="form-field">
+        <label>Start from a template <span style="color:var(--muted);font-weight:400">(optional)</span></label>
+        <select id="ba-template-pick">
+          <option value="">Custom template below…</option>
+        </select>
+      </div>
+
+      <div class="form-field">
         <label>Action</label>
         <select id="ba-action">
           <option value="note">Add a note to each contact</option>
@@ -494,7 +501,32 @@
     actionSel.addEventListener('change', toggleTaskFields);
     toggleTaskFields();
 
-    document.getElementById('ba-dry-btn').onclick = () => runBulk(smartListId, true);
+    // Load templates and populate the picker
+    const tpSel = document.getElementById('ba-template-pick');
+    let templates = [];
+    try {
+      const tr = await api('/api/templates');
+      templates = tr.templates || [];
+      tpSel.innerHTML = '<option value="">Custom template below…</option>' +
+        templates.map(t => `<option value="${t.id}">${escapeHtml(t.name)}${t.purpose ? ' · ' + escapeHtml(t.purpose) : ''}</option>`).join('');
+    } catch (e) { /* silent */ }
+
+    tpSel.addEventListener('change', () => {
+      const t = templates.find(x => String(x.id) === String(tpSel.value));
+      if (!t) return;
+      document.getElementById('ba-subject').value = t.subject || '';
+      document.getElementById('ba-template').value = t.body || '';
+      if (t.channel && ['note','task','email_draft'].includes(t.channel)) {
+        actionSel.value = t.channel;
+        toggleTaskFields();
+      }
+    });
+
+    document.getElementById('ba-dry-btn').onclick = async () => {
+      const picked = templates.find(x => String(x.id) === String(tpSel.value));
+      if (picked) { try { await api('/api/templates/' + picked.id + '/touch', { method: 'POST', body: '{}' }); } catch (e) {} }
+      runBulk(smartListId, true);
+    };
     document.getElementById('ba-exec-btn').onclick = () => runBulk(smartListId, false);
   }
 
