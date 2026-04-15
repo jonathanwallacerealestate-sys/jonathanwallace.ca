@@ -69,6 +69,7 @@ async function dispatch(job) {
       case 'weekly_review':    result = await runWeeklyReview(job); break;
       case 'gap_analysis':     result = await runGapAnalysis(job); break;
       case 'chrome_workflow':  result = await runChromeWorkflow(job); break;
+      case 'fub_sync':         result = await runFubSync(job); break;
       default: status = 'failed'; result = { error: 'Unknown kind: ' + job.kind };
     }
   } catch (err) {
@@ -126,6 +127,12 @@ async function runGapAnalysis(job) {
   const data = await internalGet(url);
   await maybeDeliver(job, 'What did I forget?', data.analysis);
   return { analysis: data.analysis, tokens: data.tokens };
+}
+
+async function runFubSync(job) {
+  const url = `http://127.0.0.1:${process.env.PORT || 3000}/api/fub/sync`;
+  const data = await internalPost(url);
+  return { upserted: data.upserted, fetched: data.fetched };
 }
 
 async function runChromeWorkflow(job) {
