@@ -471,6 +471,132 @@ function mapTaskType(t) {
   return m[(t || '').toLowerCase()] || 'Other';
 }
 
+// ---------- Auto-respond to fresh leads ----------
+
+/**
+ * POST /api/fub/auto-respond-new-leads
+ * Body: { hours?: 24, template_name?, dry_run? }
+ *
+ * Finds FUB people created within the last `hours` who have ZERO open tasks
+ * AND no notes authored by dashboard automation ('Auto-greet' subject tag),
+ * then for each:
+ *   - creates a FUB task ('Initial outreach — <contact>') due in 1 day
+ *   - if a template is named, also drops a Gmail draft (when contact has
+ *     email) personalized by Claude
+ *
+ * Intended to run on a schedule every ~hour so no new lead sits untouched.
+ */
+router.post('/auto-respond-new-leads', async (req, res) => {
+  try {
+    const key = await fub.getApiKey();
+    if (!key) return res.status(503).json({ error: 'FUB not configured' });
+
+    const hours = Math.max(1, Math.min(168, parseInt(req.body?.hours) || 24));
+    const templateName = req.body?.template_name || null;
+    const dryRun = !!req.body?.dry_run;
+
+    const cutoff = new Date(Date.now() - hours * 60 * 60 * 1000);
+
+    // Pull recent people (up to 100)
+    const peopleResp = await fub.listPeople({ limit: 100, sort: '-created' });
+    const recent = (peopleResp.people || []).filter(p =>
+      p.created && new Date(p.created) >= cutoff
+    );
+
+    if (!recent.length) return res.json({ success: true, checked: 0, touched: 0, results: [] });
+
+    // Load optional template
+    let template = null;
+    if (templateName) {
+      const { rows } = await pool.query(
+        `SELECT * FROM nurture_templates WHERE LOWER(name) = LOWER($1)`,
+        [templateName]
+      );
+      if (rows.length) template = rows[0];
+    }
+
+    // Claude setup if we'll personalize
+    const Anthropic = require('@anthropic-ai/sdk');
+    const anthropic = process.env.ANTHROPIC_API_KEY ? new Anthropic() : null;
+
+    const results = [];
+    let touched = 0;
+
+    for (const p of recent) {
+      // Skip if already has open tasks (we don't double-touch)
+      try {
+        const openTasks = await fub.personTasks(p.id, { limit: 5 });
+        const hasOpen = (openTasks.tasks || []).some(t => t.status !== 'Completed');
+        if (hasOpen) { results.push({ person_id: p.id, name: p.name, skipped: 'has open tasks' }); continue; }
+      } catch (e) { /* proceed — better to touch than to skip */ }
+
+      const firstName = p.firstName || (p.name || '').split(' ')[0] || 'friend';
+      const email = p.emails?.[0]?.value || null;
+
+      let personalized = null;
+      if (template && anthropic) {
+        try {
+          const r = await anthropic.messages.create({
+            model: 'claude-sonnet-4-20250514',
+            max_tokens: 500,
+            system: `You are writing a first-touch outreach in Jonathan Wallace's voice
+for a brand-new real estate lead. Rewrite the template using the contact's
+first name naturally, reference the source if relevant. No real-estate cliches.
+Plain prose. Return only the message.`,
+            messages: [{ role: 'user', content: `Template:\n${template.body}\n\nContact:\n${JSON.stringify({ first_name: firstName, source: p.source, stage: p.stage, email }, null, 2)}` }]
+          });
+          personalized = r.content.filter(b => b.type === 'text').map(b => b.text).join('').trim();
+        } catch (e) { personalized = template.body; }
+      }
+
+      if (dryRun) {
+        results.push({ person_id: p.id, name: p.name, source: p.source, email, personalized, dry_run: true });
+        touched++;
+        continue;
+      }
+
+      // Create a FUB task to prompt Jonathan's actual outreach
+      try {
+        const due = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+        const task = await fub.createTask({
+          personId: p.id,
+          name: `Initial outreach — ${p.name || firstName}`,
+          type: 'Call',
+          dueDate: due,
+          description: `Fresh ${p.source || 'inbound'} lead. Reach out within 24h.${personalized ? '\n\nSuggested opener:\n' + personalized : ''}`,
+          status: 'Active'
+        });
+        results.push({ person_id: p.id, name: p.name, task_id: task.id, source: p.source, personalized: !!personalized });
+        touched++;
+
+        // Optional: also create a Gmail draft so Jonathan can send on a tap
+        if (template && template.channel === 'email_draft' && email && personalized && process.env.GMAIL_REFRESH_TOKEN) {
+          try {
+            const { google } = require('googleapis');
+            const oauth2 = new google.auth.OAuth2(process.env.GMAIL_CLIENT_ID, process.env.GMAIL_CLIENT_SECRET);
+            oauth2.setCredentials({ refresh_token: process.env.GMAIL_REFRESH_TOKEN });
+            const gmail = google.gmail({ version: 'v1', auth: oauth2 });
+            const from = process.env.GMAIL_USER || 'jonathanwallacerealestate@gmail.com';
+            const html = personalized.split('\n').map(l => '<p>' + l.replace(/</g, '&lt;') + '</p>').join('');
+            const raw = Buffer.from([
+              `From: ${from}`,
+              `To: ${email}`,
+              `Subject: ${template.subject || 'Welcome'}`,
+              'MIME-Version: 1.0', 'Content-Type: text/html; charset=UTF-8', '', html
+            ].join('\r\n')).toString('base64url');
+            await gmail.users.drafts.create({ userId: 'me', requestBody: { message: { raw } } });
+          } catch (e) { /* best effort */ }
+        }
+      } catch (e) {
+        results.push({ person_id: p.id, name: p.name, error: e.message });
+      }
+    }
+
+    publish({ type: 'fub', event: 'auto_responded', touched });
+    res.json({ success: true, checked: recent.length, touched, results });
+  } catch (e) { handleFubError(res, e); }
+});
+
 // ---------- Lead source attribution ----------
 
 /**

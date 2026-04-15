@@ -70,6 +70,8 @@ async function dispatch(job) {
       case 'gap_analysis':     result = await runGapAnalysis(job); break;
       case 'chrome_workflow':  result = await runChromeWorkflow(job); break;
       case 'fub_sync':         result = await runFubSync(job); break;
+      case 'fub_auto_respond':  result = await runFubAutoRespond(job); break;
+      case 'fub_attribution':   result = await runFubAttribution(job); break;
       default: status = 'failed'; result = { error: 'Unknown kind: ' + job.kind };
     }
   } catch (err) {
@@ -140,6 +142,40 @@ async function runFubSync(job) {
     tasks: { upserted: tasksResp.upserted, fetched: tasksResp.fetched, error: tasksResp.error },
     appointments: { upserted: apptsResp.upserted, fetched: apptsResp.fetched, error: apptsResp.error }
   };
+}
+
+async function runFubAutoRespond(job) {
+  const p = job.payload || {};
+  const base = `http://127.0.0.1:${process.env.PORT || 3000}`;
+  const headers = { 'Content-Type': 'application/json' };
+  if (process.env.API_KEY) headers['X-API-Key'] = process.env.API_KEY;
+  const body = JSON.stringify({
+    hours: p.hours || 24,
+    template_name: p.template_name || null,
+    dry_run: !!p.dry_run
+  });
+  const res = await fetch(base + '/api/fub/auto-respond-new-leads', { method: 'POST', headers, body });
+  const text = await res.text();
+  let data; try { data = text ? JSON.parse(text) : null; } catch (e) { data = { raw: text }; }
+  if (!res.ok) throw new Error('auto-respond HTTP ' + res.status + ': ' + text.slice(0, 200));
+  return { checked: data.checked, touched: data.touched };
+}
+
+async function runFubAttribution(job) {
+  const p = job.payload || {};
+  const base = `http://127.0.0.1:${process.env.PORT || 3000}`;
+  const headers = {};
+  if (process.env.API_KEY) headers['X-API-Key'] = process.env.API_KEY;
+  const url = base + '/api/fub/attribution?period=' + encodeURIComponent(p.period || '30');
+  const res = await fetch(url, { headers });
+  const data = await res.json();
+  if (!res.ok) throw new Error('attribution HTTP ' + res.status);
+  // Deliver via the job's deliver_via setting (done by dispatch — we just return)
+  const subject = `Lead source attribution · last ${data.period_days} days`;
+  const narrative = data.narrative || 'No narrative.';
+  const body = `<p>${narrative.replace(/\n/g, '<br>')}</p><hr><p><strong>Leads:</strong> ${data.total_leads} · <strong>Deals:</strong> ${data.total_deals} · <strong>GCI:</strong> $${Math.round(data.total_gci || 0).toLocaleString()}</p>`;
+  await maybeDeliver(job, subject, body, { html: true });
+  return { period_days: data.period_days, total_leads: data.total_leads, total_gci: data.total_gci };
 }
 
 async function runChromeWorkflow(job) {

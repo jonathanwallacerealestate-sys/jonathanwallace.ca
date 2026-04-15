@@ -784,15 +784,31 @@ async function initDb() {
     // a future enhancement).
     await client.query(`
       INSERT INTO scheduled_tasks (name, description, kind, payload, frequency,
-        run_at_hour, run_at_minute, deliver_via, enabled)
+        run_at_hour, run_at_minute, run_at_dow, deliver_via, enabled)
       VALUES
         ('FUB — hourly sync',
-         'Pulls open tasks from Follow Up Boss every hour and upserts them into the dashboard CRM card. Enable once fub_api_key is configured in Settings.',
+         'Pulls open tasks + appointments from Follow Up Boss every hour and upserts them into the dashboard CRM card + Calendar. Enable once fub_api_key is configured in Settings.',
          'fub_sync',
          '{}'::jsonb,
          'hourly',
-         0, 0,
+         0, 0, NULL,
          'dashboard',
+         FALSE),
+        ('FUB — auto-respond to new leads',
+         'Every 2 hours, find FUB contacts created in the last 24h with no open tasks and create an Initial Outreach task (Call, due in 24h). Keeps fresh leads from slipping through the cracks.',
+         'fub_auto_respond',
+         '{"hours": 24}'::jsonb,
+         'hourly',
+         0, 0, NULL,
+         'dashboard',
+         FALSE),
+        ('FUB — weekly attribution digest',
+         'Sends the lead-source attribution report (Claude narrative + top sources + GCI breakdown) every Monday at 7am.',
+         'fub_attribution',
+         '{"period": "30"}'::jsonb,
+         'weekly',
+         7, 0, 1,
+         'email',
          FALSE)
       ON CONFLICT (name) DO NOTHING;
     `);
