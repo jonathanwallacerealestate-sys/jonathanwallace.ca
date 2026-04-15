@@ -100,6 +100,10 @@
         case 'edit-crm':
           return openFollowupForm(id);
 
+        case 'view-fub-person':
+          if (window.DB_FUB && window.DB_FUB.openPersonDetail) return window.DB_FUB.openPersonDetail(id);
+          return toast('FUB UI not loaded', 'error');
+
         case 'edit-closing':
           return openClosingForm(id);
 

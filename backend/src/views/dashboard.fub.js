@@ -14,7 +14,7 @@
   const { api, toast, openModal, closeModal } = window.DB;
   const { escapeHtml } = window.DB_UTIL;
 
-  window.DB_FUB = { openAddTask };
+  window.DB_FUB = { openAddTask, openPersonDetail };
 
   let selectedPersonId = null;
   let selectedPersonLabel = '';
@@ -118,6 +118,121 @@
         host.innerHTML = '<div style="padding:0.4rem 0.6rem;font-size:0.8rem;color:var(--success)">Selected: ' + escapeHtml(selectedPersonLabel) + '</div>';
       });
     });
+  }
+
+  // ---------- Contact detail drill-in ----------
+
+  async function openPersonDetail(personId) {
+    if (!personId) return toast('No FUB person id', 'error');
+    openModal('Loading contact…', '<div class="empty">Loading from FUB…</div>', `
+      <button class="btn-secondary" onclick="DB.closeModal()">Close</button>
+    `);
+    try {
+      const data = await api('/api/fub/people/' + personId);
+      renderPersonDetail(data);
+    } catch (e) {
+      openModal('Contact', '<p style="color:#991b1b">' + escapeHtml(e.message) + '</p>', `
+        <button class="btn-secondary" onclick="DB.closeModal()">Close</button>
+      `);
+    }
+  }
+
+  function renderPersonDetail(data) {
+    const p = data.person || {};
+    const events = data.events || [];
+    const notes = data.notes || [];
+    const tasks = data.tasks || [];
+    const name = p.name || [p.firstName, p.lastName].filter(Boolean).join(' ') || '(no name)';
+    const email = p.emails?.[0]?.value || '';
+    const phone = p.phones?.[0]?.value || '';
+    const stage = p.stage || '—';
+    const source = p.source || '—';
+    const assigned = p.assignedUserName || '—';
+
+    const meta = `
+      <div style="display:flex;gap:0.75rem;flex-wrap:wrap;font-size:0.82rem;color:var(--muted);margin-bottom:0.9rem">
+        ${email ? `<span>✉ ${escapeHtml(email)}</span>` : ''}
+        ${phone ? `<span>☎ ${escapeHtml(phone)}</span>` : ''}
+        <span>Stage: <strong>${escapeHtml(stage)}</strong></span>
+        <span>Source: ${escapeHtml(source)}</span>
+        <span>Assigned: ${escapeHtml(assigned)}</span>
+      </div>`;
+
+    const taskBlock = tasks.length ? `
+      <h4 style="margin:1rem 0 0.4rem;font-size:0.8rem;text-transform:uppercase;letter-spacing:0.5px;color:var(--muted)">Open tasks</h4>
+      ${tasks.slice(0, 8).map(t => `
+        <div class="row" style="margin-bottom:0.3rem">
+          <div class="row-main">
+            <div class="row-title" style="font-size:0.9rem">${escapeHtml(t.name || '(task)')}</div>
+            <div class="row-meta">
+              ${t.type ? `<span class="badge normal">${escapeHtml(t.type)}</span>` : ''}
+              ${t.dueDate ? `<span>Due ${new Date(t.dueDate).toLocaleDateString('en-CA')}</span>` : ''}
+              ${t.status ? `<span>${escapeHtml(t.status)}</span>` : ''}
+            </div>
+          </div>
+          <div class="row-actions">
+            <button class="primary" data-fub-complete="${t.id}" title="Mark done">&#10003;</button>
+          </div>
+        </div>`).join('')}
+    ` : '';
+
+    const noteBlock = notes.length ? `
+      <h4 style="margin:1rem 0 0.4rem;font-size:0.8rem;text-transform:uppercase;letter-spacing:0.5px;color:var(--muted)">Recent notes</h4>
+      ${notes.slice(0, 5).map(n => `
+        <div style="padding:0.5rem 0.7rem;border-left:3px solid #8b5cf6;background:#fafafa;border-radius:4px;margin-bottom:0.4rem;font-size:0.85rem">
+          <div style="color:var(--muted);font-size:0.72rem">${n.created ? new Date(n.created).toLocaleString('en-CA') : ''}${n.subject ? ' · ' + escapeHtml(n.subject) : ''}</div>
+          <div style="margin-top:0.25rem;line-height:1.5">${escapeHtml((n.body || '').replace(/<[^>]*>/g, '').slice(0, 400))}</div>
+        </div>`).join('')}
+    ` : '';
+
+    const eventBlock = events.length ? `
+      <h4 style="margin:1rem 0 0.4rem;font-size:0.8rem;text-transform:uppercase;letter-spacing:0.5px;color:var(--muted)">Recent activity</h4>
+      <div style="font-size:0.78rem;color:var(--muted);line-height:1.7">
+        ${events.slice(0, 12).map(e => {
+          const when = e.created ? new Date(e.created).toLocaleString('en-CA', { month:'short', day:'numeric', hour:'numeric', minute:'2-digit' }) : '';
+          return `<div>• <span>${escapeHtml(when)}</span> — <span style="color:var(--text)">${escapeHtml(e.type || '')}</span>${e.description ? ': ' + escapeHtml(e.description.slice(0, 120)) : ''}</div>`;
+        }).join('')}
+      </div>` : '';
+
+    const quickActions = `
+      <div style="margin-top:1rem;padding-top:0.75rem;border-top:1px solid var(--border)">
+        <h4 style="margin:0 0 0.5rem;font-size:0.8rem;text-transform:uppercase;letter-spacing:0.5px;color:var(--muted)">Quick add note</h4>
+        <textarea id="fubd-note" rows="3" placeholder="What did we discuss / decide / need to do next?" style="width:100%;padding:0.6rem;border:1px solid var(--border);border-radius:6px;font-family:inherit;font-size:0.9rem;resize:vertical"></textarea>
+        <div style="display:flex;gap:0.5rem;margin-top:0.5rem;flex-wrap:wrap">
+          <button class="btn-primary" id="fubd-save-note" style="padding:0.5rem 0.9rem;font-size:0.85rem">Save Note to FUB</button>
+          <button class="btn-secondary" id="fubd-add-task" style="padding:0.5rem 0.9rem;font-size:0.85rem">+ Task for this contact</button>
+        </div>
+      </div>`;
+
+    openModal(name, meta + taskBlock + noteBlock + eventBlock + quickActions, `
+      <button class="btn-secondary" onclick="DB.closeModal()">Close</button>
+    `);
+
+    document.querySelectorAll('[data-fub-complete]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const id = btn.dataset.fubComplete;
+        btn.disabled = true;
+        try {
+          await api('/api/fub/tasks/' + id + '/complete', { method: 'POST', body: '{}' });
+          toast('Task completed in FUB', 'success');
+          btn.closest('.row').style.opacity = '0.5';
+        } catch (e) { toast(e.message, 'error'); }
+      });
+    });
+
+    document.getElementById('fubd-save-note').onclick = async () => {
+      const body = document.getElementById('fubd-note').value.trim();
+      if (!body) return toast('Type a note first', 'error');
+      try {
+        await api('/api/fub/notes', { method: 'POST', body: JSON.stringify({ personId: p.id, body }) });
+        toast('Note saved to FUB', 'success');
+        document.getElementById('fubd-note').value = '';
+      } catch (e) { toast(e.message, 'error'); }
+    };
+
+    document.getElementById('fubd-add-task').onclick = () => {
+      openAddTask({ person_id: p.id, person_label: name });
+    };
   }
 
   function v(id) { const el = document.getElementById(id); return el && el.value.trim() ? el.value.trim() : null; }

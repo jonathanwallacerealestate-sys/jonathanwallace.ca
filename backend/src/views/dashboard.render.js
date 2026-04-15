@@ -181,10 +181,12 @@
             ${c.follow_up_type ? `<span>${escapeHtml(c.follow_up_type)}</span>` : ''}
             ${c.due_date ? `<span>Due ${fmtDate(c.due_date)}</span>` : ''}
             ${c.lead_source ? `<span>${escapeHtml(c.lead_source)}</span>` : ''}
+            ${c.fub_person_id ? `<span class="badge normal" title="Linked to Follow Up Boss">FUB</span>` : ''}
           </div>
           ${c.notes ? `<div class="row-sub">${escapeHtml(c.notes.substring(0, 180))}</div>` : ''}
         </div>
         <div class="row-actions">
+          ${c.fub_person_id ? `<button data-action="view-fub-person" data-id="${escapeHtml(String(c.fub_person_id))}" title="Open in FUB (full history)">&#9889;</button>` : ''}
           <button class="primary" data-action="complete-crm" data-id="${c.id}" title="Mark done">&#10003;</button>
           <button data-action="edit-crm" data-id="${c.id}" title="Edit">&#9998;</button>
         </div>
