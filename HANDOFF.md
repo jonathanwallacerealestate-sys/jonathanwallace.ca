@@ -147,8 +147,10 @@ emails on Jonathan's behalf and for "Email My Day".
    - User type: **External** (or Internal if Google Workspace)
    - App name: "Jonathan Wallace Dashboard"
    - Add Jonathan's email as a test user
-   - Scopes: add `https://www.googleapis.com/auth/gmail.send` and
-     `https://www.googleapis.com/auth/gmail.compose`
+   - Scopes: add **`https://www.googleapis.com/auth/gmail.modify`**
+     — this single scope covers read, send, compose, label, and archive.
+     (If you only add gmail.send + gmail.compose, the EA email poller
+     cannot read the inbox and will 503.)
 4. **APIs & Services → Credentials** → **Create credentials → OAuth client ID**
    - Type: **Web application**
    - Authorized redirect URIs: `https://developers.google.com/oauthplayground`
@@ -157,9 +159,10 @@ emails on Jonathan's behalf and for "Email My Day".
 5. Visit https://developers.google.com/oauthplayground
    - Click the gear icon (top right) → check **Use your own OAuth credentials**
      → paste the client ID + secret
-   - Step 1: pick scopes → enter manually
-     `https://www.googleapis.com/auth/gmail.send`
-     `https://www.googleapis.com/auth/gmail.compose`
+   - Step 1: pick scopes → enter manually (only one needed):
+     `https://www.googleapis.com/auth/gmail.modify`
+     — this covers read + send + compose + label in a single scope,
+     which is what the EA email engine needs.
    - **Authorize APIs** → sign in as `jonathanwallacerealestate@gmail.com`
    - Step 2: **Exchange authorization code for tokens** → copy the
      **refresh token** (long string starting `1//`)

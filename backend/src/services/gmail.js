@@ -32,6 +32,104 @@ function isConfigured() {
   return !!process.env.GMAIL_REFRESH_TOKEN;
 }
 
+/**
+ * Self-diagnose Gmail setup. Returns a structured report so the dashboard
+ * can tell Jonathan exactly what's wrong.
+ */
+async function diagnose() {
+  const report = {
+    env: {
+      GMAIL_CLIENT_ID: !!process.env.GMAIL_CLIENT_ID,
+      GMAIL_CLIENT_SECRET: !!process.env.GMAIL_CLIENT_SECRET,
+      GMAIL_REFRESH_TOKEN: !!process.env.GMAIL_REFRESH_TOKEN,
+      GMAIL_USER: process.env.GMAIL_USER || null
+    },
+    can_auth: false,
+    can_list_inbox: false,
+    can_read_message: false,
+    can_send: false,
+    scopes: null,
+    messages_count: null,
+    sample_message_id: null,
+    error: null,
+    fix: null
+  };
+
+  if (!report.env.GMAIL_CLIENT_ID || !report.env.GMAIL_CLIENT_SECRET || !report.env.GMAIL_REFRESH_TOKEN) {
+    report.error = 'Gmail environment variables are missing.';
+    report.fix = 'Set GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET, and GMAIL_REFRESH_TOKEN in Railway → Variables. See HANDOFF.md §5 for the OAuth playground walkthrough.';
+    return report;
+  }
+
+  // Try an auth exchange (get the access token info)
+  const { google } = require('googleapis');
+  const oauth2 = new google.auth.OAuth2(process.env.GMAIL_CLIENT_ID, process.env.GMAIL_CLIENT_SECRET);
+  oauth2.setCredentials({ refresh_token: process.env.GMAIL_REFRESH_TOKEN });
+  try {
+    const tok = await oauth2.getAccessToken();
+    report.can_auth = !!(tok && tok.token);
+    // Fetch token metadata (includes scopes)
+    if (tok && tok.token) {
+      try {
+        const res = await fetch('https://oauth2.googleapis.com/tokeninfo?access_token=' + encodeURIComponent(tok.token));
+        if (res.ok) {
+          const info = await res.json();
+          report.scopes = info.scope || null;
+        }
+      } catch (e) { /* ignore */ }
+    }
+  } catch (e) {
+    report.error = 'Could not exchange refresh token for access token: ' + e.message;
+    report.fix = 'The refresh token is missing or invalid. Re-mint one via developers.google.com/oauthplayground — see HANDOFF.md §5.';
+    return report;
+  }
+
+  if (!report.can_auth) {
+    report.error = 'Gmail refused the refresh token.';
+    report.fix = 'Re-mint the refresh token via the OAuth playground with scopes: https://www.googleapis.com/auth/gmail.modify';
+    return report;
+  }
+
+  // Try listing the inbox
+  try {
+    const gm = google.gmail({ version: 'v1', auth: oauth2 });
+    const list = await gm.users.messages.list({ userId: 'me', q: 'in:inbox', maxResults: 1 });
+    report.can_list_inbox = true;
+    report.messages_count = list.data.resultSizeEstimate || (list.data.messages || []).length;
+    if (list.data.messages && list.data.messages[0]) {
+      report.sample_message_id = list.data.messages[0].id;
+      // Try reading it
+      try {
+        await gm.users.messages.get({ userId: 'me', id: list.data.messages[0].id, format: 'metadata' });
+        report.can_read_message = true;
+      } catch (e) {
+        report.error = 'Listed inbox but could not read a message: ' + e.message;
+        report.fix = 'Refresh token probably lacks the right scope. Re-mint with https://www.googleapis.com/auth/gmail.modify (or at minimum https://www.googleapis.com/auth/gmail.readonly).';
+      }
+    }
+  } catch (e) {
+    const msg = e.message || String(e);
+    report.error = 'Could not list Gmail inbox: ' + msg;
+    if (/insufficient\s*auth|insufficient\s*permission|access\s*not\s*configured|scope/i.test(msg)) {
+      report.fix = 'Your refresh token was minted with SEND/COMPOSE scope only — it cannot read the inbox. Re-mint it via developers.google.com/oauthplayground using scope: https://www.googleapis.com/auth/gmail.modify. Then update GMAIL_REFRESH_TOKEN in Railway Variables and restart the service.';
+    } else {
+      report.fix = 'Check Railway logs for the full error stack. The most common cause is a missing scope — re-mint the token with gmail.modify.';
+    }
+    return report;
+  }
+
+  // send capability check — we won't actually send, just confirm scope
+  if (report.scopes) {
+    report.can_send = /gmail\.send|gmail\.modify|mail\.google\.com/i.test(report.scopes);
+  }
+
+  if (!report.error && report.can_list_inbox && report.can_read_message) {
+    report.fix = 'Gmail is healthy. If the Sync button still shows 0 results, check Railway logs for per-message errors.';
+  }
+
+  return report;
+}
+
 function fromAddress() {
   return process.env.GMAIL_USER || 'jonathanwallacerealestate@gmail.com';
 }
@@ -262,7 +360,7 @@ function extractName(headerValue) {
 }
 
 module.exports = {
-  isConfigured, fromAddress, threadWebLink,
+  isConfigured, diagnose, fromAddress, threadWebLink,
   listMessageIds, getMessage, getMessageMeta, getThread,
   sendMessage, createDraft,
   listLabels, getOrCreateLabel, applyLabel,

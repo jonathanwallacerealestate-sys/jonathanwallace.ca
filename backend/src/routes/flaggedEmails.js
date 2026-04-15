@@ -231,6 +231,8 @@ ${req.body?.instructions ? '\nAdditional instruction from Jonathan: ' + req.body
 /**
  * POST /api/emails/poll
  * Triggers an active Gmail poll — called by the scheduler + manually.
+ * Returns 503 when Gmail is not configured so the UI can guide the user
+ * to fix it, rather than showing a confusing "0 scanned" success.
  */
 router.post('/poll', async (req, res) => {
   try {
@@ -242,7 +244,41 @@ router.post('/poll', async (req, res) => {
     res.json({ success: true, ...result });
   } catch (err) {
     console.error('email poll error:', err);
-    res.status(500).json({ error: 'Poll failed', message: err.message });
+    if (err.code === 'GMAIL_NOT_CONFIGURED') {
+      return res.status(503).json({
+        error: 'gmail_not_configured',
+        message: err.message,
+        fix_url: '/api/emails/diag'
+      });
+    }
+    // Detect scope / permission errors from Gmail API
+    const msg = err.message || '';
+    if (/insufficient\s*auth|insufficient\s*permission|Precondition|invalid_grant|scope/i.test(msg)) {
+      return res.status(503).json({
+        error: 'gmail_scope_or_token_invalid',
+        message: msg,
+        fix: 'Re-mint your Gmail refresh token with scope https://www.googleapis.com/auth/gmail.modify (it covers read, send, compose, label). Update GMAIL_REFRESH_TOKEN in Railway → Variables. Instructions in HANDOFF.md §5.',
+        fix_url: '/api/emails/diag'
+      });
+    }
+    res.status(500).json({ error: 'Poll failed', message: msg });
+  }
+});
+
+/**
+ * GET /api/emails/diag
+ * Self-diagnostic: are env vars set? can we auth? can we read the inbox?
+ * Returns a structured report the UI can display as a fix-it checklist.
+ * Never 500s — always returns a 200 with { ok, report }.
+ */
+router.get('/diag', async (req, res) => {
+  try {
+    const gmailSvc = require('../services/gmail');
+    const report = await gmailSvc.diagnose();
+    const ok = !!(report.can_auth && report.can_list_inbox && report.can_read_message && !report.error);
+    res.json({ ok, report });
+  } catch (err) {
+    res.json({ ok: false, report: { error: err.message, fix: 'See Railway logs.' } });
   }
 });
 

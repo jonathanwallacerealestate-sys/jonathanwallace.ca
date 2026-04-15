@@ -21,7 +21,9 @@ const MY_ADDRESS = (process.env.GMAIL_USER || 'jonathanwallacerealestate@gmail.c
 
 async function pollInbox({ days = 7, maxMessages = 40 } = {}) {
   if (!gmail.isConfigured()) {
-    return { error: 'Gmail not configured (GMAIL_REFRESH_TOKEN missing).' };
+    const err = new Error('Gmail not configured: set GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET, and GMAIL_REFRESH_TOKEN in Railway → Variables (and the refresh token needs gmail.modify scope).');
+    err.code = 'GMAIL_NOT_CONFIGURED';
+    throw err;
   }
 
   // Only pull threads where the latest activity is recent. 'in:inbox' excludes

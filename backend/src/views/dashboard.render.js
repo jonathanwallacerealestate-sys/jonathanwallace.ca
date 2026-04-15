@@ -143,6 +143,7 @@
       ${counts.with_attach ? `<span class="chip-stat info">${counts.with_attach} 📎</span>` : ''}
       <span class="chip-stat success">${s.handled_today || 0} handled today</span>
       <button class="btn-secondary" data-email-action="poll-now" style="padding:0.3rem 0.7rem;font-size:0.72rem;margin-left:0.5rem">Sync now</button>
+      <button class="btn-secondary" data-email-action="run-diag" style="padding:0.3rem 0.7rem;font-size:0.72rem" title="Check Gmail connection">⚕ Check</button>
     `;
 
     // Filter tabs
@@ -614,6 +615,78 @@
  * Global wiring — event delegation, loader, modals. Defined outside the IIFE
  * so the HTML's DOMContentLoaded hook finds it.
  */
+
+// Diagnostic modal for Gmail connection problems
+function showGmailDiagModal(diagResult, pollError) {
+  const esc = (s) => String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  const r = diagResult?.report || {};
+  const ok = diagResult?.ok === true;
+
+  const checkRow = (label, pass, detail) => `
+    <div style="display:flex;align-items:flex-start;gap:0.6rem;padding:0.35rem 0;border-bottom:1px solid var(--border)">
+      <div style="font-size:1rem;line-height:1.4;flex-shrink:0">${pass ? '✅' : '❌'}</div>
+      <div style="flex:1;min-width:0">
+        <div style="font-weight:600;font-size:0.88rem">${esc(label)}</div>
+        ${detail ? `<div style="color:var(--muted);font-size:0.78rem;margin-top:0.1rem">${esc(detail)}</div>` : ''}
+      </div>
+    </div>`;
+
+  const env = r.env || {};
+  const envDetail = [
+    env.GMAIL_CLIENT_ID ? 'CLIENT_ID set' : 'CLIENT_ID missing',
+    env.GMAIL_CLIENT_SECRET ? 'CLIENT_SECRET set' : 'CLIENT_SECRET missing',
+    env.GMAIL_REFRESH_TOKEN ? 'REFRESH_TOKEN set' : 'REFRESH_TOKEN missing',
+    env.GMAIL_USER ? `USER = ${env.GMAIL_USER}` : 'USER not set (defaults ok)'
+  ].join(' · ');
+  const envOk = env.GMAIL_CLIENT_ID && env.GMAIL_CLIENT_SECRET && env.GMAIL_REFRESH_TOKEN;
+
+  const scopesLine = r.scopes
+    ? `Scopes: ${esc(r.scopes)}`
+    : 'Scopes unknown (token exchange may have failed).';
+  const scopesOk = r.scopes && /gmail\.modify|gmail\.readonly|mail\.google\.com/i.test(r.scopes);
+
+  const body = `
+    <div style="background:${ok ? '#d1fae5' : '#fee2e2'};color:${ok ? '#065f46' : '#991b1b'};padding:0.75rem 1rem;border-radius:6px;font-size:0.9rem;font-weight:600;margin-bottom:1rem">
+      ${ok ? '✅ Gmail is healthy — if sync still returns 0, just no new mail in the last 7 days.' : '❌ Gmail is not working. Fix steps below.'}
+    </div>
+
+    ${pollError ? `<div style="padding:0.6rem 0.8rem;background:#fef3c7;border-left:3px solid #f59e0b;border-radius:4px;font-size:0.82rem;margin-bottom:1rem">Poll error: ${esc(pollError)}</div>` : ''}
+
+    <h4 style="font-size:0.78rem;text-transform:uppercase;letter-spacing:0.5px;color:var(--muted);margin:0.5rem 0 0.4rem">Checks</h4>
+    <div style="background:#fafafa;border:1px solid var(--border);border-radius:8px;padding:0.3rem 0.75rem;margin-bottom:1rem">
+      ${checkRow('Environment variables', envOk, envDetail)}
+      ${checkRow('Auth — refresh token works', r.can_auth, r.can_auth ? scopesLine : 'Token exchange failed — re-mint the refresh token.')}
+      ${checkRow('Read scope (list inbox)', r.can_list_inbox, r.can_list_inbox ? `Inbox accessible (~${r.messages_count || 'unknown'} messages)` : 'Missing read access — refresh token needs gmail.modify or gmail.readonly scope')}
+      ${checkRow('Read scope (get message)', r.can_read_message, r.can_read_message ? 'Messages readable' : 'Cannot read individual messages — same scope issue as above')}
+      ${checkRow('Send scope', r.can_send, r.can_send ? 'Can send / draft emails' : 'Send scope missing — but gmail.modify covers this')}
+    </div>
+
+    ${r.fix ? `
+      <h4 style="font-size:0.78rem;text-transform:uppercase;letter-spacing:0.5px;color:var(--muted);margin:0.5rem 0 0.4rem">How to fix</h4>
+      <div style="padding:0.75rem 0.9rem;background:#fafafa;border-left:3px solid var(--accent);border-radius:4px;font-size:0.88rem;line-height:1.55">${esc(r.fix)}</div>
+    ` : ''}
+
+    ${!ok ? `
+      <h4 style="font-size:0.78rem;text-transform:uppercase;letter-spacing:0.5px;color:var(--muted);margin:1rem 0 0.4rem">Re-minting the Gmail refresh token</h4>
+      <ol style="font-size:0.85rem;line-height:1.6;margin:0 0 0 1.2rem">
+        <li>Open <a href="https://developers.google.com/oauthplayground" target="_blank" rel="noopener">developers.google.com/oauthplayground</a></li>
+        <li>Click the ⚙ gear (top right) → check <strong>Use your own OAuth credentials</strong> → paste your GMAIL_CLIENT_ID and GMAIL_CLIENT_SECRET</li>
+        <li>Step 1: in the scope box, enter <strong>exactly this</strong>:<br>
+            <code style="background:#f3f4f6;padding:2px 6px;border-radius:3px">https://www.googleapis.com/auth/gmail.modify</code></li>
+        <li>Click <strong>Authorize APIs</strong>, sign in as ${esc(env.GMAIL_USER || 'your Gmail account')}, and grant access</li>
+        <li>Step 2: click <strong>Exchange authorization code for tokens</strong>. Copy the <strong>refresh token</strong> (long string starting <code>1//</code>)</li>
+        <li>In Railway → your service → <strong>Variables</strong>, replace <code>GMAIL_REFRESH_TOKEN</code> with the new value. Railway restarts the service (~30s).</li>
+        <li>Come back here and click <strong>Sync now</strong>.</li>
+      </ol>
+    ` : ''}
+  `;
+
+  window.DB.openModal(ok ? 'Gmail check · healthy' : 'Gmail check · needs attention', body, `
+    <button class="btn-secondary" onclick="DB.closeModal()">Close</button>
+    ${ok ? '' : `<button class="btn-primary" data-email-action="run-diag">Re-run diagnostics</button>`}
+  `);
+}
+
 async function load() {
   try {
     const brief = await window.DB.api('/api/daily-brief');
@@ -681,9 +754,30 @@ function initDashboard() {
         switch (action) {
           case 'poll-now': {
             window.DB.toast('Pulling from Gmail…');
-            const r = await window.DB.api('/api/emails/poll', { method: 'POST', body: '{}' });
-            window.DB.toast(`Scanned ${r.scanned || 0}, ${r.inserted || 0} new, ${r.triaged || 0} triaged`, 'success');
-            await load();
+            try {
+              const r = await window.DB.api('/api/emails/poll', { method: 'POST', body: '{}' });
+              if (r.scanned === 0 && r.inserted === 0 && r.triaged === 0) {
+                // Zero-result success — might be a silent problem, or just nothing new
+                window.DB.toast(`No new emails found in the last 7 days.`, 'success');
+              } else {
+                window.DB.toast(`Scanned ${r.scanned || 0}, ${r.inserted || 0} new, ${r.triaged || 0} triaged`, 'success');
+              }
+              await load();
+            } catch (err) {
+              // On failure, auto-run diag and show a fix-it modal
+              window.DB.toast('Gmail poll failed — running diagnostics…', 'error');
+              try {
+                const diag = await window.DB.api('/api/emails/diag');
+                showGmailDiagModal(diag, err.message);
+              } catch (diagErr) {
+                window.DB.toast('Diag also failed: ' + diagErr.message, 'error');
+              }
+            }
+            return;
+          }
+          case 'run-diag': {
+            const diag = await window.DB.api('/api/emails/diag');
+            showGmailDiagModal(diag, null);
             return;
           }
           case 'open-gmail': {
