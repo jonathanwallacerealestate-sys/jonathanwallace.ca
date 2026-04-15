@@ -45,7 +45,10 @@ Rules:
 - Use Jonathan's first name sparingly — once at most.
 - If recent_learning has unapplied action items, weave one in naturally — "you noted from the [show name] episode that..."
 - fub_live.overdue_count is the number of overdue Follow Up Boss tasks. If it's
-  > 0, lead with it. If fub_live is null, FUB isn't configured — don't mention FUB.`;
+  > 0, lead with it. If fub_live is null, FUB isn't configured — don't mention FUB.
+- fub_live.new_leads_24h_count shows how many fresh leads came in overnight. If
+  > 0, name one or two ("a new Midland lead named Sarah came in off the website
+  at 11pm"). These are the hottest. Only skip if there's something more urgent.`;
 
 router.get('/summary', async (req, res) => {
   try {
@@ -168,21 +171,34 @@ async function safeFubSnapshot() {
     const fub = require('../services/fub');
     const key = await fub.getApiKey();
     if (!key) return null;
-    // Today's open tasks + overdue, from FUB directly
+    // Today's open tasks + overdue + new leads since yesterday, all in parallel
     const today = new Date().toISOString().slice(0, 10);
-    const [todayTasks, overdueTasks] = await Promise.all([
+    const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const [todayTasks, overdueTasks, newLeads] = await Promise.all([
       fub.listTasks({ limit: 25, status: 'Active', dueBefore: today + 'T23:59:59Z', dueAfter: today + 'T00:00:00Z' }).catch(() => ({ tasks: [] })),
-      fub.listTasks({ limit: 15, status: 'Active', dueBefore: today + 'T00:00:00Z' }).catch(() => ({ tasks: [] }))
+      fub.listTasks({ limit: 15, status: 'Active', dueBefore: today + 'T00:00:00Z' }).catch(() => ({ tasks: [] })),
+      fub.listPeople({ limit: 10, sort: '-created' }).catch(() => ({ people: [] }))
     ]);
+    // Filter people created in the last 24h
+    const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+    const fresh = (newLeads.people || [])
+      .filter(p => p.created && new Date(p.created).getTime() >= cutoff)
+      .slice(0, 8)
+      .map(p => ({
+        id: p.id, name: p.name, source: p.source, stage: p.stage,
+        email: p.emails?.[0]?.value, phone: p.phones?.[0]?.value
+      }));
     return {
       due_today_count: (todayTasks.tasks || []).length,
       overdue_count: (overdueTasks.tasks || []).length,
+      new_leads_24h_count: fresh.length,
       due_today: (todayTasks.tasks || []).slice(0, 10).map(t => ({
         name: t.name, type: t.type, person_id: t.personId, due: t.dueDate
       })),
       overdue: (overdueTasks.tasks || []).slice(0, 10).map(t => ({
         name: t.name, type: t.type, person_id: t.personId, due: t.dueDate
-      }))
+      })),
+      new_leads: fresh
     };
   } catch (e) {
     return null;
