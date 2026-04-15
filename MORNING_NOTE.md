@@ -1,9 +1,10 @@
-# Morning Note — FUB is deeply integrated, Claude operates it, it watches for you, and it preps you for showings
+# Morning Note — the whole loop is closed
 
-> **23 total FUB commits.** The latest work added showing-day prep
-> briefs, listing-match alerts, auto-respond to new leads, attribution
-> digests, nurture templates, contact enrichment, calendar sync, and
-> smart-list bulk actions with Claude personalization.
+> **25 total FUB commits.** The CRM is now round-trip wired through
+> every dashboard surface: emails reply through it, showings prep
+> with it, pipeline deadlines generate into it, bulk outreach
+> personalizes through it, listings match against it, and Claude
+> drives it on voice command.
 
 > For Jonathan, to read when you're back.
 > Everything that shipped while you slept, plus what to do first.
@@ -104,9 +105,11 @@ named Mitchell"* is a 3-field combo away.
 
 ---
 
-## What shipped overall (newest first, 23 FUB-related commits)
+## What shipped overall (newest first, 25 FUB-related commits)
 
 ```
+5b8ff7e  FUB round 25: contract deadline auto-tasks for every closing
+9952592  FUB round 24: inbox-zero round-trip — Claude drafts reply + FUB note
 d2573a4  FUB round 23: showing-day prep brief (per-appointment Claude read)
 85b7111  FUB round 22: listing-match alerts (lead ↔ active listings)
 409eb4b  FUB round 21: auto-respond to new leads + weekly attribution email
@@ -254,6 +257,34 @@ Works even if the listing isn't linked (it fuzzy-matches the
 appointment title/location against active listings, and says so
 plainly if it can't resolve one). 45 seconds from cold to ready.
 
+**Round 24 — Inbox-zero round-trip**
+Every flagged email row in the Emails card now has a ✉ icon. Tap
+it → optional instruction ("keep it short, warm, suggest coffee")
+→ Claude reads the email, looks up the sender in FUB for context
+(stage, source, last 10 events, last 5 notes), and drafts a reply
+in Jonathan's voice. The draft lands in Gmail (threaded to the
+original conversation via In-Reply-To headers) — **never auto-
+sent**. If the sender is in FUB, a matching note is also logged
+on their CRM record so the trail is preserved. Two writes, one tap.
+
+**Round 25 — Contract deadline auto-tasks**
+New **⏰ Generate deadline tasks** button on the P&L card. For every
+pending/firm closing, generates a full sequence of reminder tasks
+across the deal lifecycle:
+- 2 days after offer → inspection follow-up
+- 2 days before firm date → conditions waiver reminder
+- 3 days after firm → post-firm check-in (moving, mover referrals)
+- 7 days before close → financing confirmation
+- 2 days before close → final walkthrough
+- Close day → closing-day check-in
+- 30 days after close → post-close + referral ask
+
+Each task writes to BOTH the local CRM table AND FUB (when the
+client matches a FUB person). Idempotent via `contract_tasks_generated`
+stamp so re-running never duplicates. Past-dated tasks are pruned
+automatically. Click once per quarter and the whole pipeline is
+scheduled.
+
 ---
 
 ## Try this when you wake up
@@ -342,7 +373,7 @@ at the **Emails** card. FUB badges should appear automatically.
 - Try: "list my smart lists" then "send the market update to [list name]"
   — Claude will dry-run first and show you samples before pushing
 
-## Closed in this run (rounds 15-23)
+## Closed in this run (rounds 15-25)
 
 - ✅ Smart list → one-click bulk action (round 15)
 - ✅ FUB → Google Calendar two-way (round 16)
@@ -354,6 +385,8 @@ at the **Emails** card. FUB badges should appear automatically.
 - ✅ Weekly attribution email digest (round 21)
 - ✅ Listing-match alerts on the Lead Gen card (round 22)
 - ✅ Showing-day prep briefs with voice narration (round 23)
+- ✅ Inbox-zero round-trip (Claude drafts reply + logs to FUB) (round 24)
+- ✅ Contract deadline auto-tasks (round 25)
 
 ## When you sit down
 
@@ -378,13 +411,11 @@ Also worth looking at:
   the dashboard Contacts card
 - **Call log from phone → FUB** — shortcut ingest for "I just called
   this number" that logs to FUB via Twilio or a Make.com flow
-- **Pre-showing packet** — extend round 23 to assemble a printable/PDF
-  comps packet per showing
-- **Contract deadlines** — pull pending/firm closings + auto-create
-  FUB tasks 3/7/14 days before key dates (conditions waiver, funding,
-  inspection follow-up)
-- **Inbox zero round-trip** — when you reply to an email from the
-  dashboard, auto-log the reply as a FUB note against the sender
+- **Pre-showing packet PDF** — extend round 23 to assemble a
+  printable/PDF comps packet per showing
+- **Referral tracker** — when "post-close + referral ask" tasks from
+  round 25 produce a new lead, link it back to the original deal so
+  we can track referral conversion rate
 
 Tell me what to tackle when you're back.
 
