@@ -471,6 +471,118 @@ function mapTaskType(t) {
   return m[(t || '').toLowerCase()] || 'Other';
 }
 
+// ---------- Lead source attribution ----------
+
+/**
+ * GET /api/fub/attribution?period=30|90|ytd
+ * Analyzes lead sources from the FUB people list + local closings to answer:
+ *   - Which sources produced the most leads in the period?
+ *   - Which sources converted to deals (via local closings table where
+ *     client_name matches a FUB person)?
+ *   - What's the $ GCI per source?
+ *   - Where's the effort leaking?
+ *
+ * Returns a Claude-written 200-word narrative PLUS a structured breakdown
+ * so the dashboard can render a table or bar chart.
+ */
+router.get('/attribution', async (req, res) => {
+  try {
+    const key = await fub.getApiKey();
+    if (!key) return res.status(503).json({ error: 'FUB not configured' });
+
+    const periodDays = req.query.period === 'ytd'
+      ? Math.ceil((Date.now() - new Date(new Date().getFullYear(), 0, 1).getTime()) / 86400000)
+      : (parseInt(req.query.period) || 30);
+    const cutoff = new Date(Date.now() - periodDays * 86400000);
+
+    // Pull recent people (up to 500) — FUB API caps per page at 100; we page
+    // a few times if needed
+    let people = [];
+    let offset = 0;
+    for (let i = 0; i < 5; i++) {
+      const resp = await fub.listPeople({ limit: 100, offset, sort: '-created' });
+      const batch = resp.people || [];
+      if (!batch.length) break;
+      people = people.concat(batch);
+      offset += batch.length;
+      if (batch.length < 100) break;
+    }
+
+    const fresh = people.filter(p => p.created && new Date(p.created) >= cutoff);
+
+    // Bucket by source
+    const bySource = {};
+    for (const p of fresh) {
+      const s = (p.source || 'unknown').trim() || 'unknown';
+      if (!bySource[s]) bySource[s] = { source: s, leads: 0, stages: {} };
+      bySource[s].leads++;
+      const stg = p.stage || 'unknown';
+      bySource[s].stages[stg] = (bySource[s].stages[stg] || 0) + 1;
+    }
+
+    // Join with local closings to estimate GCI per source
+    const { rows: closings } = await pool.query(
+      `SELECT client_name, gross_commission, net_profit, status, closing_date
+         FROM closings
+        WHERE closing_date >= $1::date
+          AND client_name IS NOT NULL`,
+      [cutoff.toISOString().slice(0, 10)]
+    );
+
+    // Crude match: FUB person name → closing client_name, case-insensitive
+    const nameToSource = new Map();
+    for (const p of fresh) {
+      if (p.name) nameToSource.set(p.name.toLowerCase().trim(), (p.source || 'unknown').trim() || 'unknown');
+    }
+    for (const c of closings) {
+      const src = nameToSource.get((c.client_name || '').toLowerCase().trim()) || 'unattributed';
+      if (!bySource[src]) bySource[src] = { source: src, leads: 0, stages: {} };
+      bySource[src].gci = (bySource[src].gci || 0) + (Number(c.gross_commission) || 0);
+      bySource[src].deals = (bySource[src].deals || 0) + 1;
+      bySource[src].net = (bySource[src].net || 0) + (Number(c.net_profit) || 0);
+    }
+
+    const rows = Object.values(bySource)
+      .sort((a, b) => (b.gci || 0) - (a.gci || 0) || b.leads - a.leads);
+
+    // Claude narrative
+    let narrative = null;
+    if (process.env.ANTHROPIC_API_KEY) {
+      try {
+        let ctxBlock = '';
+        try { ctxBlock = await require('../services/intuition').buildContextBlock(); } catch (e) {}
+        const Anthropic = require('@anthropic-ai/sdk');
+        const anthropic = new Anthropic();
+        const sys = `You are reviewing lead-source attribution for Jonathan Wallace's
+real estate business. Given the data, return a ~200-word narrative.
+Cover: the source producing the most leads, the source producing the
+most GCI, any source doing both, any leak (high lead count + low
+conversion). Name specifics (numbers, sources). End with one concrete
+recommendation for the coming period. Plain prose, no bullets.
+${ctxBlock ? '\n' + ctxBlock : ''}`;
+        const r = await anthropic.messages.create({
+          model: 'claude-sonnet-4-20250514',
+          max_tokens: 600,
+          system: sys,
+          messages: [{ role: 'user', content: `Period: last ${periodDays} days\n\nBy source:\n${JSON.stringify(rows, null, 2)}` }]
+        });
+        narrative = r.content.filter(b => b.type === 'text').map(b => b.text).join('').trim();
+      } catch (e) { narrative = null; }
+    }
+
+    res.json({
+      success: true,
+      period_days: periodDays,
+      cutoff: cutoff.toISOString(),
+      total_leads: fresh.length,
+      total_deals: closings.length,
+      total_gci: closings.reduce((a, c) => a + (Number(c.gross_commission) || 0), 0),
+      by_source: rows,
+      narrative
+    });
+  } catch (e) { handleFubError(res, e); }
+});
+
 // ---------- Contact enrichment ----------
 
 /**

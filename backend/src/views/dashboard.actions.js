@@ -88,6 +88,67 @@
       } catch (e) { toast(e.message, 'error'); }
       finally { pushClosingsBtn.disabled = false; pushClosingsBtn.textContent = original; }
     });
+
+    // Lead source attribution report (FUB × closings)
+    const attrBtn = document.getElementById('show-attribution-btn');
+    if (attrBtn) attrBtn.addEventListener('click', async () => {
+      const esc = (s) => String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+      const period = window.prompt('Period (30 days, 90 days, or ytd)?', '30') || '30';
+      openModal('Lead source attribution · last ' + period + ' days', `
+        <div id="attr-result">
+          <div class="empty" style="padding:1.5rem">Analyzing FUB sources + closings…</div>
+        </div>
+      `, `<button class="btn-secondary" onclick="DB.closeModal()">Close</button>`);
+      try {
+        const r = await api('/api/fub/attribution?period=' + encodeURIComponent(period));
+        const host = document.getElementById('attr-result');
+        if (!host) return;
+        const rows = r.by_source || [];
+        const maxLeads = Math.max(1, ...rows.map(x => x.leads || 0));
+        const tableRows = rows.map(x => {
+          const leadPct = Math.round(((x.leads || 0) / maxLeads) * 100);
+          const gci = Number(x.gci || 0);
+          const deals = Number(x.deals || 0);
+          return `
+            <tr>
+              <td style="padding:0.4rem 0.6rem;font-weight:600">${esc(x.source)}</td>
+              <td style="padding:0.4rem 0.6rem;text-align:right">${x.leads}</td>
+              <td style="padding:0.4rem 0.6rem">
+                <div style="background:#e5e7eb;border-radius:4px;overflow:hidden;height:8px">
+                  <div style="background:#c9a96e;width:${leadPct}%;height:100%"></div>
+                </div>
+              </td>
+              <td style="padding:0.4rem 0.6rem;text-align:right">${deals || '—'}</td>
+              <td style="padding:0.4rem 0.6rem;text-align:right">${gci ? '$' + Math.round(gci).toLocaleString() : '—'}</td>
+            </tr>`;
+        }).join('');
+        host.innerHTML = `
+          <div style="display:flex;gap:0.75rem;flex-wrap:wrap;margin-bottom:0.75rem">
+            <div class="kpi" style="flex:1 1 120px"><div class="label">Leads</div><div class="value">${r.total_leads}</div></div>
+            <div class="kpi" style="flex:1 1 120px"><div class="label">Deals</div><div class="value">${r.total_deals}</div></div>
+            <div class="kpi" style="flex:1 1 120px"><div class="label">GCI</div><div class="value">$${Math.round(r.total_gci || 0).toLocaleString()}</div></div>
+          </div>
+          ${r.narrative ? `<div style="padding:0.8rem 1rem;background:#fafafa;border-left:3px solid #c9a96e;border-radius:4px;font-size:0.88rem;line-height:1.55;margin-bottom:0.75rem">${esc(r.narrative)}</div>` : ''}
+          <div style="overflow-x:auto">
+            <table style="width:100%;font-size:0.85rem;border-collapse:collapse">
+              <thead>
+                <tr style="border-bottom:1px solid var(--border);color:var(--muted);font-size:0.75rem;text-transform:uppercase;letter-spacing:0.5px">
+                  <th style="padding:0.4rem 0.6rem;text-align:left">Source</th>
+                  <th style="padding:0.4rem 0.6rem;text-align:right">Leads</th>
+                  <th style="padding:0.4rem 0.6rem"></th>
+                  <th style="padding:0.4rem 0.6rem;text-align:right">Deals</th>
+                  <th style="padding:0.4rem 0.6rem;text-align:right">GCI</th>
+                </tr>
+              </thead>
+              <tbody>${tableRows}</tbody>
+            </table>
+          </div>
+        `;
+      } catch (e) {
+        const host = document.getElementById('attr-result');
+        if (host) host.innerHTML = `<p style="color:#991b1b">${esc(e.message)}</p>`;
+      }
+    });
   }
   window.bindQuickAdds = bindQuickAdds;
 
