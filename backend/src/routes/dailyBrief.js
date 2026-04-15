@@ -36,14 +36,19 @@ router.get('/', async (req, res) => {
         COUNT(*) AS total FROM tasks`),
 
       pool.query(`SELECT * FROM flagged_emails
-         WHERE status = 'needs_reply'
-         ORDER BY CASE priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1 WHEN 'normal' THEN 2 ELSE 3 END,
-                  received_at DESC NULLS LAST
-         LIMIT 25`),
+         WHERE status IN ('needs_reply', 'informational', 'snoozed')
+           AND (snoozed_until IS NULL OR snoozed_until < NOW())
+         ORDER BY
+           CASE COALESCE(ai_priority, priority)
+             WHEN 'urgent' THEN 0 WHEN 'high' THEN 1 WHEN 'normal' THEN 2 ELSE 3 END,
+           has_attachment DESC,
+           received_at DESC NULLS LAST
+         LIMIT 40`),
       pool.query(`SELECT
         COUNT(*) FILTER (WHERE status = 'needs_reply') AS needs_reply,
-        COUNT(*) FILTER (WHERE priority = 'urgent' AND status='needs_reply') AS urgent,
-        COUNT(*) FILTER (WHERE status='handled' AND handled_at::date = CURRENT_DATE) AS handled_today
+        COUNT(*) FILTER (WHERE (ai_priority = 'urgent' OR priority = 'urgent') AND status='needs_reply') AS urgent,
+        COUNT(*) FILTER (WHERE status='handled' AND handled_at::date = CURRENT_DATE) AS handled_today,
+        COUNT(*) FILTER (WHERE has_attachment = TRUE AND status='needs_reply') AS with_attachment
         FROM flagged_emails`),
 
       pool.query(`SELECT * FROM crm_followups

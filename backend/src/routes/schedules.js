@@ -11,7 +11,8 @@ const { nextRun, tick } = require('../services/scheduler');
 router.use(requireApiKey);
 
 const VALID_KINDS = ['agent_task','briefing','weekly_review','gap_analysis','chrome_workflow',
-                     'fub_sync','fub_auto_respond','fub_attribution'];
+                     'fub_sync','fub_auto_respond','fub_attribution',
+                     'email_sync','email_nudge'];
 const VALID_FREQ  = ['hourly','daily','weekly','monthly'];
 
 router.get('/', async (req, res) => {

@@ -72,6 +72,8 @@ async function dispatch(job) {
       case 'fub_sync':         result = await runFubSync(job); break;
       case 'fub_auto_respond':  result = await runFubAutoRespond(job); break;
       case 'fub_attribution':   result = await runFubAttribution(job); break;
+      case 'email_sync':        result = await runEmailSync(job); break;
+      case 'email_nudge':       result = await runEmailNudge(job); break;
       default: status = 'failed'; result = { error: 'Unknown kind: ' + job.kind };
     }
   } catch (err) {
@@ -159,6 +161,47 @@ async function runFubAutoRespond(job) {
   let data; try { data = text ? JSON.parse(text) : null; } catch (e) { data = { raw: text }; }
   if (!res.ok) throw new Error('auto-respond HTTP ' + res.status + ': ' + text.slice(0, 200));
   return { checked: data.checked, touched: data.touched };
+}
+
+async function runEmailSync(job) {
+  const p = job.payload || {};
+  const base = `http://127.0.0.1:${process.env.PORT || 3000}`;
+  const headers = { 'Content-Type': 'application/json' };
+  if (process.env.API_KEY) headers['X-API-Key'] = process.env.API_KEY;
+  const res = await fetch(base + '/api/emails/poll', {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ days: p.days || 7, max: p.max || 40 })
+  });
+  const text = await res.text();
+  let data; try { data = text ? JSON.parse(text) : null; } catch (e) { data = { raw: text }; }
+  if (!res.ok) throw new Error('email_sync HTTP ' + res.status + ': ' + text.slice(0, 200));
+  return { scanned: data.scanned, inserted: data.inserted, triaged: data.triaged };
+}
+
+async function runEmailNudge(job) {
+  const p = job.payload || {};
+  const base = `http://127.0.0.1:${process.env.PORT || 3000}`;
+  const headers = { 'Content-Type': 'application/json' };
+  if (process.env.API_KEY) headers['X-API-Key'] = process.env.API_KEY;
+  const res = await fetch(base + '/api/emails/nudge', {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ min_hours: p.min_hours || 24 })
+  });
+  const text = await res.text();
+  let data; try { data = text ? JSON.parse(text) : null; } catch (e) { data = { raw: text }; }
+  if (!res.ok) throw new Error('email_nudge HTTP ' + res.status + ': ' + text.slice(0, 200));
+
+  // Optionally email a digest if the schedule has deliver_via=email
+  if (data.nudged > 0 && (job.deliver_via === 'email' || job.deliver_via === 'both')) {
+    const lines = (data.nudges || []).map(n =>
+      `• ${(n.from || 'unknown').replace(/</g,'&lt;')} — ${(n.subject || '(no subject)').replace(/</g,'&lt;')}`
+    ).join('<br>');
+    const body = `<p>You have ${data.nudged} email${data.nudged === 1 ? '' : 's'} waiting for a reply that are either >24h old OR have attachments OR are high-priority:</p><p>${lines}</p><p><a href="https://jonathanwallace.ca/dashboard">Open the dashboard</a></p>`;
+    await maybeDeliver(job, `EA nudge · ${data.nudged} emails waiting`, body, { html: true });
+  }
+  return { checked: data.checked, nudged: data.nudged };
 }
 
 async function runFubAttribution(job) {

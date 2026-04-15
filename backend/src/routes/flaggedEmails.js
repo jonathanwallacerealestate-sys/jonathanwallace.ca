@@ -228,4 +228,181 @@ ${req.body?.instructions ? '\nAdditional instruction from Jonathan: ' + req.body
   }
 });
 
+/**
+ * POST /api/emails/poll
+ * Triggers an active Gmail poll — called by the scheduler + manually.
+ */
+router.post('/poll', async (req, res) => {
+  try {
+    const { pollInbox } = require('../services/emailPoller');
+    const result = await pollInbox({
+      days: Math.min(Math.max(parseInt(req.body?.days) || 7, 1), 30),
+      maxMessages: Math.min(Math.max(parseInt(req.body?.max) || 40, 1), 100)
+    });
+    res.json({ success: true, ...result });
+  } catch (err) {
+    console.error('email poll error:', err);
+    res.status(500).json({ error: 'Poll failed', message: err.message });
+  }
+});
+
+/**
+ * POST /api/emails/nudge
+ * Scans for unresponded emails >24h with attachments or high priority and
+ * creates/updates personal_tasks for each one so they surface on the dashboard.
+ * Also stamps nudge_sent_at to avoid re-nudging.
+ */
+router.post('/nudge', async (req, res) => {
+  try {
+    const { findNudgeCandidates } = require('../services/emailPoller');
+    const candidates = await findNudgeCandidates({
+      minHoursWaiting: parseInt(req.body?.min_hours) || 24
+    });
+
+    let nudged = 0;
+    const nudges = [];
+    for (const e of candidates) {
+      const senderLabel = e.from_name || e.from_address || 'unknown sender';
+      const ageHours = Math.round((Date.now() - new Date(e.received_at).getTime()) / 3600000);
+      const attachmentNote = e.has_attachment
+        ? ` (attachment${Array.isArray(e.attachment_names) && e.attachment_names.length > 1 ? 's' : ''}: ${Array.isArray(e.attachment_names) ? e.attachment_names.slice(0, 2).join(', ') : ''})`
+        : '';
+      const priorityNote = e.ai_priority === 'urgent' ? ' — URGENT' : (e.ai_priority === 'high' ? ' — high priority' : '');
+
+      const title = `Reply to ${senderLabel}: ${e.subject || '(no subject)'}${priorityNote}`;
+      const notes = `${ageHours}h since received${attachmentNote}.${e.ai_summary ? '\n\n' + e.ai_summary : ''}${e.ai_suggested_action ? '\n\nSuggested action: ' + e.ai_suggested_action : ''}${e.gmail_web_link ? '\n\nOpen: ' + e.gmail_web_link : ''}`;
+
+      // Upsert a personal_task for this email — external_id keeps it unique
+      const extId = 'email_nudge:' + e.id;
+      await pool.query(
+        `INSERT INTO personal_tasks (title, notes, category, priority, due_date, source, external_id)
+         VALUES ($1, $2, 'email', $3, CURRENT_DATE, 'ea_nudge', $4)
+         ON CONFLICT (external_id) DO UPDATE SET
+           title = EXCLUDED.title,
+           notes = EXCLUDED.notes,
+           priority = EXCLUDED.priority,
+           updated_at = NOW()`,
+        [title.slice(0, 250), notes.slice(0, 2000),
+         e.ai_priority === 'urgent' ? 5 : (e.ai_priority === 'high' ? 4 : 3),
+         extId]
+      ).catch(() => {/* table may lack unique constraint on external_id; fallback below */});
+
+      // Fallback insert if upsert above silently no-oped for old schemas
+      try {
+        const exists = await pool.query('SELECT id FROM personal_tasks WHERE external_id = $1', [extId]);
+        if (!exists.rows.length) {
+          await pool.query(
+            `INSERT INTO personal_tasks (title, notes, category, priority, due_date, source, external_id)
+             VALUES ($1, $2, 'email', $3, CURRENT_DATE, 'ea_nudge', $4)`,
+            [title.slice(0, 250), notes.slice(0, 2000),
+             e.ai_priority === 'urgent' ? 5 : 4, extId]
+          );
+        }
+      } catch (e2) { /* best effort */ }
+
+      // Stamp nudge_sent_at
+      await pool.query(
+        `UPDATE flagged_emails SET nudge_sent_at = NOW() WHERE id = $1`,
+        [e.id]
+      );
+      nudges.push({ email_id: e.id, from: senderLabel, subject: e.subject });
+      nudged++;
+    }
+    res.json({ success: true, checked: candidates.length, nudged, nudges });
+  } catch (err) {
+    console.error('email nudge error:', err);
+    res.status(500).json({ error: 'Nudge failed', message: err.message });
+  }
+});
+
+/**
+ * GET /api/emails/:id/open — returns the Gmail web link (or 404)
+ */
+router.get('/:id/open', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      'SELECT gmail_web_link, thread_id FROM flagged_emails WHERE id = $1',
+      [req.params.id]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'Not found' });
+    let link = rows[0].gmail_web_link;
+    if (!link && rows[0].thread_id) {
+      link = `https://mail.google.com/mail/u/0/#inbox/${rows[0].thread_id}`;
+    }
+    res.json({ url: link });
+  } catch (err) { res.status(500).json({ error: 'Failed' }); }
+});
+
+/**
+ * POST /api/emails/:id/apply-label   Body: { label? }  (uses ai_suggested_label if omitted)
+ */
+router.post('/:id/apply-label', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      'SELECT gmail_message_id, ai_suggested_label FROM flagged_emails WHERE id = $1',
+      [req.params.id]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'Not found' });
+    const msgId = rows[0].gmail_message_id;
+    if (!msgId) return res.status(400).json({ error: 'No gmail_message_id on record' });
+    const label = (req.body?.label || rows[0].ai_suggested_label || '').trim();
+    if (!label) return res.status(400).json({ error: 'No label provided and no ai_suggested_label' });
+    const gmail = require('../services/gmail');
+    const result = await gmail.applyLabel(msgId, label);
+    res.json({ success: true, ...result });
+  } catch (err) {
+    console.error('apply-label error:', err);
+    res.status(err.code === 'GMAIL_NOT_CONFIGURED' ? 503 : 500).json({
+      error: 'Failed to apply label', message: err.message
+    });
+  }
+});
+
+/**
+ * POST /api/emails/:id/archive — archives in Gmail (removes INBOX label)
+ * AND marks the local row as handled.
+ */
+router.post('/:id/archive', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      'SELECT gmail_message_id FROM flagged_emails WHERE id = $1',
+      [req.params.id]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'Not found' });
+    const msgId = rows[0].gmail_message_id;
+    if (msgId) {
+      try { await require('../services/gmail').archiveMessage(msgId); }
+      catch (e) { if (e.code !== 'GMAIL_NOT_CONFIGURED') throw e; }
+    }
+    await pool.query(
+      `UPDATE flagged_emails SET status = 'handled', handled_at = NOW() WHERE id = $1`,
+      [req.params.id]
+    );
+    res.json({ success: true });
+  } catch (err) {
+    console.error('archive error:', err);
+    res.status(500).json({ error: 'Archive failed', message: err.message });
+  }
+});
+
+/**
+ * POST /api/emails/:id/snooze  Body: { hours }
+ */
+router.post('/:id/snooze', async (req, res) => {
+  try {
+    const hours = Math.max(1, Math.min(336, parseInt(req.body?.hours) || 24));
+    const { rows } = await pool.query(
+      `UPDATE flagged_emails
+       SET snoozed_until = NOW() + ($1 || ' hours')::interval,
+           status = 'snoozed'
+       WHERE id = $2 RETURNING snoozed_until`,
+      [String(hours), req.params.id]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'Not found' });
+    res.json({ success: true, snoozed_until: rows[0].snoozed_until });
+  } catch (err) {
+    res.status(500).json({ error: 'Snooze failed' });
+  }
+});
+
 module.exports = router;

@@ -603,6 +603,38 @@ async function initDb() {
         updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
       );
       CREATE INDEX IF NOT EXISTS idx_nurture_templates_name ON nurture_templates(name);
+
+      -- Additive columns for the EA-style email engine (round 26).
+      ALTER TABLE flagged_emails ADD COLUMN IF NOT EXISTS has_attachment BOOLEAN DEFAULT FALSE;
+      ALTER TABLE flagged_emails ADD COLUMN IF NOT EXISTS attachment_names JSONB DEFAULT '[]'::jsonb;
+      ALTER TABLE flagged_emails ADD COLUMN IF NOT EXISTS ai_category VARCHAR(30);
+      ALTER TABLE flagged_emails ADD COLUMN IF NOT EXISTS ai_priority VARCHAR(20);
+      ALTER TABLE flagged_emails ADD COLUMN IF NOT EXISTS ai_summary TEXT;
+      ALTER TABLE flagged_emails ADD COLUMN IF NOT EXISTS ai_suggested_action TEXT;
+      ALTER TABLE flagged_emails ADD COLUMN IF NOT EXISTS ai_suggested_label VARCHAR(100);
+      ALTER TABLE flagged_emails ADD COLUMN IF NOT EXISTS my_last_reply_at TIMESTAMP WITH TIME ZONE;
+      ALTER TABLE flagged_emails ADD COLUMN IF NOT EXISTS nudge_sent_at TIMESTAMP WITH TIME ZONE;
+      ALTER TABLE flagged_emails ADD COLUMN IF NOT EXISTS snoozed_until TIMESTAMP WITH TIME ZONE;
+      ALTER TABLE flagged_emails ADD COLUMN IF NOT EXISTS gmail_web_link TEXT;
+      ALTER TABLE flagged_emails ADD COLUMN IF NOT EXISTS source_ingest VARCHAR(30) DEFAULT 'make';
+      CREATE INDEX IF NOT EXISTS idx_flagged_emails_priority ON flagged_emails(ai_priority);
+      CREATE INDEX IF NOT EXISTS idx_flagged_emails_category ON flagged_emails(ai_category);
+      CREATE INDEX IF NOT EXISTS idx_flagged_emails_attachment ON flagged_emails(has_attachment);
+      CREATE INDEX IF NOT EXISTS idx_flagged_emails_snoozed ON flagged_emails(snoozed_until);
+
+      -- Unique external_id on personal_tasks so EA nudges can upsert cleanly
+      DO $$ BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint WHERE conname = 'personal_tasks_external_id_key'
+        ) THEN
+          BEGIN
+            ALTER TABLE personal_tasks ADD CONSTRAINT personal_tasks_external_id_key UNIQUE (external_id);
+          EXCEPTION WHEN duplicate_object OR unique_violation THEN
+            -- Older deploys may have duplicate external_ids; skip silently
+            NULL;
+          END;
+        END IF;
+      END $$;
     `);
 
     // Seed a small starter set of nurture templates Jonathan can edit or delete.
@@ -809,6 +841,22 @@ async function initDb() {
          'weekly',
          7, 0, 1,
          'email',
+         FALSE),
+        ('Email — active Gmail poll',
+         'Every hour, scans your Gmail inbox for recent messages, has Claude triage each one (priority, category, needs reply, attachments, suggested action), and populates the Emails card. Required for the EA features to work.',
+         'email_sync',
+         '{"days": 7, "max": 40}'::jsonb,
+         'hourly',
+         0, 15, NULL,
+         'dashboard',
+         FALSE),
+        ('Email — EA nudge digest',
+         'Twice daily (8am + 3pm), scans unresponded emails with attachments or high priority and creates nudge tasks on the dashboard — plus emails a digest if delivery is set to email.',
+         'email_nudge',
+         '{"min_hours": 24}'::jsonb,
+         'daily',
+         8, 0, NULL,
+         'dashboard',
          FALSE)
       ON CONFLICT (name) DO NOTHING;
     `);

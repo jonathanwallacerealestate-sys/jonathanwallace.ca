@@ -18,7 +18,9 @@
     { value: 'chrome_workflow',  label: 'Chrome Workflow (emails the prompt)' },
     { value: 'fub_sync',         label: 'FUB sync (tasks + appointments)' },
     { value: 'fub_auto_respond', label: 'FUB auto-respond to new leads' },
-    { value: 'fub_attribution',  label: 'FUB lead-source attribution' }
+    { value: 'fub_attribution',  label: 'FUB lead-source attribution' },
+    { value: 'email_sync',       label: 'Email — active Gmail poll + AI triage' },
+    { value: 'email_nudge',      label: 'Email — EA nudge for unresponded mail' }
   ];
   const FREQS = [
     { value: 'hourly',  label: 'Every hour' },

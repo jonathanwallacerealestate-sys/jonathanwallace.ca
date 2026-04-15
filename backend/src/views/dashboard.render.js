@@ -119,39 +119,121 @@
   }
 
   // ---------- Emails ----------
+  // Email filter state (persisted to localStorage so refresh keeps it)
+  let _emailFilter = null;
+  try { _emailFilter = localStorage.getItem('jw_email_filter') || 'needs_reply'; } catch (e) { _emailFilter = 'needs_reply'; }
+
   function renderEmails(brief) {
     const s = brief.emails.stats || {};
+    const all = brief.emails.list || [];
+    // Classify for tab badges
+    const counts = {
+      needs_reply: all.filter(x => x.status === 'needs_reply').length,
+      urgent: all.filter(x => x.ai_priority === 'urgent' || x.priority === 'urgent').length,
+      with_attach: all.filter(x => x.has_attachment).length,
+      client: all.filter(x => x.ai_category === 'client' || x.ai_category === 'active_deal').length,
+      lead: all.filter(x => x.ai_category === 'lead').length,
+      contract: all.filter(x => x.ai_category === 'contract').length,
+      all: all.length
+    };
+
     $('#email-stats').innerHTML = `
-      <span class="chip-stat ${s.urgent > 0 ? 'danger' : ''}">${s.urgent || 0} urgent</span>
-      <span class="chip-stat warn">${s.needs_reply || 0} to reply</span>
+      <span class="chip-stat ${counts.urgent > 0 ? 'danger' : ''}">${counts.urgent} urgent</span>
+      <span class="chip-stat warn">${counts.needs_reply} to reply</span>
+      ${counts.with_attach ? `<span class="chip-stat info">${counts.with_attach} 📎</span>` : ''}
       <span class="chip-stat success">${s.handled_today || 0} handled today</span>
+      <button class="btn-secondary" data-email-action="poll-now" style="padding:0.3rem 0.7rem;font-size:0.72rem;margin-left:0.5rem">Sync now</button>
     `;
+
+    // Filter tabs
+    const tabs = [
+      { id: 'needs_reply', label: 'To reply', count: counts.needs_reply },
+      { id: 'urgent',      label: 'Urgent',   count: counts.urgent },
+      { id: 'with_attach', label: '📎 Attachments', count: counts.with_attach },
+      { id: 'client',      label: 'Clients / Deals', count: counts.client },
+      { id: 'lead',        label: 'Leads', count: counts.lead },
+      { id: 'contract',    label: 'Contracts', count: counts.contract },
+      { id: 'all',         label: 'All', count: counts.all }
+    ];
+
+    // Apply filter
+    const filter = _emailFilter;
+    let filtered = all;
+    if (filter === 'needs_reply')  filtered = all.filter(x => x.status === 'needs_reply');
+    else if (filter === 'urgent')  filtered = all.filter(x => x.ai_priority === 'urgent' || x.priority === 'urgent');
+    else if (filter === 'with_attach') filtered = all.filter(x => x.has_attachment);
+    else if (filter === 'client')  filtered = all.filter(x => x.ai_category === 'client' || x.ai_category === 'active_deal');
+    else if (filter === 'lead')    filtered = all.filter(x => x.ai_category === 'lead');
+    else if (filter === 'contract') filtered = all.filter(x => x.ai_category === 'contract');
+    // 'all' → no filter
+
+    const tabBar = `
+      <div style="display:flex;gap:0.35rem;margin-bottom:0.6rem;flex-wrap:wrap">
+        ${tabs.map(t => `
+          <button data-email-filter="${t.id}"
+            style="padding:0.25rem 0.7rem;border-radius:999px;font-size:0.73rem;border:1px solid ${t.id === filter ? 'var(--text)' : 'var(--border)'};background:${t.id === filter ? 'var(--text)' : 'white'};color:${t.id === filter ? 'white' : 'var(--text)'};cursor:pointer">
+            ${t.label}${t.count ? ` <span style="opacity:0.7">${t.count}</span>` : ''}
+          </button>`).join('')}
+      </div>`;
+
     const list = $('#email-list');
-    if (!brief.emails.list.length) {
-      list.innerHTML = '<div class="empty">Inbox zero. Nothing flagged.</div>';
-      return;
+    if (!all.length) {
+      list.innerHTML = tabBar + '<div class="empty">Inbox zero. Nothing flagged. <button data-email-action="poll-now" style="margin-top:0.5rem" class="btn-secondary">Pull from Gmail now</button></div>';
+    } else if (!filtered.length) {
+      list.innerHTML = tabBar + `<div class="empty">No emails match the '${filter}' filter.</div>`;
+    } else {
+      list.innerHTML = tabBar + filtered.map(renderEmailRow).join('');
     }
-    list.innerHTML = brief.emails.list.map(e => `
+    decorateEmailsWithFub(all);
+  }
+
+  function renderEmailRow(e) {
+    const priority = e.ai_priority || e.priority || 'normal';
+    const category = e.ai_category ? `<span class="badge normal" style="background:#e0e7ff;color:#3730a3">${escapeHtml(e.ai_category.replace(/_/g, ' '))}</span>` : '';
+    const attach = e.has_attachment
+      ? `<span title="${escapeHtml((Array.isArray(e.attachment_names) ? e.attachment_names : []).join(', '))}" style="color:#c9a96e;font-weight:600">📎${Array.isArray(e.attachment_names) && e.attachment_names.length > 1 ? ' ' + e.attachment_names.length : ''}</span>`
+      : '';
+    const ageHours = e.received_at ? Math.round((Date.now() - new Date(e.received_at).getTime()) / 3600000) : null;
+    const agePill = ageHours != null && e.status === 'needs_reply' && ageHours >= 24
+      ? `<span style="background:#fee2e2;color:#991b1b;padding:1px 6px;border-radius:999px;font-size:0.68rem;font-weight:600">${ageHours}h silent</span>`
+      : '';
+    const openBtn = (e.gmail_web_link || e.thread_id)
+      ? `<button data-email-action="open-gmail" data-id="${e.id}" title="Open in Gmail">↗</button>`
+      : '';
+    const labelBtn = e.ai_suggested_label
+      ? `<button data-email-action="apply-label" data-id="${e.id}" data-label="${escapeHtml(e.ai_suggested_label)}" title="File as '${escapeHtml(e.ai_suggested_label)}'">🏷</button>`
+      : '';
+    const snoozeBtn = `<button data-email-action="snooze" data-id="${e.id}" title="Snooze for 24h">⏰</button>`;
+    const archiveBtn = `<button data-email-action="archive" data-id="${e.id}" title="Archive in Gmail + mark handled">📥</button>`;
+
+    return `
       <div class="row" data-email="${e.id}" data-from="${escapeHtml(e.from_address || '')}">
         <div class="row-main">
-          <div class="row-title">${escapeHtml(e.subject || '(no subject)')}</div>
+          <div class="row-title" style="display:flex;align-items:center;gap:0.4rem;flex-wrap:wrap">
+            <span>${escapeHtml(e.subject || '(no subject)')}</span>
+            ${attach}
+            ${agePill}
+          </div>
           <div class="row-meta">
-            <span class="badge ${e.priority || 'normal'}">${e.priority || 'normal'}</span>
+            <span class="badge ${priority}">${priority}</span>
+            ${category}
             <span>${escapeHtml(e.from_name || e.from_address || '')}</span>
             <span>${fmtTime(e.received_at)}</span>
             <span class="fub-chip" data-fub-slot="${escapeHtml(e.from_address || '')}"></span>
           </div>
-          ${e.snippet ? `<div class="row-sub">${escapeHtml(e.snippet.substring(0, 150))}${e.snippet.length > 150 ? '…' : ''}</div>` : ''}
+          ${e.ai_summary ? `<div class="row-sub" style="font-weight:500">${escapeHtml(e.ai_summary)}</div>` : (e.snippet ? `<div class="row-sub">${escapeHtml(e.snippet.substring(0, 150))}${e.snippet.length > 150 ? '…' : ''}</div>` : '')}
+          ${e.ai_suggested_action ? `<div class="row-sub" style="color:#c9a96e;margin-top:0.25rem">➜ ${escapeHtml(e.ai_suggested_action)}</div>` : ''}
         </div>
-        <div class="row-actions">
+        <div class="row-actions" style="display:flex;flex-wrap:wrap;gap:0.2rem;max-width:180px;justify-content:flex-end">
+          ${openBtn}
           <button data-action="draft-email-reply" data-id="${e.id}" title="Draft a reply with Claude">✉</button>
+          ${labelBtn}
+          ${snoozeBtn}
+          ${archiveBtn}
           <button class="primary" data-action="handle-email" data-id="${e.id}" title="Mark handled">&#10003;</button>
           <button class="danger" data-action="delete-email" data-id="${e.id}" title="Dismiss">&times;</button>
         </div>
-      </div>
-    `).join('');
-    // Post-render: decorate rows with FUB matches (best-effort, non-blocking)
-    decorateEmailsWithFub(brief.emails.list);
+      </div>`;
   }
 
   const _fubLookupCache = new Map(); // email → { person, at }
@@ -579,6 +661,70 @@ function initDashboard() {
   });
 
   // Voice input + hotkeys are owned by dashboard.voice.js (loaded after this file)
+
+  // Email filter tabs + per-row Gmail actions (poll, open, label, archive, snooze)
+  const emailCard = document.querySelector('[data-section="emails"]');
+  if (emailCard) {
+    emailCard.addEventListener('click', async (e) => {
+      const tab = e.target.closest('[data-email-filter]');
+      if (tab) {
+        _emailFilter = tab.dataset.emailFilter;
+        try { localStorage.setItem('jw_email_filter', _emailFilter); } catch (err) {}
+        window.DB_RENDER.renderEmails(window.DB.state.brief);
+        return;
+      }
+      const act = e.target.closest('[data-email-action]');
+      if (!act) return;
+      const action = act.dataset.emailAction;
+      const id = act.dataset.id;
+      try {
+        switch (action) {
+          case 'poll-now': {
+            window.DB.toast('Pulling from Gmail…');
+            const r = await window.DB.api('/api/emails/poll', { method: 'POST', body: '{}' });
+            window.DB.toast(`Scanned ${r.scanned || 0}, ${r.inserted || 0} new, ${r.triaged || 0} triaged`, 'success');
+            await load();
+            return;
+          }
+          case 'open-gmail': {
+            const data = await window.DB.api('/api/emails/' + id + '/open');
+            if (data.url) window.open(data.url, '_blank', 'noopener');
+            else window.DB.toast('No Gmail link on this row', 'error');
+            return;
+          }
+          case 'apply-label': {
+            const label = act.dataset.label || window.prompt('Gmail label (forward-slash for nested, e.g. Deals/123 Main)', 'Deals/');
+            if (!label) return;
+            await window.DB.api('/api/emails/' + id + '/apply-label', {
+              method: 'POST', body: JSON.stringify({ label })
+            });
+            window.DB.toast('Filed under ' + label, 'success');
+            return;
+          }
+          case 'snooze': {
+            const hoursStr = window.prompt('Snooze for how many hours?', '24');
+            const hours = parseInt(hoursStr);
+            if (!hours || hours < 1) return;
+            await window.DB.api('/api/emails/' + id + '/snooze', {
+              method: 'POST', body: JSON.stringify({ hours })
+            });
+            window.DB.toast(`Snoozed for ${hours}h`, 'success');
+            await load();
+            return;
+          }
+          case 'archive': {
+            if (!confirm('Archive this email in Gmail AND mark handled on the dashboard?')) return;
+            await window.DB.api('/api/emails/' + id + '/archive', { method: 'POST', body: '{}' });
+            window.DB.toast('Archived', 'success');
+            await load();
+            return;
+          }
+        }
+      } catch (err) {
+        window.DB.toast(err.message || 'Action failed', 'error');
+      }
+    });
+  }
 
   // CRM filter chips
   document.querySelector('[data-section="crm"] .toolbar').addEventListener('click', (e) => {
