@@ -16,30 +16,38 @@
   window.DB_CHROME = { openManager };
 
   async function openManager(initialTab = 'workflows') {
-    let creds = [], flows = [];
+    let creds = [], flows = [], toolGroups = [], toolCount = 0;
     try {
-      const [c, w] = await Promise.all([api('/api/chrome/credentials'), api('/api/chrome/workflows')]);
+      const [c, w, t] = await Promise.all([
+        api('/api/chrome/credentials'),
+        api('/api/chrome/workflows'),
+        api('/api/tools')
+      ]);
       creds = c.credentials; flows = w.workflows;
+      toolGroups = t.groups || []; toolCount = t.count || 0;
     } catch (e) { toast(e.message, 'error'); return; }
 
-    openModal('Claude Chrome Workflows', renderTabs(initialTab, creds, flows), `
+    openModal('Claude Chrome Workflows', renderTabs(initialTab, creds, flows, toolGroups, toolCount), `
       <button class="btn-secondary" onclick="DB.closeModal()">Close</button>
     `);
     wireTabs();
     wireButtons();
   }
 
-  function renderTabs(active, creds, flows) {
+  function tabBtn(label, key, active) {
+    const isActive = active === key;
+    return `<button class="ct-tab ${isActive ? 'active' : ''}" data-tab="${key}"
+      style="background:none;border:none;padding:0.5rem 0.9rem;cursor:pointer;font-weight:600;color:${isActive ? 'var(--text)' : 'var(--muted)'};border-bottom:2px solid ${isActive ? 'var(--accent)' : 'transparent'}">
+      ${label}
+    </button>`;
+  }
+
+  function renderTabs(active, creds, flows, toolGroups, toolCount) {
     return `
-      <div style="display:flex;gap:0.25rem;margin-bottom:1rem;border-bottom:1px solid var(--border)">
-        <button class="ct-tab ${active === 'workflows' ? 'active' : ''}" data-tab="workflows"
-          style="background:none;border:none;padding:0.5rem 0.9rem;cursor:pointer;font-weight:600;color:${active === 'workflows' ? 'var(--text)' : 'var(--muted)'};border-bottom:2px solid ${active === 'workflows' ? 'var(--accent)' : 'transparent'}">
-          Workflows (${flows.length})
-        </button>
-        <button class="ct-tab ${active === 'creds' ? 'active' : ''}" data-tab="creds"
-          style="background:none;border:none;padding:0.5rem 0.9rem;cursor:pointer;font-weight:600;color:${active === 'creds' ? 'var(--text)' : 'var(--muted)'};border-bottom:2px solid ${active === 'creds' ? 'var(--accent)' : 'transparent'}">
-          Credentials (${creds.length})
-        </button>
+      <div style="display:flex;gap:0.25rem;margin-bottom:1rem;border-bottom:1px solid var(--border);overflow-x:auto">
+        ${tabBtn(`Workflows (${flows.length})`, 'workflows', active)}
+        ${tabBtn(`Credentials (${creds.length})`, 'creds', active)}
+        ${tabBtn(`Tools (${toolCount})`, 'tools', active)}
       </div>
 
       <div id="ct-pane-workflows" style="display:${active === 'workflows' ? 'block' : 'none'}">
@@ -57,7 +65,58 @@
         </div>
         ${creds.length ? creds.map(credRow).join('') : '<div class="empty">No credentials yet.</div>'}
       </div>
+
+      <div id="ct-pane-tools" style="display:${active === 'tools' ? 'block' : 'none'}">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.75rem;gap:0.5rem;flex-wrap:wrap">
+          <p style="font-size:0.8rem;color:var(--muted);margin:0;flex:1;min-width:200px">
+            Every tool you use for business — imported from your Chrome bookmarks. Click any tool to add a credential or have Claude draft a starter workflow.
+          </p>
+          <button class="btn-primary" data-ct="import-bookmarks" style="padding:0.4rem 0.8rem;font-size:0.8rem">Import Bookmarks</button>
+          <button class="btn-secondary" data-ct="add-tool" style="padding:0.4rem 0.8rem;font-size:0.8rem">+ Add Tool</button>
+        </div>
+        ${toolGroups.length ? toolGroups.map(toolGroup).join('') : '<div class="empty">No tools yet. Click <strong>Import Bookmarks</strong> to load your Chrome bookmark export.</div>'}
+      </div>
     `;
+  }
+
+  function toolGroup(g) {
+    const folder = g.folder || '/';
+    const items = g.items || [];
+    return `
+      <div style="margin-bottom:1rem">
+        <div style="font-size:0.7rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:0.4rem;font-weight:600">
+          ${escapeHtml(folder)} <span style="color:var(--border);margin-left:0.4rem">${items.length}</span>
+        </div>
+        ${items.map(toolRow).join('')}
+      </div>`;
+  }
+
+  function toolRow(t) {
+    const host = (() => { try { return new URL(t.url).hostname.replace(/^www\./, ''); } catch (e) { return t.url; } })();
+    const credBadge = t.credential_name
+      ? `<span class="badge ${t.credential_has_password ? 'completed' : 'pending'}">&#128274; ${escapeHtml(t.credential_name)}${t.credential_has_password ? '' : ' (no pwd)'}</span>`
+      : '<span class="badge low">no credential</span>';
+    const wfCount = Array.isArray(t.external_workflow_ids) ? t.external_workflow_ids.length : 0;
+    return `
+      <div class="row" data-tool-id="${t.id}" style="margin-bottom:0.35rem">
+        <div class="row-main">
+          <div class="row-title" style="display:flex;align-items:center;gap:0.5rem">
+            ${t.favicon_url ? `<img src="${escapeHtml(t.favicon_url)}" alt="" style="width:14px;height:14px;flex-shrink:0">` : ''}
+            <span>${escapeHtml(t.name)}</span>
+          </div>
+          <div class="row-meta">
+            <span>&#128279; ${escapeHtml(host)}</span>
+            ${credBadge}
+            ${wfCount ? `<span>${wfCount} workflow${wfCount === 1 ? '' : 's'}</span>` : ''}
+          </div>
+        </div>
+        <div class="row-actions">
+          <button data-ct="open-tool" data-id="${t.id}" data-url="${escapeHtml(t.url)}" title="Open in tab">&#8599;</button>
+          ${t.credential_name ? '' : `<button data-ct="tool-add-cred" data-id="${t.id}" title="Add credential">&#128274;</button>`}
+          <button class="primary" data-ct="tool-make-workflow" data-id="${t.id}" title="Draft workflow with Claude">&#9889;</button>
+          <button class="danger" data-ct="del-tool" data-id="${t.id}" title="Remove">&times;</button>
+        </div>
+      </div>`;
   }
 
   function flowRow(w) {
@@ -106,11 +165,14 @@
   }
 
   function wireTabs() {
+    const panes = ['workflows', 'creds', 'tools'];
     document.querySelectorAll('.ct-tab').forEach(b => {
       b.addEventListener('click', () => {
         const t = b.dataset.tab;
-        document.getElementById('ct-pane-workflows').style.display = t === 'workflows' ? 'block' : 'none';
-        document.getElementById('ct-pane-creds').style.display = t === 'creds' ? 'block' : 'none';
+        panes.forEach(p => {
+          const el = document.getElementById('ct-pane-' + p);
+          if (el) el.style.display = t === p ? 'block' : 'none';
+        });
         document.querySelectorAll('.ct-tab').forEach(x => { x.style.color = 'var(--muted)'; x.style.borderBottomColor = 'transparent'; });
         b.style.color = 'var(--text)';
         b.style.borderBottomColor = 'var(--accent)';
@@ -141,6 +203,20 @@
               return revealCredential(id);
             case 'run':
               return runWorkflow(id);
+            case 'import-bookmarks':
+              return openImportDialog();
+            case 'add-tool':
+              return openToolForm();
+            case 'open-tool':
+              return window.open(btn.dataset.url, '_blank', 'noopener');
+            case 'tool-add-cred':
+              return openToolCredentialDialog(id);
+            case 'tool-make-workflow':
+              return makeWorkflowFromTool(id);
+            case 'del-tool':
+              if (!confirm('Remove this tool from the catalog?')) return;
+              await api('/api/tools/' + id, { method: 'DELETE' });
+              toast('Removed'); openManager('tools'); return;
           }
         } catch (e) { toast(e.message, 'error'); }
       });
@@ -302,6 +378,147 @@ Report the average $/sqft and median sold price">${escapeAttr(stepsText)}</texta
         toast('Saved', 'success'); closeModal(); openManager('creds');
       } catch (e) { toast(e.message, 'error'); }
     };
+  }
+
+  // ---------- Tools: import / add / make-credential / make-workflow ----------
+  function openImportDialog() {
+    openModal('Import Chrome Bookmarks', `
+      <p style="font-size:0.85rem;color:var(--muted);margin-bottom:0.75rem">
+        In Chrome: <strong>Bookmarks → Bookmark manager → ⋮ menu → Export bookmarks</strong>.
+        Pick the saved HTML file below — only bookmarks whose folder path matches the optional filter will be imported.
+      </p>
+      <div class="form-field">
+        <label>Bookmarks HTML file</label>
+        <input id="ct-import-file" type="file" accept=".html,.htm,text/html">
+      </div>
+      <div class="form-field">
+        <label>Folder filter (optional, case-insensitive)</label>
+        <input id="ct-import-filter" placeholder="e.g. Business, Real Estate, Tools">
+      </div>
+      <p style="font-size:0.8rem;color:var(--muted);margin:1rem 0 0.5rem">— or —</p>
+      <div class="form-field">
+        <label>Paste a list of URLs (one per line)</label>
+        <textarea id="ct-import-urls" rows="6" placeholder="https://app.followupboss.com
+https://hook.us2.make.com
+Realm — https://tools.proptx.ca/onepoint
+[Buffer](https://buffer.com)"></textarea>
+      </div>
+    `, `
+      <button class="btn-secondary" onclick="DB.closeModal()">Cancel</button>
+      <button class="btn-primary" id="ct-do-import">Import</button>
+    `);
+
+    document.getElementById('ct-do-import').onclick = async () => {
+      const file = document.getElementById('ct-import-file').files[0];
+      const filter = document.getElementById('ct-import-filter').value.trim() || null;
+      const urls = document.getElementById('ct-import-urls').value.trim() || null;
+      if (!file && !urls) { toast('Pick a file or paste URLs', 'error'); return; }
+
+      let html = null;
+      if (file) {
+        try { html = await readFile(file); }
+        catch (e) { toast('Could not read file', 'error'); return; }
+      }
+      const btn = document.getElementById('ct-do-import');
+      btn.disabled = true; btn.textContent = 'Importing…';
+      try {
+        const r = await api('/api/tools/import', {
+          method: 'POST',
+          body: JSON.stringify({ html, urls, folderFilter: filter })
+        });
+        toast(`Imported: ${r.inserted} new, ${r.updated} updated`, 'success');
+        closeModal();
+        openManager('tools');
+      } catch (e) { toast(e.message, 'error'); }
+      finally { btn.disabled = false; btn.textContent = 'Import'; }
+    };
+  }
+
+  function readFile(file) {
+    return new Promise((resolve, reject) => {
+      const r = new FileReader();
+      r.onload = () => resolve(r.result);
+      r.onerror = reject;
+      r.readAsText(file);
+    });
+  }
+
+  async function openToolForm(id) {
+    let t = {};
+    if (id) {
+      const { tools } = await api('/api/tools');
+      t = tools.find(x => x.id == id) || t;
+    }
+    openModal(id ? 'Edit Tool' : 'New Tool', `
+      <div class="form-field"><label>Name</label>
+        <input id="tl-name" value="${escapeAttr(t.name || '')}"></div>
+      <div class="form-field"><label>URL</label>
+        <input id="tl-url" value="${escapeAttr(t.url || '')}" placeholder="https://..."></div>
+      <div class="form-field"><label>Folder Path</label>
+        <input id="tl-folder" value="${escapeAttr(t.folder_path || '/Manual')}"></div>
+      <div class="form-field"><label>Description</label>
+        <textarea id="tl-desc" rows="2">${escapeAttr(t.description || '')}</textarea></div>
+    `, `
+      <button class="btn-secondary" onclick="DB.closeModal()">Cancel</button>
+      <button class="btn-primary" id="tl-save">${id ? 'Update' : 'Create'}</button>
+    `);
+    document.getElementById('tl-save').onclick = async () => {
+      const body = {
+        name: v('tl-name'), url: v('tl-url'),
+        folder_path: v('tl-folder'), description: v('tl-desc')
+      };
+      if (!body.url) return toast('URL required', 'error');
+      try {
+        await api('/api/tools' + (id ? '/' + id : ''), {
+          method: id ? 'PATCH' : 'POST', body: JSON.stringify(body)
+        });
+        toast('Saved', 'success'); closeModal(); openManager('tools');
+      } catch (e) { toast(e.message, 'error'); }
+    };
+  }
+
+  function openToolCredentialDialog(toolId) {
+    openModal('Add credential for tool', `
+      <p style="font-size:0.85rem;color:var(--muted);margin-bottom:0.75rem">
+        We'll create an encrypted credential and link it to this tool. Leave password blank to fill in later.
+      </p>
+      <div class="form-field"><label>Slug (used to reference from workflows)</label>
+        <input id="tcr-name" placeholder="auto-generated from tool name"></div>
+      <div class="form-field"><label>Username</label>
+        <input id="tcr-user" autocomplete="off"></div>
+      <div class="form-field"><label>Password</label>
+        <input id="tcr-pass" type="password" autocomplete="new-password"></div>
+    `, `
+      <button class="btn-secondary" onclick="DB.closeModal()">Cancel</button>
+      <button class="btn-primary" id="tcr-save">Create</button>
+    `);
+    document.getElementById('tcr-save').onclick = async () => {
+      try {
+        await api('/api/tools/' + toolId + '/make-credential', {
+          method: 'POST',
+          body: JSON.stringify({
+            name: v('tcr-name') || undefined,
+            username: v('tcr-user'),
+            password: document.getElementById('tcr-pass').value || null
+          })
+        });
+        toast('Credential linked', 'success'); closeModal(); openManager('tools');
+      } catch (e) { toast(e.message, 'error'); }
+    };
+  }
+
+  async function makeWorkflowFromTool(toolId) {
+    let goal = window.prompt('What should this workflow do? (e.g. "Pull active listings in Midland")');
+    if (goal === null) return; // cancelled
+    goal = goal.trim();
+    toast('Drafting workflow with Claude…');
+    try {
+      const r = await api('/api/tools/' + toolId + '/make-workflow', {
+        method: 'POST', body: JSON.stringify({ goal: goal || undefined })
+      });
+      toast('Workflow ready: ' + (r.workflow.name || 'unnamed'), 'success');
+      openManager('workflows');
+    } catch (e) { toast(e.message, 'error'); }
   }
 
   function v(id) { const el = document.getElementById(id); return el && el.value.trim() ? el.value.trim() : null; }

@@ -28,6 +28,7 @@ const eventsRoutes = require('./routes/events');
 const intuitionRoutes = require('./routes/intuition');
 const lettersRoutes = require('./routes/letters');
 const chromeRoutes = require('./routes/chrome');
+const toolsRoutes = require('./routes/tools');
 const { initDb } = require('./db/init');
 const { startWorker } = require('./services/worker');
 
@@ -84,6 +85,7 @@ app.use('/api/events', eventsRoutes);
 app.use('/api/intuition', intuitionRoutes);
 app.use('/api/letters', lettersRoutes);
 app.use('/api/chrome', chromeRoutes);
+app.use('/api/tools', toolsRoutes);
 app.use('/dashboard', dashboardRoutes);
 
 app.get('/', (req, res) => {

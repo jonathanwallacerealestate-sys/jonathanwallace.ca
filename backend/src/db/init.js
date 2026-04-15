@@ -298,6 +298,27 @@ async function initDb() {
         updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
       );
 
+      -- Business Tools catalog — every site / tool Jonathan uses for work.
+      -- Seeded from a Chrome bookmark export so it matches the reality of
+      -- his day. A tool can optionally be linked to a credential.
+      CREATE TABLE IF NOT EXISTS business_tools (
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(200) NOT NULL,
+        url TEXT NOT NULL,
+        folder_path TEXT,
+        favicon_url TEXT,
+        description TEXT,
+        tags JSONB DEFAULT '[]',
+        credential_name VARCHAR(100) REFERENCES site_credentials(name) ON DELETE SET NULL,
+        external_workflow_ids JSONB DEFAULT '[]',
+        source VARCHAR(50) DEFAULT 'manual',
+        last_seen_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+        archived BOOLEAN DEFAULT FALSE,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+        UNIQUE (url)
+      );
+
       -- Letters of Opinion (LOO / LOV). Written estimates of market value
       -- that Jonathan produces for sellers, lawyers, estate & divorce files.
       CREATE TABLE IF NOT EXISTS letter_opinions (
@@ -407,6 +428,8 @@ async function initDb() {
       CREATE INDEX IF NOT EXISTS idx_loo_seller_form ON letter_opinions(seller_form_id);
       CREATE INDEX IF NOT EXISTS idx_cred_name ON site_credentials(name);
       CREATE INDEX IF NOT EXISTS idx_workflow_name ON chrome_workflows(name);
+      CREATE INDEX IF NOT EXISTS idx_tools_folder ON business_tools(folder_path);
+      CREATE INDEX IF NOT EXISTS idx_tools_archived ON business_tools(archived);
     `);
 
     // Seed real-estate vocabulary Jonathan uses every day. Idempotent.
