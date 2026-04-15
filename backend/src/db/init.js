@@ -319,6 +319,46 @@ async function initDb() {
         UNIQUE (url)
       );
 
+      -- Learning Sources — recurring sources Jonathan consumes content from
+      -- (Spotify shows, Audible authors, YouTube channels, blogs, mentors).
+      CREATE TABLE IF NOT EXISTS learning_sources (
+        id SERIAL PRIMARY KEY,
+        kind VARCHAR(30) NOT NULL,             -- spotify_show | audible | youtube | blog | course | mentor | other
+        name VARCHAR(255) NOT NULL,
+        external_id VARCHAR(255),              -- Spotify show id, Audible ASIN, etc.
+        author VARCHAR(255),
+        url TEXT,
+        notes TEXT,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+        UNIQUE (kind, external_id)
+      );
+
+      -- Learning Log — every consumption event with extracted insights.
+      -- raw_notes is whatever was captured (transcript snippet, voice memo
+      -- text, manual paste). Claude turns it into structured insights.
+      CREATE TABLE IF NOT EXISTS learning_log (
+        id SERIAL PRIMARY KEY,
+        source_id INTEGER REFERENCES learning_sources(id) ON DELETE SET NULL,
+        kind VARCHAR(30) NOT NULL,             -- spotify_episode | audible_chapter | youtube_video | article | voice_memo | conversation
+        title VARCHAR(500),
+        author VARCHAR(255),
+        external_id VARCHAR(255),              -- Spotify episode id, etc.
+        url TEXT,
+        consumed_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+        duration_seconds INTEGER,
+        raw_notes TEXT,
+        summary TEXT,
+        key_concepts JSONB DEFAULT '[]',       -- ["concept 1", "concept 2"]
+        action_items JSONB DEFAULT '[]',       -- [{ "title", "due_in_days", "category", "notes" }]
+        suggested_vocabulary JSONB DEFAULT '[]',
+        suggested_memory JSONB DEFAULT '[]',
+        applied_action_item_ids JSONB DEFAULT '[]',  -- personal_tasks ids created from action items
+        analyzed_at TIMESTAMP WITH TIME ZONE,
+        tags JSONB DEFAULT '[]',
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+      );
+
       -- Activity ledger — every contact touch (call/email/text/meeting/dropby).
       -- Drives the daily lead-gen counters and goals.
       CREATE TABLE IF NOT EXISTS activity_log (
@@ -521,6 +561,9 @@ async function initDb() {
       CREATE INDEX IF NOT EXISTS idx_memory_importance ON agent_memory(importance DESC);
       CREATE INDEX IF NOT EXISTS idx_sched_next ON scheduled_tasks(enabled, next_run_at);
       CREATE INDEX IF NOT EXISTS idx_activity_date ON activity_log(activity_date);
+      CREATE INDEX IF NOT EXISTS idx_learning_consumed ON learning_log(consumed_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_learning_kind ON learning_log(kind);
+      CREATE INDEX IF NOT EXISTS idx_learning_source ON learning_log(source_id);
       CREATE INDEX IF NOT EXISTS idx_activity_type ON activity_log(activity_type);
       CREATE INDEX IF NOT EXISTS idx_power_session_status ON power_hour_sessions(status);
       CREATE INDEX IF NOT EXISTS idx_power_session_started ON power_hour_sessions(started_at DESC);
@@ -688,7 +731,10 @@ async function initDb() {
         ('daily_goal_calories',    '2200'::jsonb,              'Target daily calories'),
         ('daily_goal_protein',     '180'::jsonb,               'Target daily protein (g)'),
         ('workout_week_target',    '5'::jsonb,                 'Target workouts per week'),
-        ('dashboard_greeting',     '"Let''s have a great day."'::jsonb, 'Greeting shown at top of dashboard')
+        ('dashboard_greeting',     '"Let''s have a great day."'::jsonb, 'Greeting shown at top of dashboard'),
+        ('spotify_client_id',      'null'::jsonb,                       'Spotify Web API client ID (from developer.spotify.com app)'),
+        ('spotify_client_secret',  'null'::jsonb,                       'Spotify Web API client secret'),
+        ('spotify_refresh_token',  'null'::jsonb,                       'Spotify refresh token saved after first OAuth flow')
       ON CONFLICT (key) DO NOTHING;
     `);
 

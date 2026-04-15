@@ -45,6 +45,7 @@ const ALLOWED_ASSETS = {
   'dashboard.chrome.js': 'application/javascript; charset=utf-8',
   'dashboard.schedules.js': 'application/javascript; charset=utf-8',
   'dashboard.leadgen.js': 'application/javascript; charset=utf-8',
+  'dashboard.learning.js': 'application/javascript; charset=utf-8',
   'icon-192.svg': 'image/svg+xml; charset=utf-8',
   'icon-512.svg': 'image/svg+xml; charset=utf-8'
 };

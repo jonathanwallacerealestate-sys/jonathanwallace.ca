@@ -32,6 +32,8 @@ const toolsRoutes = require('./routes/tools');
 const schedulesRoutes = require('./routes/schedules');
 const activityRoutes = require('./routes/activity');
 const powerHourRoutes = require('./routes/powerHour');
+const learningRoutes = require('./routes/learning');
+const spotifyRoutes = require('./routes/spotify');
 const { initDb } = require('./db/init');
 const { startWorker } = require('./services/worker');
 const { start: startScheduler } = require('./services/scheduler');
@@ -93,6 +95,8 @@ app.use('/api/tools', toolsRoutes);
 app.use('/api/schedules', schedulesRoutes);
 app.use('/api/activity', activityRoutes);
 app.use('/api/power-hour', powerHourRoutes);
+app.use('/api/learning', learningRoutes);
+app.use('/api/spotify', spotifyRoutes);
 app.use('/dashboard', dashboardRoutes);
 
 app.get('/', (req, res) => {

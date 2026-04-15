@@ -42,7 +42,8 @@ Rules:
   "three follow-ups, one of them overdue with a new Wasaga Beach lead."
 - Don't use markdown. Don't use bullet points. Write prose.
 - End with a one-sentence nudge or priority for the day.
-- Use Jonathan's first name sparingly — once at most.`;
+- Use Jonathan's first name sparingly — once at most.
+- If recent_learning has unapplied action items, weave one in naturally — "you noted from the [show name] episode that..."`;
 
 router.get('/summary', async (req, res) => {
   try {
@@ -93,7 +94,7 @@ async function buildBriefSnapshot() {
 
   const [urgentEmails, crmToday, crmOverdue, calendarToday,
          closingsSoon, personalToday, workoutsToday, marketingToday,
-         activityToday, goalsToday] =
+         activityToday, goalsToday, recentLearning, openLearningActions] =
     await Promise.all([
       q(`SELECT subject, from_name, from_address, priority FROM flagged_emails
           WHERE status='needs_reply' ORDER BY
@@ -119,7 +120,19 @@ async function buildBriefSnapshot() {
       q(`SELECT activity_type, COUNT(*)::int AS count,
                 COUNT(*) FILTER (WHERE outcome='connected')::int AS connected
            FROM activity_log WHERE activity_date = CURRENT_DATE GROUP BY activity_type`),
-      q(`SELECT goal_type, daily_target FROM lead_gen_goals WHERE enabled = TRUE`)
+      q(`SELECT goal_type, daily_target FROM lead_gen_goals WHERE enabled = TRUE`),
+      q(`SELECT title, kind, summary, action_items
+           FROM learning_log
+           WHERE consumed_at >= NOW() - INTERVAL '7 days'
+             AND summary IS NOT NULL
+           ORDER BY consumed_at DESC LIMIT 5`),
+      q(`SELECT title, jsonb_array_length(COALESCE(action_items,'[]'::jsonb))::int AS total,
+                jsonb_array_length(COALESCE(applied_action_item_ids,'[]'::jsonb))::int AS applied
+           FROM learning_log
+           WHERE jsonb_array_length(COALESCE(action_items,'[]'::jsonb)) >
+                 jsonb_array_length(COALESCE(applied_action_item_ids,'[]'::jsonb))
+             AND consumed_at >= NOW() - INTERVAL '14 days'
+           ORDER BY consumed_at DESC LIMIT 5`)
     ]);
 
   const activityMap = Object.fromEntries(activityToday.map(r => [r.activity_type, r]));
@@ -137,7 +150,9 @@ async function buildBriefSnapshot() {
       calls: { actual: activityMap.call?.count || 0, connected: activityMap.call?.connected || 0, target: goalMap.calls || 0 },
       emails: { actual: activityMap.email?.count || 0, target: goalMap.emails || 0 },
       contacts_added: { actual: (activityMap.text?.count || 0) + (activityMap.drop_by?.count || 0) + (activityMap.social_dm?.count || 0) + (activityMap.meeting?.count || 0), target: goalMap.contacts_added || 0 }
-    }
+    },
+    recent_learning: recentLearning,
+    open_learning_actions: openLearningActions
   };
 }
 

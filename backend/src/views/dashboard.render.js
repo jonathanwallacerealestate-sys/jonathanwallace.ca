@@ -21,6 +21,7 @@
       { id: 'workouts', label: 'Workout' },
       { id: 'meals', label: 'Meals' },
       { id: 'marketing', label: 'Marketing' },
+      { id: 'learning', label: 'Learning' },
       { id: 'seller-forms', label: 'Sellers' },
       { id: 'letters', label: 'LOO' },
       { id: 'custom-root', label: 'Custom' }
