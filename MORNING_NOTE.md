@@ -99,15 +99,17 @@ named Mitchell"* is a 3-field combo away.
 
 ---
 
-## What shipped overall (newest first, 11 FUB-related commits)
+## What shipped overall (newest first, 14 FUB-related commits)
 
 ```
+8e28845  FUB round 14: Weekly Review pulls FUB pipeline stats
+81de100  FUB round 13: morning brief surfaces new FUB leads since yesterday
+b8a5fe7  FUB round 12: two-way task completion — CRM green-check mirrors to FUB
 c242363  FUB round 11: Smart Lists filter on the Contacts card
 8a32a77  FUB round 10: deal sync — push local closings into FUB Deals
 2ad644d  FUB round 9:  inbox-zero loop — flagged emails show FUB context
 6d4bafa  FUB round 8:  Hour of Power × FUB — search, pre-call brief,
                       auto-push analysis (fub_person_id column)
-7c1192a  Morning note (prior)
 8f12213  FUB round 7:  live FUB state in morning briefing
 1a99088  FUB round 6:  dedicated Contacts browser card
 949a01a  FUB round 5:  contact-detail drill-in on CRM rows
@@ -119,6 +121,22 @@ e7a4bea  FUB round 1:  direct API client + routes
 ```
 
 All on `main`. All auto-deployed to Railway.
+
+### Rounds 12-14 highlights (since last note)
+
+**Round 12 — Two-way task completion**: tapping the green ✓ on any CRM
+follow-up now ALSO closes the corresponding task in FUB (when linked via
+`fub_event_id`). Toast shows "Done · mirrored to FUB" so you know the
+round-trip succeeded. No more orphaned open tasks in FUB.
+
+**Round 13 — New leads in morning brief**: Brief Me now pulls FUB people
+created in the last 24 hours and names 1-2 in the briefing by source.
+*"A new Midland lead named Sarah came in off the website at 11pm."*
+
+**Round 14 — Weekly review pipeline pulse**: the Sunday-night Weekly
+Review now includes new_leads_this_week, tasks_completed_this_week, and
+deals grouped by status. The review prompt names one new lead by name +
+source to personalize the reflection.
 
 ---
 
@@ -177,19 +195,21 @@ at the **Emails** card. FUB badges should appear automatically.
 
 ## Still on the "not done" list
 
-- **Two-way task sync** — completing a FUB task from dashboard
-  mirrors to FUB (done for calls-via-HoP and for direct task-complete
-  button; NOT for the CRM card's green-check button yet)
 - **Smart list → one-click bulk action** ("text all 12 Hot Leads a
   holiday message")
-- **Event log on the morning brief** — "3 new leads since yesterday"
-  with names
 - **FUB → Google Calendar two-way** (Showings scheduled in FUB
   auto-appear in your calendar card)
-- **Weekly review** consumes FUB stats (new leads / closed / lost
-  this week) for a real pipeline health read
+- **Contact enrichment** — Claude looks up public info on a cold
+  FUB record and stages it as a note for review
+- **Lead source attribution report** — Claude weekly breakdown of
+  which sources are actually converting to deals
 
-Tell me any of those when you're ready.
+Closed in this overnight run:
+- ✅ Two-way task sync (round 12)
+- ✅ New-leads event log in morning brief (round 13)
+- ✅ Weekly review FUB pipeline stats (round 14)
+
+Tell me what's next when you're ready.
 
 ---
 
