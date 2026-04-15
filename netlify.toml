@@ -54,28 +54,34 @@
   status = 200
 
 # Agent Command Center — proxy to Railway backend.
-# Update RAILWAY_APP_URL below to your Railway-assigned subdomain, or set it
-# in Netlify → Site settings → Environment variables so you can change it
-# without a commit.
-[[redirects]]
-  from = "/dashboard"
-  to = "https://RAILWAY_APP_URL/dashboard"
-  status = 302
-  force = true
-
-[[redirects]]
-  from = "/dashboard/*"
-  to = "https://RAILWAY_APP_URL/dashboard/:splat"
-  status = 302
-  force = true
-
-# API proxy so the marketing site's contact form can hit the backend
-# through a same-origin path (avoids CORS issues).
-[[redirects]]
-  from = "/api/*"
-  to = "https://RAILWAY_APP_URL/api/:splat"
-  status = 200
-  force = true
+# DISABLED until the real Railway URL is known. To enable:
+#   1. Find your Railway service public URL: Railway → service → Settings →
+#      Networking → "Generate Domain" if none exists. Should look like
+#      https://something-production-abcd.up.railway.app
+#   2. Replace the four occurrences of RAILWAY_APP_URL_HERE below with
+#      ONLY the host part (e.g. something-production-abcd.up.railway.app).
+#   3. Uncomment the three [[redirects]] blocks below (delete the leading #).
+#   4. Commit + push; Netlify auto-redeploys in ~30 sec.
+#
+# [[redirects]]
+#   from = "/dashboard"
+#   to = "https://RAILWAY_APP_URL_HERE/dashboard"
+#   status = 302
+#   force = true
+#
+# [[redirects]]
+#   from = "/dashboard/*"
+#   to = "https://RAILWAY_APP_URL_HERE/dashboard/:splat"
+#   status = 302
+#   force = true
+#
+# # API proxy so the marketing site's contact form can hit the backend
+# # through a same-origin path (avoids CORS issues).
+# [[redirects]]
+#   from = "/api/*"
+#   to = "https://RAILWAY_APP_URL_HERE/api/:splat"
+#   status = 200
+#   force = true
 
 # Catch-all redirect for 404s to index
 [[redirects]]
