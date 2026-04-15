@@ -48,15 +48,18 @@ and never assume he can edit code.
 
 ### ✅ What's working
 
-- **GitHub repo**: `jonathanwallacerealestate-sys/jonathanwallace.ca` on `main`
-  at commit `c6a0aff`.
+- **GitHub repo**: `jonathanwallacerealestate-sys/jonathanwallace.ca` on `main`.
 - **Railway backend**: live at
   `https://jonathanwallaceca-production.up.railway.app`.
   Health check passes — `GET /api/health` returns `{"status":"healthy",...}`.
-  All 24 Postgres tables migrated on boot, worker + scheduler started.
-- **Netlify marketing site**: live at `jonathanwallace.ca`. A commit was
-  just pushed to add the `/dashboard` and `/api/*` proxy to Railway — it
-  should be redeployed by the time you read this.
+- **Netlify marketing site**: live at `jonathanwallace.ca` with proxy to Railway.
+  Visiting `jonathanwallace.ca/dashboard` 302-redirects to the Railway URL.
+- **Follow Up Boss integration is LIVE** — direct REST API client, 6 Claude
+  tools (fub_find_person, fub_add_note, fub_create_task, etc.), Settings
+  drawer FUB section, CRM card has Pull-from-FUB + Add-FUB-Task buttons,
+  pre-seeded hourly sync schedule (disabled by default).
+  Jonathan's key may or may not be set in Railway as `FUB_API_KEY` env var —
+  verify via `GET /api/fub/status`.
 
 ### ⚠ What's blocking Jonathan right now
 
@@ -70,12 +73,15 @@ and never assume he can edit code.
 
 ### ❓ What's unknown / unverified
 
-- Whether Make.com scenarios for FUB / Gmail / Calendar are already pushing
+- Whether `FUB_API_KEY` made it into Railway env vars. Easiest check:
+  open dashboard → Settings → Follow Up Boss section → look at the
+  status line. Green = connected, amber = not configured, red = key
+  is there but invalid.
+- Whether the FUB hourly sync schedule has been enabled. It's pre-seeded
+  but disabled; Settings → Scheduled Jobs → Manage → toggle "FUB —
+  hourly sync" on after FUB is connected.
+- Whether Make.com scenarios for Gmail / Calendar are already pushing
   data to the new sync endpoints (the sync endpoints are new in this deploy).
-- Whether the Netlify deploy of the proxy redirect actually succeeded.
-  He can verify by visiting `https://jonathanwallace.ca/dashboard` — it
-  should 302-redirect to the Railway URL. If not, Netlify may still be
-  building or the redirect may have a typo.
 - Whether he's registered a Spotify developer app yet. (Optional.)
 
 ---

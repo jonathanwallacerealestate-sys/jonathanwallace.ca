@@ -582,7 +582,8 @@ async function initDb() {
       INSERT INTO agent_vocabulary (term, expansion, category, weight) VALUES
         ('LOO',           'Letter of Opinion — a written estimate of a property''s market value', 'real_estate', 9),
         ('LOV',           'Letter of Opinion of Value — same as LOO', 'real_estate', 9),
-        ('FUB',           'Follow-Up Boss, Jonathan''s CRM', 'tools', 9),
+        ('FUB',           'Follow-Up Boss, Jonathan''s CRM. Direct API integration is wired — use fub_find_person + fub_add_note / fub_create_task for per-contact actions.', 'tools', 10),
+        ('Follow Up Boss','Full name for FUB, Jonathan''s CRM.', 'tools', 8),
         ('MLS',           'Multiple Listing Service — the brokerage database where listings are posted. Jonathan uses Realm on PropTx (OnePoint) as his MLS.', 'real_estate', 8),
         ('Realm',         'Jonathan''s primary MLS platform, accessed through PropTx OnePoint at tools.proptx.ca/onepoint. Logs in via AMP SSO at sso.ampre.ca.', 'tools', 10),
         ('PropTx',        'The TRREB-backed technology platform that hosts Realm and OnePoint. Access at tools.proptx.ca.', 'tools', 9),
@@ -632,7 +633,8 @@ async function initDb() {
         ('market_area',               'Jonathan''s primary market is Southern Georgian Bay: Midland, Penetanguishene, Tiny Township, Tay Township, Wasaga Beach. Collingwood is a secondary area.', 'operations', 9, 'seed'),
         ('brokerage',                 'The Official Realty Group (TORG) is Jonathan''s brokerage.',                                  'brand',      10, 'seed'),
         ('call_me_jonathan',          'Address Jonathan by first name sparingly — at most once per response.',                        'voice',      7, 'seed'),
-        ('mls_platform',              'Jonathan''s MLS is Realm, accessed through PropTx OnePoint at https://tools.proptx.ca/onepoint. Logging in triggers AMP SSO (sso.ampre.ca). For MLS-related browser workflows, always use the "realm" credential in the Chrome vault.', 'tools', 10, 'seed')
+        ('mls_platform',              'Jonathan''s MLS is Realm, accessed through PropTx OnePoint at https://tools.proptx.ca/onepoint. Logging in triggers AMP SSO (sso.ampre.ca). For MLS-related browser workflows, always use the "realm" credential in the Chrome vault.', 'tools', 10, 'seed'),
+        ('fub_integration',           'Follow Up Boss (FUB) is Jonathan''s CRM and is wired up via direct API. Use fub_find_person → fub_add_note / fub_create_task for contact-specific actions. Use fub_create_person for brand new leads. The dashboard CRM card auto-syncs hourly from FUB when the sync schedule is enabled. FUB tasks take precedence over the local crm_followups table.', 'tools', 9, 'seed')
       ON CONFLICT (key) DO UPDATE
         SET value = EXCLUDED.value,
             category = EXCLUDED.category,
@@ -717,6 +719,27 @@ async function initDb() {
           'Total count + grouped list by municipality.',
           '["mls","realm","daily","sogb"]'::jsonb
         )
+      ON CONFLICT (name) DO NOTHING;
+    `);
+
+    // Seed a default Follow Up Boss 15-minute sync schedule — DISABLED by
+    // default so it doesn't pound the API when no key is configured. Once
+    // Jonathan sets fub_api_key (Settings → FUB) he can flip this schedule
+    // to enabled from Settings → Scheduled Jobs, or we auto-enable it on
+    // his first successful Test Connection (see /api/fub/test handler for
+    // a future enhancement).
+    await client.query(`
+      INSERT INTO scheduled_tasks (name, description, kind, payload, frequency,
+        run_at_hour, run_at_minute, deliver_via, enabled)
+      VALUES
+        ('FUB — hourly sync',
+         'Pulls open tasks from Follow Up Boss every hour and upserts them into the dashboard CRM card. Enable once fub_api_key is configured in Settings.',
+         'fub_sync',
+         '{}'::jsonb,
+         'hourly',
+         0, 0,
+         'dashboard',
+         FALSE)
       ON CONFLICT (name) DO NOTHING;
     `);
 

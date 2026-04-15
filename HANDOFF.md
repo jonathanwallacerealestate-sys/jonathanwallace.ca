@@ -508,6 +508,126 @@ pg_dump $DATABASE_URL > backup-$(date +%Y%m%d).sql
 
 ---
 
+## 17a. Follow Up Boss (FUB) — direct API integration
+
+FUB is wired up as a first-class citizen. The Make.com sync webhook at
+`/api/sync/follow-up-boss` still exists for event-based pushes, but the
+dashboard now talks to FUB's REST API directly for both reads and writes.
+
+### Configuration
+
+Two ways — env var takes precedence:
+
+1. **Railway env var** (recommended for production):
+   `FUB_API_KEY=fka_...` → service restart
+2. **Dashboard Settings**: open Settings (gear) → Follow Up Boss section
+   → paste the key into the masked field → Save All. Stored in
+   `app_settings.fub_api_key`. Enter a new key here and it takes effect
+   on the next request (60s cache TTL max).
+
+### Where to get the key
+
+1. Follow Up Boss → **Admin** → **API**
+2. **Create API Key** → name it "JW Dashboard"
+3. Copy the key (starts `fka_`)
+
+### Available routes (all require `X-API-Key` header)
+
+```
+GET   /api/fub/status             configured + connected + whoami
+POST  /api/fub/test               explicit connection test
+GET   /api/fub/people             list (?search, ?limit, ?offset, ?stage)
+GET   /api/fub/people/:id         person + events + notes + tasks
+POST  /api/fub/people             create
+PATCH /api/fub/people/:id         update (e.g. stage change)
+GET   /api/fub/tasks              list (?status, ?dueAfter, ?dueBefore)
+POST  /api/fub/tasks              create
+PATCH /api/fub/tasks/:id          update
+POST  /api/fub/tasks/:id/complete mark done + mirror to crm_followups
+POST  /api/fub/notes              create
+GET   /api/fub/stages             list pipeline stages
+GET   /api/fub/users              list FUB team members
+GET   /api/fub/deals              list deals
+POST  /api/fub/deals              create
+GET   /api/fub/pipelines          list pipelines
+GET   /api/fub/smart-lists        list smart lists
+POST  /api/fub/sync               pull open tasks → upsert into crm_followups
+```
+
+### Background sync schedule
+
+A pre-seeded schedule named `FUB — hourly sync` exists in `scheduled_tasks`,
+**disabled by default**. Once `fub_api_key` is set:
+
+1. Dashboard → Settings → Scheduled Jobs → Manage
+2. Find `FUB — hourly sync`, click the pause/enable toggle
+3. It will now auto-pull every hour at :00, keeping the CRM card fresh
+
+Alternatively, click **Pull from FUB** on the CRM card toolbar for an
+on-demand sync.
+
+### Claude agent tools (6 new)
+
+Jonathan can say things like *"Add Sarah Mitchell as a lead, phone
+705-555-1234, she's looking in Midland under $800k"* and Claude does it.
+
+- `fub_find_person`   — search by email/phone/name (returns candidates when ambiguous)
+- `fub_add_note`      — log a thought/call recap against a contact
+- `fub_create_task`   — schedule a follow-up tied to a contact
+- `fub_complete_task` — mark a FUB task done
+- `fub_update_stage`  — move contact through pipeline
+- `fub_create_person` — register a brand-new lead (with optional first-contact note)
+
+All route through `services/fub.js` with 60s GET-response caching and
+write-through cache invalidation. Graceful 503 when the key isn't set.
+
+### Dashboard UI surface
+
+- **Settings → Follow Up Boss section**: API key field (password input, masked),
+  connection status row, Test Connection button, Sync Now button
+- **CRM card toolbar**: "Pull from FUB" (manual sync) + "+ FUB Task" (opens
+  a modal with debounced live person search, then posts to FUB and
+  auto-syncs so the new task appears in the dashboard immediately)
+- **CRM card list items**: still driven by `crm_followups` table which is
+  kept in sync by the schedule / manual sync / Make.com pushes (any of
+  the three keeps it fresh)
+
+### Intuition layer additions
+
+- **Vocabulary**: updated `FUB` entry + added `Follow Up Boss` term
+- **Memory**: new `fub_integration` entry telling Claude to prefer FUB
+  tools over `create_crm_followup` when the contact lives in FUB
+
+### Rate limiting
+
+FUB's documented limit is 250 requests per 10 seconds. Our sync pulls
+~50-100 requests per run (1 list call + 1 per-person detail call for
+up to 100 tasks). Well under the limit even at hourly cadence.
+
+### Rotating the key
+
+1. FUB → Admin → API → revoke old key → create new one
+2. Paste new key in Dashboard Settings (or update `FUB_API_KEY` env var)
+3. Save. No data migration needed — old tasks stay linked by
+   `fub_event_id` + `fub_person_id` in `crm_followups`.
+
+### Testing after first setup
+
+```
+# 1. Verify the key
+POST /api/fub/test
+→ { "success": true, "whoami": { "name": "...", "email": "..." } }
+
+# 2. Pull a fresh batch
+POST /api/fub/sync
+→ { "success": true, "upserted": N, "fetched": N }
+
+# 3. Verify in dashboard
+CRM card should show your FUB open tasks.
+```
+
+---
+
 ## 17. Contact
 
 - **Repo**: https://github.com/jonathanwallacerealestate-sys/jonathanwallace.ca
