@@ -415,7 +415,12 @@ async function initDb() {
         ('LOO',           'Letter of Opinion — a written estimate of a property''s market value', 'real_estate', 9),
         ('LOV',           'Letter of Opinion of Value — same as LOO', 'real_estate', 9),
         ('FUB',           'Follow-Up Boss, Jonathan''s CRM', 'tools', 9),
-        ('MLS',           'Multiple Listing Service — the brokerage database where listings are posted', 'real_estate', 8),
+        ('MLS',           'Multiple Listing Service — the brokerage database where listings are posted. Jonathan uses Realm on PropTx (OnePoint) as his MLS.', 'real_estate', 8),
+        ('Realm',         'Jonathan''s primary MLS platform, accessed through PropTx OnePoint at tools.proptx.ca/onepoint. Logs in via AMP SSO at sso.ampre.ca.', 'tools', 10),
+        ('PropTx',        'The TRREB-backed technology platform that hosts Realm and OnePoint. Access at tools.proptx.ca.', 'tools', 9),
+        ('OnePoint',      'The PropTx dashboard / landing URL (tools.proptx.ca/onepoint) for Realm MLS and related tools.', 'tools', 9),
+        ('TRREB',         'Toronto Regional Real Estate Board — the board Jonathan is a member of. Operates PropTx and Realm.', 'real_estate', 8),
+        ('AMP SSO',       'The Ampre single-sign-on gateway at sso.ampre.ca used to authenticate into Realm / PropTx / OnePoint.', 'tools', 7),
         ('GCI',           'Gross Commission Income', 'finance', 8),
         ('firm date',     'the date the deal became firm — all buyer conditions waived', 'real_estate', 7),
         ('conditional',   'offer accepted but still has outstanding conditions (financing, inspection, etc.)', 'real_estate', 7),
@@ -458,12 +463,82 @@ async function initDb() {
         ('open_house_default',        'Default open-house slot is Saturday 2-4pm unless Jonathan says otherwise.', 'operations', 6, 'seed'),
         ('market_area',               'Jonathan''s primary market is Southern Georgian Bay: Midland, Penetanguishene, Tiny Township, Tay Township, Wasaga Beach. Collingwood is a secondary area.', 'operations', 9, 'seed'),
         ('brokerage',                 'The Official Realty Group (TORG) is Jonathan''s brokerage.',                                  'brand',      10, 'seed'),
-        ('call_me_jonathan',          'Address Jonathan by first name sparingly — at most once per response.',                        'voice',      7, 'seed')
+        ('call_me_jonathan',          'Address Jonathan by first name sparingly — at most once per response.',                        'voice',      7, 'seed'),
+        ('mls_platform',              'Jonathan''s MLS is Realm, accessed through PropTx OnePoint at https://tools.proptx.ca/onepoint. Logging in triggers AMP SSO (sso.ampre.ca). For MLS-related browser workflows, always use the "realm" credential in the Chrome vault.', 'tools', 10, 'seed')
       ON CONFLICT (key) DO UPDATE
         SET value = EXCLUDED.value,
             category = EXCLUDED.category,
             importance = EXCLUDED.importance,
             updated_at = NOW();
+    `);
+
+    // Seed a Realm credential placeholder (URL only — password must be entered
+    // via the dashboard Settings → Chrome → Credentials editor so it gets
+    // AES-256-GCM encrypted at rest). ON CONFLICT DO NOTHING so we never
+    // overwrite a password Jonathan has already entered.
+    await client.query(`
+      INSERT INTO site_credentials (name, site, url, username, notes, mfa_hint)
+      VALUES
+        ('realm',
+         'Realm — PropTx OnePoint (TRREB MLS)',
+         'https://tools.proptx.ca/onepoint',
+         NULL,
+         'Jonathan''s primary MLS. SSO via sso.ampre.ca (AMP). Enter TRREB RECO number as username and your PropTx password via Settings → Chrome → Credentials.',
+         'AMP SSO — may prompt for Authenticator 6-digit code on new devices.')
+      ON CONFLICT (name) DO NOTHING;
+    `);
+
+    // Seed starter Chrome workflows that target Realm. ON CONFLICT DO NOTHING
+    // so Jonathan's edits to these workflows are preserved across deploys.
+    await client.query(`
+      INSERT INTO chrome_workflows (name, description, target_url, credential_name, steps, expected_output, tags)
+      VALUES
+        (
+          'Realm — Refresh SOGB active listings',
+          'Pull a fresh list of active listings across Southern Georgian Bay (Midland, Penetanguishene, Tiny, Tay, Wasaga Beach) for the morning scan.',
+          'https://tools.proptx.ca/onepoint',
+          'realm',
+          '[
+             "Log in via AMP SSO using the credential provided.",
+             "Open the Realm search / listing portal from OnePoint.",
+             "Create a new Residential search filtered by municipality IN (Midland, Penetanguishene, Tiny, Tay, Wasaga Beach) AND status = Active.",
+             "Sort by list date descending.",
+             "Capture the count, and the top 10 by list price with address, list price, bedrooms, and days on market.",
+             "Report the results back to me as a short summary."
+           ]'::jsonb,
+          'One-paragraph summary + top-10 table (address, price, beds, DOM).',
+          '["mls","realm","sogb","morning"]'::jsonb
+        ),
+        (
+          'Realm — Comps for a property address',
+          'Pull recent sold comparables for a specific property address. When running, tell Claude which address and radius to use.',
+          'https://tools.proptx.ca/onepoint',
+          'realm',
+          '[
+             "Log in via AMP SSO using the credential provided.",
+             "Open Realm search.",
+             "Search for SOLD comparables within the same community / postal code, closed in the last 120 days, same property type, +/- 25% of subject square footage.",
+             "Return up to 10 comps with address, sold price, sold date, bedrooms, bathrooms, square footage, days on market.",
+             "Calculate the average $ per sq ft and median sold price."
+           ]'::jsonb,
+          'Table of up to 10 comps + average $/sqft + median sold price.',
+          '["mls","realm","comps","loo"]'::jsonb
+        ),
+        (
+          'Realm — New listings since yesterday',
+          'Check Realm for any listings that came on the market in Jonathan''s service area in the last 24 hours. Good for the morning brief.',
+          'https://tools.proptx.ca/onepoint',
+          'realm',
+          '[
+             "Log in via AMP SSO using the credential provided.",
+             "Open Realm search and filter municipality IN (Midland, Penetanguishene, Tiny, Tay, Wasaga Beach, Collingwood) AND status = Active AND list_date >= yesterday.",
+             "Report the total number of new listings.",
+             "For each, give me address, price, beds/baths, and list date — grouped by municipality."
+           ]'::jsonb,
+          'Total count + grouped list by municipality.',
+          '["mls","realm","daily","sogb"]'::jsonb
+        )
+      ON CONFLICT (name) DO NOTHING;
     `);
 
     // Seed default settings (idempotent)

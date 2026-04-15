@@ -211,18 +211,19 @@
 
     openModal(id ? 'Edit Workflow' : 'New Workflow', `
       <div class="form-field"><label>Name</label>
-        <input id="wf-name" value="${escapeAttr(w.name || '')}" placeholder="e.g. Refresh MLS comps for Midland"></div>
+        <input id="wf-name" value="${escapeAttr(w.name || '')}" placeholder="e.g. Realm — SOGB sold comps for 2 Water St"></div>
       <div class="form-field"><label>Description</label>
         <input id="wf-desc" value="${escapeAttr(w.description || '')}" placeholder="What is the goal of this workflow?"></div>
       <div class="form-field"><label>Target URL</label>
-        <input id="wf-url" value="${escapeAttr(w.target_url || '')}" placeholder="https://..."></div>
+        <input id="wf-url" value="${escapeAttr(w.target_url || '')}" placeholder="https://tools.proptx.ca/onepoint"></div>
       <div class="form-field"><label>Credential</label>
         <select id="wf-cred">${credOpts}</select></div>
       <div class="form-field"><label>Steps <span style="color:var(--muted);font-weight:400">(one per line — plain English)</span></label>
-        <textarea id="wf-steps" rows="8" placeholder="Click the Search tab
+        <textarea id="wf-steps" rows="8" placeholder="Log in via AMP SSO using the credential provided
+Open Realm search from OnePoint
 Filter by Midland, sold in the last 90 days
-Export the top 10 results as CSV
-Email the CSV to jonathanwallacerealestate@gmail.com">${escapeAttr(stepsText)}</textarea></div>
+Capture the top 10 with address, sold price, DOM
+Report the average $/sqft and median sold price">${escapeAttr(stepsText)}</textarea></div>
       <div class="form-field"><label>Expected Output</label>
         <input id="wf-out" value="${escapeAttr(w.expected_output || '')}" placeholder="What should Claude report back?"></div>
     `, `
@@ -264,11 +265,11 @@ Email the CSV to jonathanwallacerealestate@gmail.com">${escapeAttr(stepsText)}</
     }
     openModal(id ? 'Edit Credential' : 'New Credential', `
       <div class="form-field"><label>Name (used to reference from workflows)</label>
-        <input id="cr-name" value="${escapeAttr(c.name || '')}" placeholder="e.g. matrix_mls"></div>
+        <input id="cr-name" value="${escapeAttr(c.name || '')}" placeholder="e.g. realm"></div>
       <div class="form-field"><label>Site / Service</label>
-        <input id="cr-site" value="${escapeAttr(c.site || '')}" placeholder="e.g. Matrix MLS"></div>
+        <input id="cr-site" value="${escapeAttr(c.site || '')}" placeholder="e.g. Realm — PropTx OnePoint"></div>
       <div class="form-field"><label>URL</label>
-        <input id="cr-url" value="${escapeAttr(c.url || '')}" placeholder="https://..."></div>
+        <input id="cr-url" value="${escapeAttr(c.url || '')}" placeholder="https://tools.proptx.ca/onepoint"></div>
       <div class="form-field"><label>Username</label>
         <input id="cr-user" value="${escapeAttr(c.username || '')}" autocomplete="off"></div>
       <div class="form-field"><label>Password ${id ? '<span style="color:var(--muted);font-weight:400">(leave blank to keep existing)</span>' : ''}</label>
