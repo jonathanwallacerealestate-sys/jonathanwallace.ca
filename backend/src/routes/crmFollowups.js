@@ -87,7 +87,23 @@ router.patch('/:id', async (req, res) => {
       params
     );
     if (!rows.length) return res.status(404).json({ error: 'Not found' });
-    res.json({ followup: rows[0] });
+
+    // Two-way FUB sync: if this follow-up is linked to a FUB task
+    // (fub_event_id) and we just marked it done, complete the FUB task too
+    let fub_synced = false;
+    if (req.body.status === 'done' && rows[0].fub_event_id) {
+      try {
+        const fub = require('../services/fub');
+        if (await fub.getApiKey()) {
+          await fub.completeTask(rows[0].fub_event_id, { notes: req.body.notes || undefined });
+          fub_synced = true;
+        }
+      } catch (e) {
+        console.error('[CRM→FUB] completeTask failed:', e.message);
+        // Non-fatal — local update succeeded, just log the FUB side failure
+      }
+    }
+    res.json({ followup: rows[0], fub_synced });
   } catch (err) {
     console.error('crm_followups update error:', err);
     res.status(500).json({ error: 'Failed to update follow-up' });

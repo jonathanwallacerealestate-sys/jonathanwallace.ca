@@ -110,9 +110,11 @@
           await api('/api/emails/' + id, { method: 'DELETE' });
           toast('Dismissed'); return load();
 
-        case 'complete-crm':
-          await api('/api/follow-ups/' + id, { method: 'PATCH', body: JSON.stringify({ status: 'done' })});
-          toast('Follow-up done', 'success'); return load();
+        case 'complete-crm': {
+          const r = await api('/api/follow-ups/' + id, { method: 'PATCH', body: JSON.stringify({ status: 'done' })});
+          toast(r.fub_synced ? 'Done · mirrored to FUB' : 'Follow-up done', 'success');
+          return load();
+        }
 
         case 'edit-crm':
           return openFollowupForm(id);
