@@ -295,6 +295,182 @@ router.get('/smart-lists', async (req, res) => {
   catch (e) { handleFubError(res, e); }
 });
 
+/**
+ * POST /api/fub/smart-lists/:id/bulk-action
+ * Body: {
+ *   action: 'note' | 'task' | 'email_draft',
+ *   template: '...',           // Claude personalizes per contact
+ *   subject: '...',            // for email / note headers
+ *   task_type: 'call|email|text|meeting',   // for task kind
+ *   due_in_days: 3,                          // for task kind
+ *   dry_run: true                            // preview without pushing
+ * }
+ *
+ * Pulls every person in the smart list, has Claude rewrite the template
+ * for each contact with their context, and either:
+ *   - creates a FUB note on each person
+ *   - creates a FUB task on each person
+ *   - creates a Gmail draft to each person (does NOT send)
+ *
+ * Returns a summary of what was written + sample renders so Jonathan can
+ * preview before committing. dry_run=true returns the renders without
+ * pushing anything.
+ */
+router.post('/smart-lists/:id/bulk-action', async (req, res) => {
+  try {
+    const { action, template, subject, task_type, due_in_days, dry_run, limit } = req.body || {};
+    if (!action || !['note','task','email_draft'].includes(action)) {
+      return res.status(400).json({ error: 'action must be one of: note, task, email_draft' });
+    }
+    if (!template || template.length < 3) {
+      return res.status(400).json({ error: 'template required' });
+    }
+
+    const key = await fub.getApiKey();
+    if (!key) return res.status(503).json({ error: 'FUB not configured' });
+
+    if (action === 'email_draft' && !process.env.GMAIL_REFRESH_TOKEN) {
+      return res.status(503).json({ error: 'Gmail not configured — cannot create email drafts' });
+    }
+
+    // Pull the smart list members (capped to protect from mega-lists)
+    const cap = Math.min(parseInt(limit) || 50, 100);
+    const peopleResp = await fub.listPeople({ smartListId: req.params.id, limit: cap });
+    const people = peopleResp.people || [];
+    if (!people.length) return res.json({ success: true, count: 0, results: [] });
+
+    // Load intuition so personalization uses Jonathan's voice
+    let ctxBlock = '';
+    try { ctxBlock = await require('../services/intuition').buildContextBlock(); } catch (e) {}
+
+    const Anthropic = require('@anthropic-ai/sdk');
+    const anthropic = new Anthropic();
+
+    const SYSTEM = `You are personalizing outreach for Jonathan Wallace (real estate agent, Southern
+Georgian Bay) to a CRM contact. Rewrite the given template in Jonathan's voice,
+referencing whatever you know about the specific contact. Keep the core
+message and intent intact.
+
+Rules:
+- Use the contact's first name naturally, don't force it.
+- If they have a stage / source / recent activity, reference it only when it
+  genuinely strengthens the message.
+- No real-estate clichés ('won't last', 'dream home', 'must-see').
+- Match the template's length and register. Don't add fluff.
+- Plain prose unless the template explicitly uses formatting.
+- Return ONLY the rewritten message, no commentary or quotes.
+${ctxBlock ? '\n' + ctxBlock : ''}`;
+
+    const results = [];
+    const errors = [];
+
+    for (const person of people) {
+      const firstName = person.firstName || (person.name || '').split(' ')[0] || 'friend';
+      const email = person.emails?.[0]?.value || null;
+      const userPayload = `Template:\n${template}\n\nContact:\n${JSON.stringify({
+        first_name: firstName,
+        name: person.name,
+        stage: person.stage,
+        source: person.source,
+        tags: person.tags,
+        last_activity: person.lastActivity,
+        email,
+        phone: person.phones?.[0]?.value || null
+      }, null, 2)}`;
+
+      let rendered;
+      try {
+        const r = await anthropic.messages.create({
+          model: 'claude-sonnet-4-20250514',
+          max_tokens: 600,
+          system: SYSTEM,
+          messages: [{ role: 'user', content: userPayload }]
+        });
+        rendered = r.content.filter(b => b.type === 'text').map(b => b.text).join('').trim();
+      } catch (e) {
+        errors.push({ person_id: person.id, name: person.name, error: 'Claude: ' + e.message });
+        continue;
+      }
+
+      if (dry_run) {
+        results.push({ person_id: person.id, name: person.name, email, rendered, pushed: false });
+        continue;
+      }
+
+      // Push the action
+      try {
+        if (action === 'note') {
+          const note = await fub.createNote({
+            personId: person.id,
+            subject: subject || 'Bulk outreach',
+            body: rendered,
+            isHtml: false
+          });
+          results.push({ person_id: person.id, name: person.name, rendered, pushed: 'note', note_id: note.id });
+        } else if (action === 'task') {
+          const due = due_in_days != null
+            ? new Date(Date.now() + Number(due_in_days) * 86400000).toISOString()
+            : undefined;
+          const t = await fub.createTask({
+            personId: person.id,
+            name: subject || rendered.split('\n')[0].slice(0, 80),
+            type: mapTaskType(task_type || 'call'),
+            dueDate: due,
+            description: rendered,
+            status: 'Active'
+          });
+          results.push({ person_id: person.id, name: person.name, rendered, pushed: 'task', task_id: t.id });
+        } else if (action === 'email_draft') {
+          if (!email) {
+            errors.push({ person_id: person.id, name: person.name, error: 'No email on record' });
+            continue;
+          }
+          const { google } = require('googleapis');
+          const oauth2 = new google.auth.OAuth2(process.env.GMAIL_CLIENT_ID, process.env.GMAIL_CLIENT_SECRET);
+          oauth2.setCredentials({ refresh_token: process.env.GMAIL_REFRESH_TOKEN });
+          const gmail = google.gmail({ version: 'v1', auth: oauth2 });
+
+          const from = process.env.GMAIL_USER || 'jonathanwallacerealestate@gmail.com';
+          const subj = subject || 'Touching base';
+          const bodyHtml = rendered.split('\n').map(l => '<p>' + l.replace(/</g,'&lt;') + '</p>').join('');
+          const raw = Buffer.from([
+            `From: ${from}`,
+            `To: ${email}`,
+            `Subject: ${subj}`,
+            'MIME-Version: 1.0',
+            'Content-Type: text/html; charset=UTF-8',
+            '',
+            bodyHtml
+          ].join('\r\n')).toString('base64url');
+          const r = await gmail.users.drafts.create({ userId: 'me', requestBody: { message: { raw } } });
+          results.push({ person_id: person.id, name: person.name, email, rendered, pushed: 'email_draft', draft_id: r.data.id });
+        }
+      } catch (e) {
+        errors.push({ person_id: person.id, name: person.name, error: e.message });
+      }
+    }
+
+    publish({ type: 'fub', event: 'bulk_action', smart_list_id: req.params.id, count: results.length, action });
+    res.json({
+      success: true,
+      smart_list_id: req.params.id,
+      action,
+      dry_run: !!dry_run,
+      total: people.length,
+      pushed: results.filter(r => r.pushed).length,
+      rendered: results.length,
+      errors,
+      results
+    });
+  } catch (e) { handleFubError(res, e); }
+});
+
+function mapTaskType(t) {
+  const m = { call: 'Call', phone: 'Call', email: 'Email', text: 'Text', sms: 'Text',
+              meeting: 'Meeting', showing: 'Showing' };
+  return m[(t || '').toLowerCase()] || 'Other';
+}
+
 // ---------- Ingest: pull FUB tasks into local crm_followups ----------
 
 /**

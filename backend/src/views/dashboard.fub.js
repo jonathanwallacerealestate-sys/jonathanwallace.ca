@@ -38,7 +38,12 @@
     const stageSel = document.getElementById('fub-people-stage');
     if (stageSel) stageSel.addEventListener('change', loadPeople);
     const smartSel = document.getElementById('fub-people-smartlist');
-    if (smartSel) smartSel.addEventListener('change', loadPeople);
+    const bulkBtn = document.getElementById('fub-people-bulk');
+    if (smartSel) smartSel.addEventListener('change', () => {
+      loadPeople();
+      if (bulkBtn) bulkBtn.style.display = smartSel.value ? '' : 'none';
+    });
+    if (bulkBtn) bulkBtn.addEventListener('click', openBulkActionModal);
   });
 
   async function loadStages() {
@@ -384,6 +389,137 @@
     document.getElementById('fubd-add-task').onclick = () => {
       openAddTask({ person_id: p.id, person_label: name });
     };
+  }
+
+  // ---------- Bulk action on a smart list ----------
+  async function openBulkActionModal() {
+    const smartSel = document.getElementById('fub-people-smartlist');
+    const smartListId = smartSel?.value;
+    const smartListName = smartSel?.options[smartSel.selectedIndex]?.text || '';
+    if (!smartListId) return toast('Pick a smart list first', 'error');
+
+    openModal(`Bulk action · ${smartListName}`, `
+      <p style="font-size:0.85rem;color:var(--muted);margin-bottom:0.75rem">
+        Claude will rewrite your template for each contact in the list, using their
+        name, stage, source and recent activity. Always runs a dry-run preview
+        first — nothing is pushed to FUB until you click <strong>Execute</strong>.
+      </p>
+
+      <div class="form-field">
+        <label>Action</label>
+        <select id="ba-action">
+          <option value="note">Add a note to each contact</option>
+          <option value="task">Create a task on each contact</option>
+          <option value="email_draft">Create a Gmail draft to each contact</option>
+        </select>
+      </div>
+
+      <div class="form-field"><label>Subject</label>
+        <input id="ba-subject" placeholder="e.g. Georgian Bay market update"></div>
+
+      <div id="ba-task-fields" class="form-grid" style="display:none">
+        <div class="form-field"><label>Task type</label>
+          <select id="ba-task-type">
+            <option value="call">Call</option>
+            <option value="email">Email</option>
+            <option value="text">Text</option>
+            <option value="meeting">Meeting</option>
+            <option value="showing">Showing</option>
+          </select></div>
+        <div class="form-field"><label>Due in (days)</label>
+          <input id="ba-due" type="number" min="0" value="3"></div>
+      </div>
+
+      <div class="form-field"><label>Template <span style="color:var(--muted);font-weight:400">(Claude personalizes per contact)</span></label>
+        <textarea id="ba-template" rows="7" placeholder="e.g. Quick market update — prices in Midland are holding steady but sellers are more flexible than 60 days ago. If you've been thinking about moving, happy to pull comps for your neighborhood."></textarea></div>
+
+      <div class="form-field"><label>Contact limit</label>
+        <input id="ba-limit" type="number" min="1" max="100" value="20">
+        <div style="font-size:0.72rem;color:var(--muted);margin-top:0.2rem">Max 100 per batch. Start small — dry-run first, review, then execute.</div>
+      </div>
+
+      <div id="ba-preview" style="margin-top:0.75rem;max-height:260px;overflow-y:auto;display:none"></div>
+    `, `
+      <button class="btn-secondary" onclick="DB.closeModal()">Cancel</button>
+      <button class="btn-secondary" id="ba-dry-btn">Dry-run preview</button>
+      <button class="btn-primary" id="ba-exec-btn" disabled>Execute</button>
+    `);
+
+    // Show/hide task-specific fields based on action
+    const actionSel = document.getElementById('ba-action');
+    const taskFields = document.getElementById('ba-task-fields');
+    function toggleTaskFields() {
+      taskFields.style.display = actionSel.value === 'task' ? 'grid' : 'none';
+    }
+    actionSel.addEventListener('change', toggleTaskFields);
+    toggleTaskFields();
+
+    document.getElementById('ba-dry-btn').onclick = () => runBulk(smartListId, true);
+    document.getElementById('ba-exec-btn').onclick = () => runBulk(smartListId, false);
+  }
+
+  async function runBulk(smartListId, dryRun) {
+    const action = document.getElementById('ba-action').value;
+    const template = document.getElementById('ba-template').value.trim();
+    const subject = document.getElementById('ba-subject').value.trim() || null;
+    const limit = Math.max(1, Math.min(100, parseInt(document.getElementById('ba-limit').value) || 20));
+    const task_type = document.getElementById('ba-task-type')?.value;
+    const due_in_days = parseInt(document.getElementById('ba-due')?.value) || 3;
+
+    if (!template) return toast('Template required', 'error');
+
+    const dryBtn = document.getElementById('ba-dry-btn');
+    const execBtn = document.getElementById('ba-exec-btn');
+    const preview = document.getElementById('ba-preview');
+
+    dryBtn.disabled = true; execBtn.disabled = true;
+    const origText = dryRun ? dryBtn.textContent : execBtn.textContent;
+    (dryRun ? dryBtn : execBtn).textContent = 'Working…';
+    preview.style.display = 'block';
+    preview.innerHTML = `<div style="padding:0.75rem;color:var(--muted);font-size:0.85rem">${dryRun ? 'Claude is personalizing each message…' : 'Pushing to FUB…'}</div>`;
+
+    try {
+      const r = await api('/api/fub/smart-lists/' + smartListId + '/bulk-action', {
+        method: 'POST',
+        body: JSON.stringify({ action, template, subject, task_type, due_in_days, limit, dry_run: dryRun })
+      });
+
+      const rows = (r.results || []).map((x, i) => `
+        <div style="border:1px solid var(--border);border-radius:6px;padding:0.6rem 0.75rem;margin-bottom:0.5rem">
+          <div style="font-weight:600;font-size:0.85rem">
+            ${escapeHtml(x.name || ('Contact ' + x.person_id))}
+            ${x.pushed ? `<span class="badge completed" style="margin-left:0.4rem">${x.pushed}</span>` : (dryRun ? '<span class="badge normal" style="margin-left:0.4rem">preview</span>' : '')}
+          </div>
+          ${x.email ? `<div style="font-size:0.72rem;color:var(--muted)">${escapeHtml(x.email)}</div>` : ''}
+          <div style="font-size:0.82rem;line-height:1.5;white-space:pre-wrap;margin-top:0.3rem">${escapeHtml(x.rendered || '')}</div>
+        </div>
+      `).join('');
+      const errorRows = (r.errors || []).length
+        ? `<div style="margin-top:0.5rem;padding:0.5rem;background:#fee2e2;color:#991b1b;border-radius:6px;font-size:0.8rem">
+             Errors: ${r.errors.length}. ${r.errors.map(e => escapeHtml((e.name || e.person_id) + ': ' + e.error)).join(' · ')}
+           </div>`
+        : '';
+      preview.innerHTML = `
+        <div style="font-size:0.8rem;color:var(--muted);margin-bottom:0.5rem">
+          ${dryRun ? 'Dry-run preview' : 'Executed'} · ${r.total || 0} contacts · ${r.pushed || 0} pushed
+        </div>
+        ${rows}
+        ${errorRows}
+      `;
+
+      if (dryRun) {
+        execBtn.disabled = false;
+        toast(`Previewed ${r.total} — review, then Execute`, 'success');
+      } else {
+        toast(`Pushed ${r.pushed} to FUB`, 'success');
+      }
+    } catch (e) {
+      preview.innerHTML = `<div style="padding:0.75rem;color:#991b1b;font-size:0.85rem">${escapeHtml(e.message)}</div>`;
+      toast(e.message, 'error');
+    } finally {
+      dryBtn.disabled = false;
+      (dryRun ? dryBtn : execBtn).textContent = origText;
+    }
   }
 
   function v(id) { const el = document.getElementById(id); return el && el.value.trim() ? el.value.trim() : null; }
