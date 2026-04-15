@@ -43,7 +43,9 @@ Rules:
 - Don't use markdown. Don't use bullet points. Write prose.
 - End with a one-sentence nudge or priority for the day.
 - Use Jonathan's first name sparingly — once at most.
-- If recent_learning has unapplied action items, weave one in naturally — "you noted from the [show name] episode that..."`;
+- If recent_learning has unapplied action items, weave one in naturally — "you noted from the [show name] episode that..."
+- fub_live.overdue_count is the number of overdue Follow Up Boss tasks. If it's
+  > 0, lead with it. If fub_live is null, FUB isn't configured — don't mention FUB.`;
 
 router.get('/summary', async (req, res) => {
   try {
@@ -137,6 +139,10 @@ async function buildBriefSnapshot() {
 
   const activityMap = Object.fromEntries(activityToday.map(r => [r.activity_type, r]));
   const goalMap = Object.fromEntries(goalsToday.map(r => [r.goal_type, r.daily_target]));
+
+  // Pull FUB live state (best-effort — 503 / missing key falls through silently)
+  const fub = await safeFubSnapshot();
+
   return {
     urgent_emails: urgentEmails,
     crm_due_today: crmToday,
@@ -152,8 +158,35 @@ async function buildBriefSnapshot() {
       contacts_added: { actual: (activityMap.text?.count || 0) + (activityMap.drop_by?.count || 0) + (activityMap.social_dm?.count || 0) + (activityMap.meeting?.count || 0), target: goalMap.contacts_added || 0 }
     },
     recent_learning: recentLearning,
-    open_learning_actions: openLearningActions
+    open_learning_actions: openLearningActions,
+    fub_live: fub
   };
+}
+
+async function safeFubSnapshot() {
+  try {
+    const fub = require('../services/fub');
+    const key = await fub.getApiKey();
+    if (!key) return null;
+    // Today's open tasks + overdue, from FUB directly
+    const today = new Date().toISOString().slice(0, 10);
+    const [todayTasks, overdueTasks] = await Promise.all([
+      fub.listTasks({ limit: 25, status: 'Active', dueBefore: today + 'T23:59:59Z', dueAfter: today + 'T00:00:00Z' }).catch(() => ({ tasks: [] })),
+      fub.listTasks({ limit: 15, status: 'Active', dueBefore: today + 'T00:00:00Z' }).catch(() => ({ tasks: [] }))
+    ]);
+    return {
+      due_today_count: (todayTasks.tasks || []).length,
+      overdue_count: (overdueTasks.tasks || []).length,
+      due_today: (todayTasks.tasks || []).slice(0, 10).map(t => ({
+        name: t.name, type: t.type, person_id: t.personId, due: t.dueDate
+      })),
+      overdue: (overdueTasks.tasks || []).slice(0, 10).map(t => ({
+        name: t.name, type: t.type, person_id: t.personId, due: t.dueDate
+      }))
+    };
+  } catch (e) {
+    return null;
+  }
 }
 
 /**
