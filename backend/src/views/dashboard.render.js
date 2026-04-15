@@ -132,13 +132,14 @@
       return;
     }
     list.innerHTML = brief.emails.list.map(e => `
-      <div class="row" data-email="${e.id}">
+      <div class="row" data-email="${e.id}" data-from="${escapeHtml(e.from_address || '')}">
         <div class="row-main">
           <div class="row-title">${escapeHtml(e.subject || '(no subject)')}</div>
           <div class="row-meta">
             <span class="badge ${e.priority || 'normal'}">${e.priority || 'normal'}</span>
             <span>${escapeHtml(e.from_name || e.from_address || '')}</span>
             <span>${fmtTime(e.received_at)}</span>
+            <span class="fub-chip" data-fub-slot="${escapeHtml(e.from_address || '')}"></span>
           </div>
           ${e.snippet ? `<div class="row-sub">${escapeHtml(e.snippet.substring(0, 150))}${e.snippet.length > 150 ? '…' : ''}</div>` : ''}
         </div>
@@ -148,6 +149,54 @@
         </div>
       </div>
     `).join('');
+    // Post-render: decorate rows with FUB matches (best-effort, non-blocking)
+    decorateEmailsWithFub(brief.emails.list);
+  }
+
+  const _fubLookupCache = new Map(); // email → { person, at }
+  let _fubConfigured = null;          // null=unknown, true/false once checked
+  const FUB_CACHE_TTL_MS = 5 * 60 * 1000;
+
+  async function decorateEmailsWithFub(emails) {
+    if (_fubConfigured === false) return; // we already know it's not wired
+
+    // Get the unique set of sender emails (normalized lowercase)
+    const unique = Array.from(new Set(
+      emails
+        .map(e => (e.from_address || '').toLowerCase().trim())
+        .filter(Boolean)
+    ));
+
+    for (const email of unique) {
+      let hit = _fubLookupCache.get(email);
+      if (hit && (Date.now() - hit.at) < FUB_CACHE_TTL_MS) {
+        paintFubChip(email, hit.person);
+        continue;
+      }
+      try {
+        const r = await window.DB.api('/api/fub/lookup?email=' + encodeURIComponent(email));
+        _fubConfigured = true;
+        _fubLookupCache.set(email, { person: r.person, at: Date.now() });
+        paintFubChip(email, r.person);
+      } catch (e) {
+        // 503 = FUB not configured — stop trying for this render cycle
+        if ((e.message || '').includes('not configured')) { _fubConfigured = false; return; }
+        _fubLookupCache.set(email, { person: null, at: Date.now() });
+      }
+    }
+  }
+
+  function paintFubChip(email, person) {
+    const safe = email.toLowerCase().trim();
+    document.querySelectorAll('.fub-chip[data-fub-slot]').forEach(el => {
+      if ((el.dataset.fubSlot || '').toLowerCase() === safe) {
+        if (person && person.id) {
+          el.innerHTML = `<button data-action="view-fub-person" data-id="${person.id}" title="Open FUB contact" style="background:#e0e7ff;color:#3730a3;border:none;padding:1px 8px;border-radius:999px;font-size:0.68rem;font-weight:600;cursor:pointer">FUB · ${escapeHtml(person.stage || 'contact')}</button>`;
+        } else {
+          el.innerHTML = '';
+        }
+      }
+    });
   }
 
   // ---------- CRM Follow-ups ----------

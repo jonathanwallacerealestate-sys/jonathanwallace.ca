@@ -48,6 +48,20 @@ router.get('/status', async (req, res) => {
   } catch (e) { handleFubError(res, e); }
 });
 
+// GET /api/fub/lookup?email=...&phone=... — find a single person by email
+// or phone. Returns { person: null } quickly if no match, so UI can degrade
+// gracefully. 503s when FUB isn't configured so caller can stop trying.
+router.get('/lookup', async (req, res) => {
+  try {
+    const { email, phone } = req.query;
+    if (!email && !phone) return res.status(400).json({ error: 'email or phone required' });
+    let person = null;
+    if (email) person = await fub.findPersonByEmail(email);
+    if (!person && phone) person = await fub.findPersonByPhone(phone);
+    res.json({ person });
+  } catch (e) { handleFubError(res, e); }
+});
+
 // POST /api/fub/test — explicit "does my key work?" check (doesn't cache)
 router.post('/test', async (req, res) => {
   try {
