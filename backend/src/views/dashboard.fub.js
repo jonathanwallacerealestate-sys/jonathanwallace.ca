@@ -14,7 +14,140 @@
   const { api, toast, openModal, closeModal } = window.DB;
   const { escapeHtml } = window.DB_UTIL;
 
-  window.DB_FUB = { openAddTask, openPersonDetail };
+  window.DB_FUB = { openAddTask, openPersonDetail, loadPeople, openAddLead };
+
+  // Boot the People browser card once the DOM is ready
+  document.addEventListener('DOMContentLoaded', () => {
+    const host = document.getElementById('fub-people-list');
+    if (!host) return;
+    loadStages();
+    loadPeople();
+
+    const refreshBtn = document.getElementById('fub-people-refresh');
+    if (refreshBtn) refreshBtn.addEventListener('click', loadPeople);
+    const addBtn = document.getElementById('fub-people-add');
+    if (addBtn) addBtn.addEventListener('click', () => openAddLead());
+
+    const searchInput = document.getElementById('fub-people-search');
+    let peopleSearchDebounce = null;
+    if (searchInput) searchInput.addEventListener('input', () => {
+      clearTimeout(peopleSearchDebounce);
+      peopleSearchDebounce = setTimeout(loadPeople, 400);
+    });
+    const stageSel = document.getElementById('fub-people-stage');
+    if (stageSel) stageSel.addEventListener('change', loadPeople);
+  });
+
+  async function loadStages() {
+    const sel = document.getElementById('fub-people-stage');
+    if (!sel) return;
+    try {
+      const data = await api('/api/fub/stages');
+      const stages = data.stages || [];
+      sel.innerHTML = '<option value="">All stages</option>' +
+        stages.map(s => `<option value="${escapeAttr(s.name)}">${escapeHtml(s.name)}</option>`).join('');
+    } catch (e) {
+      // Silently leave as "All stages" only
+    }
+  }
+
+  async function loadPeople() {
+    const host = document.getElementById('fub-people-list');
+    const stats = document.getElementById('fub-people-stats');
+    if (!host) return;
+    const search = (document.getElementById('fub-people-search')?.value || '').trim();
+    const stage = document.getElementById('fub-people-stage')?.value || '';
+    host.innerHTML = '<div class="empty">Loading from FUB…</div>';
+    try {
+      const qs = new URLSearchParams({ limit: '30' });
+      if (search) qs.set('search', search);
+      if (stage) qs.set('stage', stage);
+      const data = await api('/api/fub/people?' + qs.toString());
+      const people = data.people || [];
+      const total = (data._metadata && data._metadata.total) || people.length;
+      if (stats) stats.innerHTML = `<span class="chip-stat">${people.length} shown${total > people.length ? ` of ${total}` : ''}</span>`;
+      if (!people.length) {
+        host.innerHTML = '<div class="empty">No contacts found.</div>';
+        return;
+      }
+      host.innerHTML = people.map(p => {
+        const email = p.emails?.[0]?.value || '';
+        const phone = p.phones?.[0]?.value || '';
+        const lastActivity = p.lastActivity ? new Date(p.lastActivity).toLocaleDateString('en-CA') : '';
+        return `
+          <div class="row" data-fub-person-row="${p.id}">
+            <div class="row-main" style="cursor:pointer" data-action="view-fub-person" data-id="${p.id}">
+              <div class="row-title">${escapeHtml(p.name || '(no name)')}</div>
+              <div class="row-meta">
+                ${p.stage ? `<span class="badge normal">${escapeHtml(p.stage)}</span>` : ''}
+                ${email ? `<span>${escapeHtml(email)}</span>` : ''}
+                ${phone ? `<span>${escapeHtml(phone)}</span>` : ''}
+                ${p.source ? `<span>${escapeHtml(p.source)}</span>` : ''}
+                ${lastActivity ? `<span>Active ${escapeHtml(lastActivity)}</span>` : ''}
+              </div>
+            </div>
+            <div class="row-actions">
+              <button data-action="view-fub-person" data-id="${p.id}" title="Open detail">&#8599;</button>
+            </div>
+          </div>`;
+      }).join('');
+    } catch (e) {
+      if (e.message && e.message.includes('not configured')) {
+        host.innerHTML = '<div class="empty">Follow Up Boss isn\'t configured yet. Open Settings (⚙) → Follow Up Boss → paste your API key.</div>';
+        if (stats) stats.innerHTML = '';
+      } else {
+        host.innerHTML = '<div class="empty">Could not load: ' + escapeHtml(e.message) + '</div>';
+      }
+    }
+  }
+
+  function openAddLead() {
+    openModal('Add new lead to FUB', `
+      <div class="form-grid">
+        <div class="form-field"><label>First name *</label>
+          <input id="fubl-first" required></div>
+        <div class="form-field"><label>Last name</label>
+          <input id="fubl-last"></div>
+        <div class="form-field"><label>Email</label>
+          <input id="fubl-email" type="email"></div>
+        <div class="form-field"><label>Phone</label>
+          <input id="fubl-phone" type="tel"></div>
+        <div class="form-field"><label>Source</label>
+          <input id="fubl-source" placeholder="e.g. Open House, Website, Referral"></div>
+        <div class="form-field"><label>Stage</label>
+          <input id="fubl-stage" placeholder="e.g. Lead, New Lead"></div>
+        <div class="form-field" style="grid-column:1/-1"><label>First-contact note (optional)</label>
+          <textarea id="fubl-note" rows="3" placeholder="How you met, what they're looking for, etc."></textarea></div>
+      </div>
+    `, `
+      <button class="btn-secondary" onclick="DB.closeModal()">Cancel</button>
+      <button class="btn-primary" id="fubl-save">Create in FUB</button>
+    `);
+    document.getElementById('fubl-save').onclick = async () => {
+      const first = v('fubl-first');
+      if (!first) return toast('First name required', 'error');
+      const body = {
+        firstName: first,
+        lastName: v('fubl-last') || null,
+        source: v('fubl-source') || 'Dashboard Agent',
+        stage: v('fubl-stage') || 'Lead'
+      };
+      const email = v('fubl-email');
+      const phone = v('fubl-phone');
+      if (email) body.emails = [{ value: email, type: 'primary' }];
+      if (phone) body.phones = [{ value: phone, type: 'mobile' }];
+      try {
+        const r = await api('/api/fub/people', { method: 'POST', body: JSON.stringify(body) });
+        const note = v('fubl-note');
+        if (note && r.person && r.person.id) {
+          try { await api('/api/fub/notes', { method: 'POST', body: JSON.stringify({ personId: r.person.id, body: note }) }); } catch (_) {}
+        }
+        toast('Lead created: ' + (r.person?.name || first), 'success');
+        closeModal();
+        loadPeople();
+      } catch (e) { toast(e.message, 'error'); }
+    };
+  }
 
   let selectedPersonId = null;
   let selectedPersonLabel = '';

@@ -14,6 +14,7 @@
       { id: 'tasks', label: 'Tasks' },
       { id: 'emails', label: 'Emails' },
       { id: 'crm', label: 'CRM' },
+      { id: 'fub-people', label: 'Contacts' },
       { id: 'calendar', label: 'Calendar' },
       { id: 'leadgen', label: 'Lead Gen' },
       { id: 'closings', label: 'P&L' },
