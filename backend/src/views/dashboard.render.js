@@ -144,6 +144,7 @@
           ${e.snippet ? `<div class="row-sub">${escapeHtml(e.snippet.substring(0, 150))}${e.snippet.length > 150 ? '…' : ''}</div>` : ''}
         </div>
         <div class="row-actions">
+          <button data-action="draft-email-reply" data-id="${e.id}" title="Draft a reply with Claude">✉</button>
           <button class="primary" data-action="handle-email" data-id="${e.id}" title="Mark handled">&#10003;</button>
           <button class="danger" data-action="delete-email" data-id="${e.id}" title="Dismiss">&times;</button>
         </div>

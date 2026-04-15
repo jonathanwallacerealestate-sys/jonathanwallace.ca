@@ -171,6 +171,42 @@
           await api('/api/emails/' + id, { method: 'DELETE' });
           toast('Dismissed'); return load();
 
+        case 'draft-email-reply': {
+          const esc = (s) => String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+          const extra = window.prompt('Any specific instruction for the reply? (leave blank for a default draft)', '');
+          openModal('Drafting reply', `
+            <div id="dr-body" style="min-height:120px;font-size:0.95rem;line-height:1.55;color:var(--text)">
+              <div style="display:flex;align-items:center;gap:0.75rem;color:var(--muted)">
+                <div style="width:10px;height:10px;border-radius:50%;background:var(--accent);animation:pulse 1.2s ease-in-out infinite"></div>
+                <span>Claude is drafting a reply${extra ? ' with your instruction' : ''}…</span>
+              </div>
+            </div>
+          `, `<button class="btn-secondary" onclick="DB.closeModal()">Close</button>`);
+          try {
+            const r = await api('/api/emails/' + id + '/draft-reply', {
+              method: 'POST',
+              body: JSON.stringify({ instructions: extra || null, log_to_fub: true })
+            });
+            const paras = (r.reply || '').split(/\n{2,}/).map(p => `<p style="margin:0 0 0.75rem">${esc(p.trim())}</p>`).join('');
+            const host = document.getElementById('dr-body');
+            if (host) host.innerHTML = `
+              <div style="font-size:0.78rem;color:var(--muted);margin-bottom:0.5rem">
+                Draft created in Gmail${r.fub_logged ? ' · logged to FUB' : ''}.
+                ${r.fub_person_id ? '' : '<br>Sender not in FUB — no CRM note.'}
+              </div>
+              ${paras}
+              <div style="margin-top:0.75rem;padding:0.5rem 0.75rem;background:#fafafa;border-radius:6px;font-size:0.8rem;color:var(--muted)">
+                Open Gmail drafts to review and send. This reply is NOT sent automatically.
+              </div>
+            `;
+            toast('Draft saved to Gmail' + (r.fub_logged ? ' + FUB' : ''), 'success');
+          } catch (e) {
+            const host = document.getElementById('dr-body');
+            if (host) host.innerHTML = `<p style="color:#991b1b">${e.message}</p>`;
+          }
+          return;
+        }
+
         case 'complete-crm': {
           const r = await api('/api/follow-ups/' + id, { method: 'PATCH', body: JSON.stringify({ status: 'done' })});
           toast(r.fub_synced ? 'Done · mirrored to FUB' : 'Follow-up done', 'success');
