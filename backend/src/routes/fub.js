@@ -205,6 +205,85 @@ router.post('/deals', async (req, res) => {
   } catch (e) { handleFubError(res, e); }
 });
 
+/**
+ * POST /api/fub/deals/sync-from-closings
+ * Pushes rows from our local `closings` table into FUB as Deals.
+ *
+ * Body: { closing_ids?: [1,2,3] }  (omit to push every un-synced closing)
+ *
+ * Idempotent: the local closings.notes field stamps 'fub_deal_id=N' on
+ * successful push; rows that already have one are skipped unless force=true.
+ */
+router.post('/deals/sync-from-closings', async (req, res) => {
+  try {
+    const { closing_ids, force } = req.body || {};
+    const where = Array.isArray(closing_ids) && closing_ids.length
+      ? 'WHERE id = ANY($1::int[])'
+      : (force ? '' : "WHERE COALESCE(notes,'') NOT LIKE '%fub_deal_id=%'");
+    const params = Array.isArray(closing_ids) && closing_ids.length ? [closing_ids] : [];
+    const { rows: closings } = await pool.query(
+      `SELECT * FROM closings ${where} ORDER BY closing_date ASC NULLS LAST`,
+      params
+    );
+
+    const pushed = [];
+    const errors = [];
+
+    for (const c of closings) {
+      try {
+        // Best-effort: try to link to a FUB person via client email/phone
+        let personId = null;
+        if (c.client_name) {
+          try {
+            const match = await fub.listPeople({ search: c.client_name, limit: 1 });
+            if (match.people && match.people[0]) personId = match.people[0].id;
+          } catch (e) { /* ignore */ }
+        }
+
+        const dealBody = {
+          name: `${c.property_address}${c.city ? ', ' + c.city : ''}`,
+          stage: mapClosingStatusToFubStage(c.status),
+          price: c.sale_price ? Number(c.sale_price) : undefined,
+          commissionValue: c.gross_commission ? Number(c.gross_commission) : undefined,
+          projectedCloseDate: c.closing_date || undefined,
+          status: c.status === 'closed' ? 'Won' : (c.status === 'cancelled' ? 'Lost' : 'Active'),
+          description: c.notes || undefined
+        };
+        if (personId) dealBody.personId = personId;
+
+        const deal = await fub.createDeal(dealBody);
+        pushed.push({ closing_id: c.id, deal_id: deal.id, name: dealBody.name });
+
+        // Stamp the closing row so we don't double-push
+        const stamp = 'fub_deal_id=' + deal.id;
+        await pool.query(
+          `UPDATE closings SET notes = CASE
+             WHEN notes IS NULL OR notes = '' THEN $1
+             ELSE notes || E'\n\n' || $1 END,
+             updated_at = NOW()
+           WHERE id = $2`,
+          [stamp, c.id]
+        );
+      } catch (e) {
+        errors.push({ closing_id: c.id, error: e.message });
+      }
+    }
+
+    publish({ type: 'fub', event: 'deals_synced', count: pushed.length });
+    res.json({ success: true, pushed, errors, scanned: closings.length });
+  } catch (e) { handleFubError(res, e); }
+});
+
+function mapClosingStatusToFubStage(status) {
+  const m = {
+    pending: 'Under Contract',
+    firm: 'Firm / Conditions Waived',
+    closed: 'Closed',
+    cancelled: 'Lost'
+  };
+  return m[status] || undefined;
+}
+
 router.get('/pipelines', async (req, res) => {
   try { res.json(await fub.listPipelines()); }
   catch (e) { handleFubError(res, e); }

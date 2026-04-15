@@ -71,6 +71,23 @@
     document.getElementById('add-closing-btn').addEventListener('click', () => openClosingForm());
     document.getElementById('add-marketing-btn').addEventListener('click', () => openMarketingForm());
     document.getElementById('add-category-btn').addEventListener('click', () => openCategoryForm());
+
+    // Push local closings to FUB Deals (idempotent — only un-synced rows)
+    const pushClosingsBtn = document.getElementById('push-closings-fub-btn');
+    if (pushClosingsBtn) pushClosingsBtn.addEventListener('click', async () => {
+      if (!confirm('Push all un-synced closings to FUB as Deals?')) return;
+      pushClosingsBtn.disabled = true;
+      const original = pushClosingsBtn.textContent;
+      pushClosingsBtn.textContent = 'Pushing…';
+      try {
+        const r = await api('/api/fub/deals/sync-from-closings', { method: 'POST', body: '{}' });
+        const ok = (r.pushed || []).length;
+        const fail = (r.errors || []).length;
+        toast(`Pushed ${ok} deal${ok === 1 ? '' : 's'} to FUB${fail ? ` · ${fail} failed` : ''}`, fail ? 'error' : 'success');
+        if (typeof window.load === 'function') window.load();
+      } catch (e) { toast(e.message, 'error'); }
+      finally { pushClosingsBtn.disabled = false; pushClosingsBtn.textContent = original; }
+    });
   }
   window.bindQuickAdds = bindQuickAdds;
 
