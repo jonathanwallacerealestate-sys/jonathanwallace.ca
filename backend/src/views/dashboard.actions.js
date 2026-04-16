@@ -106,6 +106,57 @@
       finally { genDeadlineBtn.disabled = false; genDeadlineBtn.textContent = original; }
     });
 
+    // Conversion funnel
+    const funnelBtn = document.getElementById('show-funnel-btn');
+    if (funnelBtn) funnelBtn.addEventListener('click', async () => {
+      const esc = (s) => String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+      const period = window.prompt('Funnel period (30, 90, or ytd)?', '90') || '90';
+      openModal('Conversion funnel · last ' + period + (period === 'ytd' ? '' : ' days'), `
+        <div id="funnel-result"><div class="empty" style="padding:1.5rem">Building funnel from FUB + closings…</div></div>
+      `, `<button class="btn-secondary" onclick="DB.closeModal()">Close</button>`);
+      try {
+        const r = await api('/api/fub/funnel?period=' + encodeURIComponent(period));
+        const host = document.getElementById('funnel-result');
+        if (!host) return;
+        const maxCount = Math.max(1, ...r.funnel.map(s => s.count));
+        const funnelRows = r.funnel.map(s => {
+          const pct = Math.round((s.count / maxCount) * 100);
+          return `
+            <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:0.6rem">
+              <div style="width:180px;font-size:0.82rem;font-weight:600;text-align:right;flex-shrink:0">${esc(s.stage)}</div>
+              <div style="flex:1;background:#e5e7eb;border-radius:6px;overflow:hidden;height:28px;position:relative">
+                <div style="width:${pct}%;height:100%;background:linear-gradient(90deg,#c9a96e,#d4b478);transition:width 0.5s;display:flex;align-items:center;justify-content:flex-end;padding-right:0.5rem">
+                  <span style="font-size:0.78rem;font-weight:700;color:#0a1628">${s.count}</span>
+                </div>
+              </div>
+              <div style="width:50px;font-size:0.72rem;color:var(--muted);text-align:center">${esc(s.conversion_from_prev)}</div>
+            </div>`;
+        }).join('');
+        host.innerHTML = `
+          ${r.avg_time_to_close_days != null ? `
+            <div class="kpi-row" style="margin-bottom:1rem">
+              <div class="kpi"><div class="label">Total leads</div><div class="value">${r.total_leads}</div></div>
+              <div class="kpi"><div class="label">Closed deals</div><div class="value">${r.funnel[r.funnel.length - 1]?.count || 0}</div></div>
+              <div class="kpi"><div class="label">Avg time to close</div><div class="value">${r.avg_time_to_close_days}d</div></div>
+              <div class="kpi"><div class="label">Lead → Close rate</div><div class="value">${r.total_leads > 0 ? Math.round(((r.funnel[r.funnel.length - 1]?.count || 0) / r.total_leads) * 100) : 0}%</div></div>
+            </div>` : ''}
+          <div style="margin-bottom:1rem">${funnelRows}</div>
+          ${r.narrative ? `<div style="padding:0.8rem 1rem;background:#fafafa;border-left:3px solid #c9a96e;border-radius:4px;font-size:0.88rem;line-height:1.55;margin-bottom:0.75rem">${esc(r.narrative)}</div>` : ''}
+          ${Object.keys(r.by_fub_stage || {}).length ? `
+            <h4 style="font-size:0.78rem;text-transform:uppercase;letter-spacing:0.5px;color:var(--muted);margin:1rem 0 0.4rem">FUB stage distribution</h4>
+            <div style="display:flex;gap:0.5rem;flex-wrap:wrap">
+              ${Object.entries(r.by_fub_stage).sort((a,b) => b[1] - a[1]).map(([s, n]) => `
+                <span style="padding:0.3rem 0.7rem;background:#f3f4f6;border-radius:999px;font-size:0.78rem">
+                  ${esc(s)} <strong>${n}</strong>
+                </span>`).join('')}
+            </div>` : ''}
+        `;
+      } catch (e) {
+        const host = document.getElementById('funnel-result');
+        if (host) host.innerHTML = `<p style="color:#991b1b">${esc(e.message)}</p>`;
+      }
+    });
+
     // Lead source attribution report (FUB × closings)
     const attrBtn = document.getElementById('show-attribution-btn');
     if (attrBtn) attrBtn.addEventListener('click', async () => {

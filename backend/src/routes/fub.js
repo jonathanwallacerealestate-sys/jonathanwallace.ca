@@ -471,6 +471,131 @@ function mapTaskType(t) {
   return m[(t || '').toLowerCase()] || 'Other';
 }
 
+// ---------- Conversion funnel ----------
+
+/**
+ * GET /api/fub/funnel?period=30|90|ytd
+ * Computes a conversion funnel from FUB stages + local closings data:
+ *   Lead → Active Prospect → Showing/Appointment → Offer → Firm → Closed
+ *
+ * Returns per-stage counts, conversion rates between stages, average
+ * time-to-close for closed deals, and a Claude narrative interpretation.
+ */
+router.get('/funnel', async (req, res) => {
+  try {
+    const key = await fub.getApiKey();
+    if (!key) return res.status(503).json({ error: 'FUB not configured' });
+
+    const periodDays = req.query.period === 'ytd'
+      ? Math.ceil((Date.now() - new Date(new Date().getFullYear(), 0, 1).getTime()) / 86400000)
+      : (parseInt(req.query.period) || 90);
+    const cutoff = new Date(Date.now() - periodDays * 86400000);
+
+    // Pull ALL FUB people created in the period (paginate up to 500)
+    let people = [];
+    let offset = 0;
+    for (let i = 0; i < 5; i++) {
+      const r = await fub.listPeople({ limit: 100, offset, sort: '-created' });
+      const batch = r.people || [];
+      if (!batch.length) break;
+      people = people.concat(batch);
+      offset += batch.length;
+      if (batch.length < 100) break;
+    }
+    const fresh = people.filter(p => p.created && new Date(p.created) >= cutoff);
+
+    // Bucket by stage
+    const stageMap = {};
+    for (const p of fresh) {
+      const s = (p.stage || 'Unknown').trim();
+      stageMap[s] = (stageMap[s] || 0) + 1;
+    }
+
+    // Pull appointments count from FUB (showings = active engagement)
+    let appointmentCount = 0;
+    try {
+      const appts = await fub.listAppointments({
+        limit: 100,
+        after: cutoff.toISOString(),
+        before: new Date().toISOString()
+      });
+      appointmentCount = (appts.appointments || []).length;
+    } catch (e) { /* ignore if appointments endpoint not available */ }
+
+    // Pull from local closings for offer → firm → closed funnel
+    const { rows: closings } = await pool.query(
+      `SELECT status, offer_date, firm_date, closing_date, sale_price,
+              gross_commission, net_profit
+         FROM closings
+        WHERE (offer_date >= $1 OR firm_date >= $1 OR closing_date >= $1)`,
+      [cutoff.toISOString().slice(0, 10)]
+    );
+
+    const offerCount = closings.filter(c => c.offer_date).length;
+    const firmCount = closings.filter(c => c.firm_date || c.status === 'firm' || c.status === 'closed').length;
+    const closedCount = closings.filter(c => c.status === 'closed').length;
+
+    // Time-to-close for closed deals (offer_date → closing_date)
+    const timesToClose = closings
+      .filter(c => c.status === 'closed' && c.offer_date && c.closing_date)
+      .map(c => Math.round((new Date(c.closing_date) - new Date(c.offer_date)) / 86400000));
+    const avgTimeToClose = timesToClose.length
+      ? Math.round(timesToClose.reduce((a, b) => a + b, 0) / timesToClose.length)
+      : null;
+
+    // Build the funnel stages
+    const totalLeads = fresh.length;
+    const funnel = [
+      { stage: 'Leads (new)', count: totalLeads },
+      { stage: 'Showings/Appointments', count: appointmentCount },
+      { stage: 'Offers written', count: offerCount },
+      { stage: 'Firm / conditions waived', count: firmCount },
+      { stage: 'Closed', count: closedCount }
+    ];
+    // Conversion rates
+    for (let i = 1; i < funnel.length; i++) {
+      const prev = funnel[i - 1].count;
+      funnel[i].conversion_from_prev = prev > 0
+        ? Math.round((funnel[i].count / prev) * 100) + '%'
+        : 'n/a';
+    }
+    funnel[0].conversion_from_prev = '100%';
+
+    // Claude narrative
+    let narrative = null;
+    if (process.env.ANTHROPIC_API_KEY) {
+      try {
+        let ctxBlock = '';
+        try { ctxBlock = await require('../services/intuition').buildContextBlock(); } catch (e) {}
+        const Anthropic = require('@anthropic-ai/sdk');
+        const anthropic = new Anthropic();
+        const sys = `You are analyzing Jonathan Wallace's sales conversion funnel for the
+last ${periodDays} days. Given the funnel data + stage breakdown + time-to-close,
+write a 150-word narrative. Name the biggest leak (where the most drop-off
+occurs), the healthiest conversion, and one concrete action to improve the
+weakest point. Plain prose, no bullets. ${ctxBlock ? '\n' + ctxBlock : ''}`;
+        const r = await anthropic.messages.create({
+          model: 'claude-sonnet-4-20250514',
+          max_tokens: 500,
+          system: sys,
+          messages: [{ role: 'user', content: JSON.stringify({ funnel, stageMap, avgTimeToClose, periodDays }, null, 2) }]
+        });
+        narrative = r.content.filter(b => b.type === 'text').map(b => b.text).join('').trim();
+      } catch (e) { /* narrative is optional */ }
+    }
+
+    res.json({
+      period_days: periodDays,
+      total_leads: totalLeads,
+      funnel,
+      by_fub_stage: stageMap,
+      avg_time_to_close_days: avgTimeToClose,
+      times_to_close: timesToClose,
+      narrative
+    });
+  } catch (e) { handleFubError(res, e); }
+});
+
 // ---------- Contract deadline auto-tasks ----------
 
 /**
