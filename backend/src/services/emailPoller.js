@@ -98,6 +98,23 @@ async function pollInbox({ days = 7, maxMessages = 40 } = {}) {
         status = 'needs_reply';
       }
 
+      // Auto-label safe categories (newsletters, junk, marketing, transaction)
+      // so they don't clutter the needs_reply view. Applies the Gmail label
+      // in the background without asking — only for categories where
+      // needs_reply is definitively false.
+      const AUTO_LABEL_CATEGORIES = ['newsletter', 'junk', 'marketing', 'transaction'];
+      if (triageResult && AUTO_LABEL_CATEGORIES.includes(triageResult.category) && !triageResult.needs_reply) {
+        status = 'informational'; // never shows in "to reply" tab
+        if (triageResult.suggested_label && msg.id) {
+          try {
+            await gmail.applyLabel(msg.id, triageResult.suggested_label);
+          } catch (e) {
+            // Label apply failed — non-fatal, email still tracked locally
+            console.warn('[EmailPoller] auto-label failed for', msg.id, e.message);
+          }
+        }
+      }
+
       if (wasNew) {
         await pool.query(
           `INSERT INTO flagged_emails
