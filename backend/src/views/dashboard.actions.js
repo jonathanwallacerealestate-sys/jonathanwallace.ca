@@ -329,6 +329,41 @@
           return;
         }
 
+        case 'gen-checklist': {
+          const esc = (s) => String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+          // Show type picker
+          try {
+            const types = await api('/api/checklists/types');
+            openModal('Generate checklist for this deal', `
+              <div class="form-field"><label>Checklist type</label>
+                <select id="cl-type">
+                  ${(types.types || []).map(t => `<option value="${t.id}">${esc(t.label)} — ${esc(t.description)}</option>`).join('')}
+                </select></div>
+              <div class="form-field"><label>Special instructions (optional)</label>
+                <input id="cl-instructions" placeholder="e.g. Rush closing, skip staging"></div>
+            `, `
+              <button class="btn-secondary" onclick="DB.closeModal()">Cancel</button>
+              <button class="btn-primary" id="cl-gen">Generate + create tasks</button>
+            `);
+            document.getElementById('cl-gen').onclick = async () => {
+              const type = document.getElementById('cl-type').value;
+              const custom = document.getElementById('cl-instructions').value.trim() || null;
+              const btn = document.getElementById('cl-gen');
+              btn.disabled = true; btn.textContent = 'Generating…';
+              try {
+                const r = await api('/api/checklists/generate', {
+                  method: 'POST',
+                  body: JSON.stringify({ closing_id: id, type, custom_instructions: custom })
+                });
+                toast(`Created ${r.created?.local_count || 0} tasks${r.created?.fub_count ? ' + ' + r.created.fub_count + ' in FUB' : ''}`, 'success');
+                closeModal();
+                if (typeof window.load === 'function') window.load();
+              } catch (e) { toast(e.message, 'error'); btn.disabled = false; btn.textContent = 'Generate + create tasks'; }
+            };
+          } catch (e) { toast(e.message, 'error'); }
+          return;
+        }
+
         case 'edit-closing':
           return openClosingForm(id);
 

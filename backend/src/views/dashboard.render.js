@@ -392,6 +392,7 @@
           </div>
         </div>
         <div class="row-actions">
+          <button data-action="gen-checklist" data-id="${c.id}" title="Generate checklist">📋</button>
           <button data-action="edit-closing" data-id="${c.id}" title="Edit">&#9998;</button>
         </div>
       </div>

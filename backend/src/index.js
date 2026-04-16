@@ -36,6 +36,7 @@ const learningRoutes = require('./routes/learning');
 const spotifyRoutes = require('./routes/spotify');
 const fubRoutes = require('./routes/fub');
 const templatesRoutes = require('./routes/templates');
+const checklistsRoutes = require('./routes/checklists');
 const { initDb } = require('./db/init');
 const { startWorker } = require('./services/worker');
 const { start: startScheduler } = require('./services/scheduler');
@@ -101,6 +102,7 @@ app.use('/api/learning', learningRoutes);
 app.use('/api/spotify', spotifyRoutes);
 app.use('/api/fub', fubRoutes);
 app.use('/api/templates', templatesRoutes);
+app.use('/api/checklists', checklistsRoutes);
 app.use('/dashboard', dashboardRoutes);
 
 app.get('/', (req, res) => {
