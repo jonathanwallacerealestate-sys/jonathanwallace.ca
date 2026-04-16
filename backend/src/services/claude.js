@@ -100,6 +100,8 @@ Rules for FUB:
 - "Prep me for a call with Sarah Mitchell" → fub_find_person then fub_enrich_contact.
 - "Where are my deals coming from this quarter" → fub_attribution_report with period=90.
 - "Send the monthly market pulse to my hot leads" → fub_list_smart_lists then fub_bulk_action with the 'Monthly market pulse' template (dry_run=true first — show Jonathan the sample renders, wait for confirmation, then dry_run=false).
+- "Set up tasks for the Smith closing" → search_dashboard for the closing, then generate_deal_checklist with the closing_id and type='pre_close_buyer'.
+- "How is my pipeline converting?" → show_conversion_funnel with period=90.
 - If fub_find_person returns needs_disambiguation: true, show the candidates to
   Jonathan and ask which one — don't guess.
 - Prefer the FUB tools over create_crm_followup when the contact already lives
@@ -431,6 +433,29 @@ const TOOLS = [
         action:        { type: 'string', enum: ['preview','note','email_draft'], default: 'preview' }
       }
     }
+  },
+  {
+    name: 'generate_deal_checklist',
+    description: 'Generate a transaction checklist for a real estate deal (new listing, new buyer rep, pre-close buyer/seller, post-close relationship program, or custom). Claude produces 8-15 items with real due dates based on the deal dates. Each item is created as both a dashboard personal_task AND a FUB task (if client is linked). Use when Jonathan asks to "set up tasks for a listing" or "create a checklist for the Smith closing".',
+    input_schema: {
+      type: 'object',
+      properties: {
+        closing_id: { type: 'integer', description: 'ID of the closings row (optional — enriches the checklist with deal dates + client info)' },
+        type: { type: 'string', enum: ['new_listing','new_buyer_rep','pre_close_buyer','pre_close_seller','post_close','custom'] },
+        custom_instructions: { type: 'string', description: 'Special notes for the checklist (e.g. "rush closing, skip staging")' }
+      },
+      required: ['type']
+    }
+  },
+  {
+    name: 'show_conversion_funnel',
+    description: 'Show the sales conversion funnel (lead → showing → offer → firm → closed) with inter-stage conversion rates, avg time-to-close, and Claude narrative identifying leaks. Use when Jonathan asks "how is my pipeline converting?" or "where am I losing leads?".',
+    input_schema: {
+      type: 'object',
+      properties: {
+        period: { type: 'string', description: '30, 90, or ytd', default: '90' }
+      }
+    }
   }
 ];
 
@@ -642,7 +667,8 @@ const FUB_TOOLS = [
   'fub_find_person','fub_add_note','fub_create_task','fub_complete_task',
   'fub_update_stage','fub_create_person',
   'fub_enrich_contact','fub_attribution_report','fub_bulk_action',
-  'fub_list_smart_lists','fub_apply_template'
+  'fub_list_smart_lists','fub_apply_template',
+  'generate_deal_checklist','show_conversion_funnel'
 ];
 let _fubClient = null;
 function getFub() {
@@ -846,6 +872,44 @@ async function executeFubTool(toolName, input) {
         return { success: true, pushed: 'email_draft', draft_id: r.data.id, personalized };
       }
       return { error: true, message: 'Unknown action: ' + action };
+    }
+    case 'generate_deal_checklist': {
+      const port = process.env.PORT || 3000;
+      const url = `http://127.0.0.1:${port}/api/checklists/generate`;
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-API-Key': process.env.API_KEY || '' },
+        body: JSON.stringify({
+          closing_id: input.closing_id || null,
+          type: input.type,
+          custom_instructions: input.custom_instructions || null
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) return { error: true, message: data.error || 'Checklist generation failed' };
+      return {
+        success: true,
+        title: data.title,
+        items_count: (data.items || []).length,
+        local_tasks_created: data.created?.local_count || 0,
+        fub_tasks_created: data.created?.fub_count || 0,
+        items: (data.items || []).slice(0, 5).map(i => ({ title: i.title, due_date: i.due_date }))
+      };
+    }
+
+    case 'show_conversion_funnel': {
+      const port = process.env.PORT || 3000;
+      const url = `http://127.0.0.1:${port}/api/fub/funnel?period=${encodeURIComponent(input.period || '90')}`;
+      const res = await fetch(url, { headers: { 'X-API-Key': process.env.API_KEY || '' } });
+      const data = await res.json();
+      if (!res.ok) return { error: true, message: data.error || 'Funnel query failed' };
+      return {
+        success: true,
+        period_days: data.period_days,
+        funnel: data.funnel,
+        avg_time_to_close: data.avg_time_to_close_days,
+        narrative: data.narrative
+      };
     }
   }
   throw new Error('Unhandled FUB tool: ' + toolName);
