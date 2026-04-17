@@ -341,6 +341,74 @@ function HourOfPowerBar() {
 // ─────────────────────────────────────────────
 // MORNING BRIEFING
 // ─────────────────────────────────────────────
+function MorningCalendarSnapshot() {
+  const [status, setStatus] = useState({ connected: false });
+  const [events, setEvents] = useState([]);
+  useEffect(() => {
+    (async () => {
+      try {
+        const sRes = await fetch('/api/calendar/status');
+        const sData = await sRes.json();
+        setStatus(sData);
+        if (sData.connected) {
+          const eRes = await fetch('/api/calendar/events');
+          if (eRes.ok) { const eData = await eRes.json(); setEvents(eData.events || []); }
+        }
+      } catch { /* use fallback */ }
+    })();
+  }, []);
+
+  const formatTime = (iso) => {
+    if (!iso) return '';
+    return new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+  };
+
+  const displayEvents = status.connected && events.length > 0 ? events : null;
+  const fallbackEvents = todayCalendar;
+
+  return (
+    <div style={{ background: "#fff", borderRadius: 10, padding: 14, border: "1px solid #fde68a" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 10 }}>
+        <Calendar size={14} color="#d97706" />
+        <span style={{ fontSize: 12, fontWeight: 700, color: "#92400e" }}>
+          {displayEvents ? events.length : fallbackEvents.length} event{(displayEvents ? events.length : fallbackEvents.length) !== 1 ? "s" : ""} today
+        </span>
+        {status.connected
+          ? <span style={{ fontSize: 9, fontWeight: 600, color: "#059669", background: "#ecfdf5", padding: "1px 5px", borderRadius: 3 }}>GCal live</span>
+          : <span style={{ fontSize: 9, fontWeight: 600, color: "#d97706", background: "#fef3c7", padding: "1px 5px", borderRadius: 3 }}>GCal offline</span>
+        }
+      </div>
+      {displayEvents ? displayEvents.slice(0, 5).map((ev, i) => (
+        <div key={ev.id || i} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+          <div style={{ width: 3, height: 20, borderRadius: 2, background: "#2563eb", flexShrink: 0 }} />
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 11, fontWeight: 600, color: "#374151" }}>{ev.title}</div>
+            <div style={{ fontSize: 10, color: "#9ca3af" }}>{ev.allDay ? "All day" : formatTime(ev.start)}</div>
+          </div>
+          <span style={{ fontSize: 8, fontWeight: 700, color: "#fff", background: "#10b981", padding: "1px 4px", borderRadius: 3 }}>LIVE</span>
+        </div>
+      )) : fallbackEvents.map((ev, i) => (
+        <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+          <div style={{ width: 3, height: 20, borderRadius: 2, background: ev.color, flexShrink: 0 }} />
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 11, fontWeight: 600, color: "#374151" }}>{ev.title}</div>
+            <div style={{ fontSize: 10, color: "#9ca3af" }}>{ev.time}</div>
+          </div>
+        </div>
+      ))}
+      {!status.connected && (
+        <button onClick={() => { window.location.href = '/api/auth/google'; }} style={{
+          marginTop: 6, background: "linear-gradient(135deg, #2563eb, #1d4ed8)", color: "#fff", border: "none",
+          padding: "6px 12px", borderRadius: 6, fontSize: 10, fontWeight: 700, cursor: "pointer",
+          display: "flex", alignItems: "center", gap: 4, width: "100%", justifyContent: "center",
+        }}>
+          <RefreshCw size={10} /> Reconnect Google Calendar
+        </button>
+      )}
+    </div>
+  );
+}
+
 function MorningBriefing() {
   const urgentEmails = emailInbox.filter(e => e.category === "response_needed");
   const [dismissed, setDismissed] = useState(false);
@@ -379,24 +447,7 @@ function MorningBriefing() {
         </div>
 
         {/* Calendar snapshot */}
-        <div style={{ background: "#fff", borderRadius: 10, padding: 14, border: "1px solid #fde68a" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 10 }}>
-            <Calendar size={14} color="#d97706" />
-            <span style={{ fontSize: 12, fontWeight: 700, color: "#92400e" }}>{todayCalendar.length} event{todayCalendar.length !== 1 ? "s" : ""} today</span>
-            {!gcalConnectionStatus.connected && <span style={{ fontSize: 9, fontWeight: 600, color: "#d97706", background: "#fef3c7", padding: "1px 5px", borderRadius: 3 }}>GCal offline</span>}
-          </div>
-          {todayCalendar.map((ev, i) => (
-            <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-              <div style={{ width: 3, height: 20, borderRadius: 2, background: ev.color, flexShrink: 0 }} />
-              <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 11, fontWeight: 600, color: "#374151" }}>{ev.title}</div>
-                <div style={{ fontSize: 10, color: "#9ca3af" }}>{ev.time}</div>
-              </div>
-              {ev.live && <span style={{ fontSize: 8, fontWeight: 700, color: "#fff", background: "#10b981", padding: "1px 4px", borderRadius: 3 }}>LIVE</span>}
-            </div>
-          ))}
-          {!gcalConnectionStatus.connected && <div style={{ fontSize: 10, color: "#b45309", fontWeight: 500, marginTop: 4 }}>Reconnect Google Calendar for full schedule</div>}
-        </div>
+        <MorningCalendarSnapshot />
 
         {/* Emails needing response */}
         <div style={{ background: "#fff", borderRadius: 10, padding: 14, border: "1px solid #fde68a" }}>
@@ -644,39 +695,164 @@ function EmailEASection() {
 // ─────────────────────────────────────────────
 // CALENDAR SECTION (personal + work events, no showings)
 // ─────────────────────────────────────────────
+// ─────────────────────────────────────────────
+// HOOK: Live Google Calendar Connection
+// ─────────────────────────────────────────────
+function useGoogleCalendar() {
+  const [gcalStatus, setGcalStatus] = useState({ connected: false, configured: false, reason: 'Checking...' });
+  const [gcalEvents, setGcalEvents] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const checkStatus = async () => {
+    try {
+      const res = await fetch('/api/calendar/status');
+      const data = await res.json();
+      setGcalStatus(data);
+      return data.connected;
+    } catch {
+      setGcalStatus({ connected: false, configured: false, reason: 'Server unavailable' });
+      return false;
+    }
+  };
+
+  const fetchEvents = async () => {
+    try {
+      const res = await fetch('/api/calendar/events');
+      if (res.ok) {
+        const data = await res.json();
+        setGcalEvents(data.events || []);
+      }
+    } catch { /* silent */ }
+  };
+
+  const refresh = async () => {
+    setRefreshing(true);
+    const connected = await checkStatus();
+    if (connected) await fetchEvents();
+    setRefreshing(false);
+  };
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('gcal') === 'connected') {
+      window.history.replaceState({}, '', '/');
+    }
+    (async () => {
+      const connected = await checkStatus();
+      if (connected) await fetchEvents();
+      setLoading(false);
+    })();
+    const interval = setInterval(async () => {
+      const connected = await checkStatus();
+      if (connected) await fetchEvents();
+    }, 5 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const reconnect = () => { window.location.href = '/api/auth/google'; };
+  return { gcalStatus, gcalEvents, loading, refreshing, refresh, reconnect };
+}
+
 function CalendarSection() {
+  const { gcalStatus, gcalEvents, loading, refreshing, refresh, reconnect } = useGoogleCalendar();
+  const getEventColor = (ev) => {
+    const title = (ev.title || '').toLowerCase();
+    if (title.includes('showing') || title.includes('brokerbay')) return '#e11d48';
+    if (title.includes('listing') || title.includes('open house')) return '#2563eb';
+    if (title.includes('closing') || title.includes('offer')) return '#059669';
+    if (title.includes('call') || title.includes('meeting')) return '#7c3aed';
+    return '#d97706';
+  };
+  const formatTime = (iso) => {
+    if (!iso) return '';
+    const d = new Date(iso);
+    return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+  };
+
   return (
     <Card>
-      <SectionHeader title="Today's Calendar" count={todayCalendar.length} action="Open Google Calendar →" />
-      {!gcalConnectionStatus.connected && (
-        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", borderRadius: 8, background: "#fffbeb", border: "1px solid #fde68a", marginBottom: 10 }}>
-          <AlertTriangle size={14} color="#d97706" />
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+        <h3 style={{ fontSize: 15, fontWeight: 700, color: "#111827", margin: 0 }}>
+          Today's Calendar {gcalEvents.length > 0 && <span style={{ fontSize: 12, color: "#9ca3af", fontWeight: 500 }}>({gcalEvents.length})</span>}
+        </h3>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          {gcalStatus.connected && (
+            <button onClick={refresh} disabled={refreshing} style={{ background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: "#6b7280", padding: "4px 8px", borderRadius: 6 }}>
+              <RefreshCw size={12} style={{ animation: refreshing ? "spin 1s linear infinite" : "none" }} /> {refreshing ? "Syncing..." : "Refresh"}
+            </button>
+          )}
+          <a href="https://calendar.google.com" target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, color: "#2563eb", fontWeight: 600, textDecoration: "none" }}>Open GCal \u2192</a>
+        </div>
+      </div>
+      {!gcalStatus.connected && !loading && (
+        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 14px", borderRadius: 10, background: "#fffbeb", border: "1px solid #fde68a", marginBottom: 12 }}>
+          <AlertTriangle size={16} color="#d97706" />
           <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 12, fontWeight: 600, color: "#92400e" }}>Google Calendar needs reconnection</div>
-            <div style={{ fontSize: 11, color: "#b45309" }}>Showing BrokerBay events only. Reconnect GCal to see your full schedule.</div>
+            <div style={{ fontSize: 12, fontWeight: 600, color: "#92400e" }}>Google Calendar disconnected</div>
+            <div style={{ fontSize: 11, color: "#b45309" }}>
+              {gcalStatus.configured ? "Session expired \u2014 one click to reconnect." : "Set up OAuth credentials in Railway, then connect."}
+            </div>
           </div>
+          {gcalStatus.configured && (
+            <button onClick={reconnect} style={{ background: "linear-gradient(135deg, #2563eb, #1d4ed8)", color: "#fff", border: "none", padding: "8px 16px", borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", gap: 6, whiteSpace: "nowrap", boxShadow: "0 2px 8px rgba(37,99,235,0.3)" }}>
+              <RefreshCw size={12} /> Reconnect
+            </button>
+          )}
         </div>
       )}
-      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-        {todayCalendar.map((ev, i) => {
-          const EvIcon = ev.icon;
-          return (
-            <div key={i} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 12px", borderRadius: 10, background: "#fafafa" }}>
-              <div style={{ width: 3, height: 36, borderRadius: 2, background: ev.color, flexShrink: 0 }} />
-              <div style={{ width: 30, height: 30, borderRadius: 8, background: ev.color + "15", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                <EvIcon size={14} color={ev.color} />
+      {gcalStatus.connected && (
+        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 10, padding: "6px 10px", borderRadius: 6, background: "#f0fdf4", border: "1px solid #bbf7d0" }}>
+          <div style={{ width: 6, height: 6, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 6px #22c55e" }} />
+          <span style={{ fontSize: 11, fontWeight: 600, color: "#166534" }}>Google Calendar connected</span>
+          <span style={{ fontSize: 10, color: "#15803d", marginLeft: "auto" }}>Auto-refresh active</span>
+        </div>
+      )}
+      {loading && <div style={{ textAlign: "center", padding: "20px 0", color: "#9ca3af", fontSize: 12 }}>Checking calendar connection...</div>}
+      {gcalStatus.connected && gcalEvents.length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 12 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: "#2563eb", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4, display: "flex", alignItems: "center", gap: 6 }}>
+            <Calendar size={11} color="#2563eb" /> Google Calendar
+            <span style={{ fontSize: 9, fontWeight: 700, color: "#fff", background: "#10b981", padding: "1px 5px", borderRadius: 3 }}>LIVE</span>
+          </div>
+          {gcalEvents.map((ev, i) => {
+            const color = getEventColor(ev);
+            return (
+              <div key={ev.id || i} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 12px", borderRadius: 10, background: "#fafafa" }}>
+                <div style={{ width: 3, height: 36, borderRadius: 2, background: color, flexShrink: 0 }} />
+                <div style={{ width: 30, height: 30, borderRadius: 8, background: color + "15", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                  <Calendar size={14} color={color} />
+                </div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: "#111827" }}>{ev.title}</div>
+                  <div style={{ fontSize: 11, color: "#9ca3af" }}>{ev.allDay ? "All day" : formatTime(ev.start) + " \u2014 " + formatTime(ev.end)}{ev.location ? " \u00b7 " + ev.location : ""}</div>
+                </div>
+                <span style={{ fontSize: 9, fontWeight: 700, color: "#fff", background: "#10b981", padding: "1px 5px", borderRadius: 3 }}>LIVE</span>
+                {ev.htmlLink && <a href={ev.htmlLink} target="_blank" rel="noopener noreferrer" style={{ color: "#9ca3af" }}><ExternalLink size={12} /></a>}
               </div>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 13, fontWeight: 600, color: "#111827" }}>{ev.title}</div>
-                <div style={{ fontSize: 11, color: "#9ca3af" }}>{ev.time} — {ev.end}</div>
+            );
+          })}
+        </div>
+      )}
+      {gcalStatus.connected && gcalEvents.length === 0 && !loading && <div style={{ textAlign: "center", padding: "16px 0", color: "#9ca3af", fontSize: 12 }}>No Google Calendar events today</div>}
+      {!gcalStatus.connected && !loading && todayCalendar.length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          {todayCalendar.map((ev, i) => {
+            const EvIcon = ev.icon;
+            return (
+              <div key={i} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 12px", borderRadius: 10, background: "#fafafa" }}>
+                <div style={{ width: 3, height: 36, borderRadius: 2, background: ev.color, flexShrink: 0 }} />
+                <div style={{ width: 30, height: 30, borderRadius: 8, background: ev.color + "15", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><EvIcon size={14} color={ev.color} /></div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: "#111827" }}>{ev.title}</div>
+                  <div style={{ fontSize: 11, color: "#9ca3af" }}>{ev.time} \u2014 {ev.end}</div>
+                </div>
+                <span style={{ fontSize: 10, fontWeight: 600, color: ev.color, background: ev.color + "12", padding: "3px 8px", borderRadius: 4, textTransform: "capitalize" }}>{ev.type}</span>
               </div>
-              {ev.live && <span style={{ fontSize: 9, fontWeight: 700, color: "#fff", background: "#10b981", padding: "1px 5px", borderRadius: 3 }}>LIVE</span>}
-              <span style={{ fontSize: 10, fontWeight: 600, color: ev.color, background: ev.color + "12", padding: "3px 8px", borderRadius: 4, textTransform: "capitalize" }}>{ev.type}</span>
-            </div>
-          );
-        })}
-      </div>
-      {/* Showings merged into calendar view */}
+            );
+          })}
+        </div>
+      )}
       {brokerBayShowings.filter(s => s.date === "Today").length > 0 && (
         <div style={{ marginTop: 12 }}>
           <div style={{ fontSize: 11, fontWeight: 700, color: "#e11d48", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
@@ -686,12 +862,10 @@ function CalendarSection() {
           {brokerBayShowings.filter(s => s.date === "Today").map((s, i) => (
             <div key={i} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 12px", borderRadius: 10, background: "#fef2f2", border: "1px solid #fecdd3", marginBottom: 4 }}>
               <div style={{ width: 3, height: 36, borderRadius: 2, background: "#e11d48", flexShrink: 0 }} />
-              <div style={{ width: 30, height: 30, borderRadius: 8, background: "#e11d4815", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                <MapPin size={14} color="#e11d48" />
-              </div>
+              <div style={{ width: 30, height: 30, borderRadius: 8, background: "#e11d4815", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><MapPin size={14} color="#e11d48" /></div>
               <div style={{ flex: 1 }}>
                 <div style={{ fontSize: 13, fontWeight: 600, color: "#111827" }}>{s.property}</div>
-                <div style={{ fontSize: 11, color: "#9ca3af" }}>{s.time} — {s.end} &middot; {s.buyerAgent}</div>
+                <div style={{ fontSize: 11, color: "#9ca3af" }}>{s.time} \u2014 {s.end} \u00b7 {s.buyerAgent}</div>
               </div>
               <span style={{ fontSize: 10, fontWeight: 600, color: s.status === "completed" ? "#2563eb" : "#059669", background: s.status === "completed" ? "#eff6ff" : "#ecfdf5", padding: "3px 8px", borderRadius: 4, textTransform: "capitalize" }}>{s.status}</span>
             </div>
@@ -701,7 +875,6 @@ function CalendarSection() {
     </Card>
   );
 }
-
 // ─────────────────────────────────────────────
 // SHOWINGS SECTION (dedicated BrokerBay view)
 // ─────────────────────────────────────────────
