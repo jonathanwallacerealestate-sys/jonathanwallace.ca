@@ -1,4 +1,4 @@
- import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import {
   Mail, Users, Calendar, Target, DollarSign, User, Dumbbell,
   UtensilsCrossed, Megaphone, BookOpen, Briefcase, Clock, Settings, Bell,
@@ -733,29 +733,37 @@ function useGoogleCalendar() {
     setRefreshing(false);
   };
 
+  // Initial load + check for OAuth callback params
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     if (params.get('gcal') === 'connected') {
       window.history.replaceState({}, '', '/');
     }
+
     (async () => {
       const connected = await checkStatus();
       if (connected) await fetchEvents();
       setLoading(false);
     })();
+
+    // Auto-check status every 5 minutes
     const interval = setInterval(async () => {
       const connected = await checkStatus();
       if (connected) await fetchEvents();
     }, 5 * 60 * 1000);
+
     return () => clearInterval(interval);
   }, []);
 
   const reconnect = () => { window.location.href = '/api/auth/google'; };
+
   return { gcalStatus, gcalEvents, loading, refreshing, refresh, reconnect };
 }
 
 function CalendarSection() {
   const { gcalStatus, gcalEvents, loading, refreshing, refresh, reconnect } = useGoogleCalendar();
+
+  // Color mapping for event types
   const getEventColor = (ev) => {
     const title = (ev.title || '').toLowerCase();
     if (title.includes('showing') || title.includes('brokerbay')) return '#e11d48';
@@ -764,6 +772,7 @@ function CalendarSection() {
     if (title.includes('call') || title.includes('meeting')) return '#7c3aed';
     return '#d97706';
   };
+
   const formatTime = (iso) => {
     if (!iso) return '';
     const d = new Date(iso);
@@ -782,25 +791,36 @@ function CalendarSection() {
               <RefreshCw size={12} style={{ animation: refreshing ? "spin 1s linear infinite" : "none" }} /> {refreshing ? "Syncing..." : "Refresh"}
             </button>
           )}
-          <a href="https://calendar.google.com" target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, color: "#2563eb", fontWeight: 600, textDecoration: "none" }}>Open GCal \u2192</a>
+          <a href="https://calendar.google.com" target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, color: "#2563eb", fontWeight: 600, textDecoration: "none" }}>Open GCal →</a>
         </div>
       </div>
+
+      {/* Connection Status Banner */}
       {!gcalStatus.connected && !loading && (
         <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 14px", borderRadius: 10, background: "#fffbeb", border: "1px solid #fde68a", marginBottom: 12 }}>
           <AlertTriangle size={16} color="#d97706" />
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 12, fontWeight: 600, color: "#92400e" }}>Google Calendar disconnected</div>
             <div style={{ fontSize: 11, color: "#b45309" }}>
-              {gcalStatus.configured ? "Session expired \u2014 one click to reconnect." : "Set up OAuth credentials in Railway, then connect."}
+              {gcalStatus.configured
+                ? "Session expired — one click to reconnect."
+                : "Set up OAuth credentials in Railway, then connect."}
             </div>
           </div>
           {gcalStatus.configured && (
-            <button onClick={reconnect} style={{ background: "linear-gradient(135deg, #2563eb, #1d4ed8)", color: "#fff", border: "none", padding: "8px 16px", borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", gap: 6, whiteSpace: "nowrap", boxShadow: "0 2px 8px rgba(37,99,235,0.3)" }}>
+            <button onClick={reconnect} style={{
+              background: "linear-gradient(135deg, #2563eb, #1d4ed8)", color: "#fff", border: "none",
+              padding: "8px 16px", borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: "pointer",
+              display: "flex", alignItems: "center", gap: 6, whiteSpace: "nowrap",
+              boxShadow: "0 2px 8px rgba(37,99,235,0.3)",
+            }}>
               <RefreshCw size={12} /> Reconnect
             </button>
           )}
         </div>
       )}
+
+      {/* Connected indicator */}
       {gcalStatus.connected && (
         <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 10, padding: "6px 10px", borderRadius: 6, background: "#f0fdf4", border: "1px solid #bbf7d0" }}>
           <div style={{ width: 6, height: 6, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 6px #22c55e" }} />
@@ -808,7 +828,15 @@ function CalendarSection() {
           <span style={{ fontSize: 10, color: "#15803d", marginLeft: "auto" }}>Auto-refresh active</span>
         </div>
       )}
-      {loading && <div style={{ textAlign: "center", padding: "20px 0", color: "#9ca3af", fontSize: 12 }}>Checking calendar connection...</div>}
+
+      {/* Loading state */}
+      {loading && (
+        <div style={{ textAlign: "center", padding: "20px 0", color: "#9ca3af", fontSize: 12 }}>
+          Checking calendar connection...
+        </div>
+      )}
+
+      {/* Live Google Calendar Events */}
       {gcalStatus.connected && gcalEvents.length > 0 && (
         <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 12 }}>
           <div style={{ fontSize: 11, fontWeight: 700, color: "#2563eb", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4, display: "flex", alignItems: "center", gap: 6 }}>
@@ -825,16 +853,31 @@ function CalendarSection() {
                 </div>
                 <div style={{ flex: 1 }}>
                   <div style={{ fontSize: 13, fontWeight: 600, color: "#111827" }}>{ev.title}</div>
-                  <div style={{ fontSize: 11, color: "#9ca3af" }}>{ev.allDay ? "All day" : formatTime(ev.start) + " \u2014 " + formatTime(ev.end)}{ev.location ? " \u00b7 " + ev.location : ""}</div>
+                  <div style={{ fontSize: 11, color: "#9ca3af" }}>
+                    {ev.allDay ? "All day" : `${formatTime(ev.start)} — ${formatTime(ev.end)}`}
+                    {ev.location ? ` · ${ev.location}` : ""}
+                  </div>
                 </div>
                 <span style={{ fontSize: 9, fontWeight: 700, color: "#fff", background: "#10b981", padding: "1px 5px", borderRadius: 3 }}>LIVE</span>
-                {ev.htmlLink && <a href={ev.htmlLink} target="_blank" rel="noopener noreferrer" style={{ color: "#9ca3af" }}><ExternalLink size={12} /></a>}
+                {ev.htmlLink && (
+                  <a href={ev.htmlLink} target="_blank" rel="noopener noreferrer" style={{ color: "#9ca3af" }}>
+                    <ExternalLink size={12} />
+                  </a>
+                )}
               </div>
             );
           })}
         </div>
       )}
-      {gcalStatus.connected && gcalEvents.length === 0 && !loading && <div style={{ textAlign: "center", padding: "16px 0", color: "#9ca3af", fontSize: 12 }}>No Google Calendar events today</div>}
+
+      {/* No events */}
+      {gcalStatus.connected && gcalEvents.length === 0 && !loading && (
+        <div style={{ textAlign: "center", padding: "16px 0", color: "#9ca3af", fontSize: 12 }}>
+          No Google Calendar events today
+        </div>
+      )}
+
+      {/* Fallback: Hardcoded events when disconnected */}
       {!gcalStatus.connected && !loading && todayCalendar.length > 0 && (
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
           {todayCalendar.map((ev, i) => {
@@ -842,10 +885,12 @@ function CalendarSection() {
             return (
               <div key={i} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 12px", borderRadius: 10, background: "#fafafa" }}>
                 <div style={{ width: 3, height: 36, borderRadius: 2, background: ev.color, flexShrink: 0 }} />
-                <div style={{ width: 30, height: 30, borderRadius: 8, background: ev.color + "15", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><EvIcon size={14} color={ev.color} /></div>
+                <div style={{ width: 30, height: 30, borderRadius: 8, background: ev.color + "15", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                  <EvIcon size={14} color={ev.color} />
+                </div>
                 <div style={{ flex: 1 }}>
                   <div style={{ fontSize: 13, fontWeight: 600, color: "#111827" }}>{ev.title}</div>
-                  <div style={{ fontSize: 11, color: "#9ca3af" }}>{ev.time} \u2014 {ev.end}</div>
+                  <div style={{ fontSize: 11, color: "#9ca3af" }}>{ev.time} — {ev.end}</div>
                 </div>
                 <span style={{ fontSize: 10, fontWeight: 600, color: ev.color, background: ev.color + "12", padding: "3px 8px", borderRadius: 4, textTransform: "capitalize" }}>{ev.type}</span>
               </div>
@@ -853,6 +898,8 @@ function CalendarSection() {
           })}
         </div>
       )}
+
+      {/* Showings merged into calendar view */}
       {brokerBayShowings.filter(s => s.date === "Today").length > 0 && (
         <div style={{ marginTop: 12 }}>
           <div style={{ fontSize: 11, fontWeight: 700, color: "#e11d48", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
@@ -862,10 +909,12 @@ function CalendarSection() {
           {brokerBayShowings.filter(s => s.date === "Today").map((s, i) => (
             <div key={i} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 12px", borderRadius: 10, background: "#fef2f2", border: "1px solid #fecdd3", marginBottom: 4 }}>
               <div style={{ width: 3, height: 36, borderRadius: 2, background: "#e11d48", flexShrink: 0 }} />
-              <div style={{ width: 30, height: 30, borderRadius: 8, background: "#e11d4815", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><MapPin size={14} color="#e11d48" /></div>
+              <div style={{ width: 30, height: 30, borderRadius: 8, background: "#e11d4815", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                <MapPin size={14} color="#e11d48" />
+              </div>
               <div style={{ flex: 1 }}>
                 <div style={{ fontSize: 13, fontWeight: 600, color: "#111827" }}>{s.property}</div>
-                <div style={{ fontSize: 11, color: "#9ca3af" }}>{s.time} \u2014 {s.end} \u00b7 {s.buyerAgent}</div>
+                <div style={{ fontSize: 11, color: "#9ca3af" }}>{s.time} — {s.end} &middot; {s.buyerAgent}</div>
               </div>
               <span style={{ fontSize: 10, fontWeight: 600, color: s.status === "completed" ? "#2563eb" : "#059669", background: s.status === "completed" ? "#eff6ff" : "#ecfdf5", padding: "3px 8px", borderRadius: 4, textTransform: "capitalize" }}>{s.status}</span>
             </div>
@@ -875,6 +924,7 @@ function CalendarSection() {
     </Card>
   );
 }
+
 // ─────────────────────────────────────────────
 // SHOWINGS SECTION (dedicated BrokerBay view)
 // ─────────────────────────────────────────────
@@ -1088,6 +1138,38 @@ function TopPriorities() {
 
   const [completing, setCompleting] = useState(null); // id of task being completed (for animation)
   const [doneCount, setDoneCount] = useState(0); // total tasks completed this session
+  const [doneIds, setDoneIds] = useState([]); // track which task IDs have been completed
+  const [loaded, setLoaded] = useState(false);
+
+  // Load saved state from backend on mount
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch('/api/tasks');
+        const { state } = await res.json();
+        if (state && state.priorities) {
+          setPriorities(state.priorities);
+          setBacklog(state.backlog || []);
+          setDoneCount(state.doneCount || 0);
+          setDoneIds(state.doneIds || []);
+        }
+      } catch { /* use defaults */ }
+      setLoaded(true);
+    })();
+  }, []);
+
+  // Save state to backend whenever priorities/backlog/doneCount change (debounced)
+  useEffect(() => {
+    if (!loaded) return; // don't save before initial load
+    const timer = setTimeout(() => {
+      fetch('/api/tasks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ priorities, backlog, doneCount, doneIds }),
+      }).catch(() => {});
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [priorities, backlog, doneCount, doneIds, loaded]);
 
   const markDone = (id) => {
     // Show green checkmark briefly
@@ -1096,6 +1178,7 @@ function TopPriorities() {
     // After brief delay, remove completed task and pull next from backlog
     setTimeout(() => {
       setDoneCount(c => c + 1);
+      setDoneIds(prev => [...prev, id]);
       setPriorities(prev => {
         const remaining = prev.filter(t => t.id !== id);
         return remaining;
