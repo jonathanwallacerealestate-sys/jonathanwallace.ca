@@ -11,9 +11,9 @@ import {
   GripVertical,
 } from "lucide-react";
 
-// ─────────────────────────────────────────────
+// âââââââââââââââââââââââââââââââââââââââââââââ
 // DATA: FUB SMART CALL LIST
-// ─────────────────────────────────────────────
+// âââââââââââââââââââââââââââââââââââââââââââââ
 const dailyCallList = [
   { id: 1, name: "Sarah Chen", phone: "(705) 555-0142", bucket: "hot", tag: "Hot Lead", tagColor: "#ef4444", tagBg: "#fef2f2", lastContact: "2 days ago", context: "Interested in 18 Bayshore Dr. Wants to view this week.", fubStage: "New Lead", priority: 1 },
   { id: 2, name: "Mike Patterson", phone: "(705) 555-0298", bucket: "hot", tag: "Hot Lead", tagColor: "#ef4444", tagBg: "#fef2f2", lastContact: "1 day ago", context: "Offer pending on 45 King St. Needs update on counter.", fubStage: "Active Buyer", priority: 2 },
@@ -21,79 +21,79 @@ const dailyCallList = [
   { id: 4, name: "Kevin Tremblay", phone: "(705) 555-0187", bucket: "cold", tag: "Cold Lead", tagColor: "#6b7280", tagBg: "#f3f4f6", lastContact: "45 days ago", context: "Website inquiry from Feb. Never followed up. Might be looking in Penetang area.", fubStage: "Unqualified", priority: 4 },
   { id: 5, name: "Amanda Cross", phone: "(705) 555-0412", bucket: "cold", tag: "Cold Lead", tagColor: "#6b7280", tagBg: "#f3f4f6", lastContact: "60 days ago", context: "Open house sign-in at 22 Maple. Left email only. Cold outreach.", fubStage: "Unqualified", priority: 5 },
   { id: 6, name: "Raj & Priya Mehta", phone: "(416) 555-0293", bucket: "cold", tag: "Cold Lead", tagColor: "#6b7280", tagBg: "#f3f4f6", lastContact: "90 days ago", context: "Referral from Lisa D. GTA couple looking for cottage country. Never reached.", fubStage: "New Lead", priority: 6 },
-  { id: 7, name: "Bob & Donna Morrison", phone: "(705) 555-0156", bucket: "past", tag: "Past Client", tagColor: "#8b5cf6", tagBg: "#f5f3ff", lastContact: "6 months ago", context: "Sold their Midland bungalow last year. Great referral source — check in.", fubStage: "Past Client", priority: 7 },
+  { id: 7, name: "Bob & Donna Morrison", phone: "(705) 555-0156", bucket: "past", tag: "Past Client", tagColor: "#8b5cf6", tagBg: "#f5f3ff", lastContact: "6 months ago", context: "Sold their Midland bungalow last year. Great referral source â check in.", fubStage: "Past Client", priority: 7 },
   { id: 8, name: "Lena Kowalski", phone: "(705) 555-0389", bucket: "past", tag: "Past Client", tagColor: "#8b5cf6", tagBg: "#f5f3ff", lastContact: "4 months ago", context: "Bought with you in 2024. Mentioned her sister might be selling.", fubStage: "Past Client", priority: 8 },
   { id: 9, name: "The Martins", phone: "(705) 555-0221", bucket: "active", tag: "Active Client", tagColor: "#2563eb", tagBg: "#eff6ff", lastContact: "Today", context: "In negotiation on 45 King St. Counter-offer due today.", fubStage: "Under Contract", priority: 9 },
   { id: 10, name: "Tom & Sandra Reed", phone: "(705) 555-0445", bucket: "active", tag: "Active Client", tagColor: "#2563eb", tagBg: "#eff6ff", lastContact: "Yesterday", context: "Listing appointment Friday. Need to confirm time and prep CMA.", fubStage: "Listing Appointment", priority: 10 },
 ];
 
-// ─────────────────────────────────────────────
-// DATA: EMAIL TRIAGE (LIVE — pulled from Gmail)
-// ─────────────────────────────────────────────
+// âââââââââââââââââââââââââââââââââââââââââââââ
+// DATA: EMAIL TRIAGE (LIVE â pulled from Gmail)
+// âââââââââââââââââââââââââââââââââââââââââââââ
 const emailInbox = [
-  { id: 1, from: "Dan Landry", email: "dlandry0214@gmail.com", subject: "Re: 308 Christine", snippet: "Thank you for the update! However, I did want to revisit the strategy as what you are suggesting is slightly different from our recollection...", time: "8:40 PM (Apr 15)", category: "response_needed", priority: "high", suggestedAction: "Dan is questioning the listing strategy — revisit Plan A vs your recommendation. Reply today.", drafted: false, live: true },
-  { id: 2, from: "BrokerBay", email: "info@mg.brokerbay.com", subject: "Showing Request - 282 Robins Point Road", snippet: "NICK CUONG CHUONG from LPT REALTY has requested a showing. Date: Apr 22, 9:30 AM – 10:30 AM. Type: Home Inspection.", time: "3:12 PM", category: "response_needed", priority: "high", suggestedAction: "Confirm or decline showing request for 282 Robins Point Road. Home inspection — coordinate with sellers.", drafted: false, live: true },
-  { id: 3, from: "Vanessa Playtis", email: "vanessa@playtiscameronlaw.com", subject: "RE: 11 Joliet - Possible Holdback Required", snippet: "Update — we are still waiting on funds from the buyers to complete the sale. They have informed us that they are still waiting on their mortgage funds.", time: "1:46 PM", category: "response_needed", priority: "high", suggestedAction: "Closing delayed — buyer mortgage funds pending. Monitor and update Dani Thompson.", drafted: false, live: true },
-  { id: 4, from: "Follow Up Boss", email: "leads@followupboss.com", subject: "Lead assigned - Vittorio Destefano", snippet: "New lead from Team: Brokerage Call-In. (647) 207-8660 — vdestefano@rogers.com", time: "3:40 PM (Apr 14)", category: "response_needed", priority: "medium", suggestedAction: "New inbound lead — call Vittorio at (647) 207-8660. Add to FUB pipeline.", drafted: false, live: true },
-  { id: 5, from: "Lino D'Angicco", email: "ldangicco@rogers.com", subject: "Re: Listing(s) for your review", snippet: "well that's not great.", time: "5:40 PM (Apr 14)", category: "response_needed", priority: "medium", suggestedAction: "Lino seems disappointed — follow up to understand his concern and address it.", drafted: false, live: true },
+  { id: 1, from: "Dan Landry", email: "dlandry0214@gmail.com", subject: "Re: 308 Christine", snippet: "Thank you for the update! However, I did want to revisit the strategy as what you are suggesting is slightly different from our recollection...", time: "8:40 PM (Apr 15)", category: "response_needed", priority: "high", suggestedAction: "Dan is questioning the listing strategy â revisit Plan A vs your recommendation. Reply today.", drafted: false, live: true },
+  { id: 2, from: "BrokerBay", email: "info@mg.brokerbay.com", subject: "Showing Request - 282 Robins Point Road", snippet: "NICK CUONG CHUONG from LPT REALTY has requested a showing. Date: Apr 22, 9:30 AM â 10:30 AM. Type: Home Inspection.", time: "3:12 PM", category: "response_needed", priority: "high", suggestedAction: "Confirm or decline showing request for 282 Robins Point Road. Home inspection â coordinate with sellers.", drafted: false, live: true },
+  { id: 3, from: "Vanessa Playtis", email: "vanessa@playtiscameronlaw.com", subject: "RE: 11 Joliet - Possible Holdback Required", snippet: "Update â we are still waiting on funds from the buyers to complete the sale. They have informed us that they are still waiting on their mortgage funds.", time: "1:46 PM", category: "response_needed", priority: "high", suggestedAction: "Closing delayed â buyer mortgage funds pending. Monitor and update Dani Thompson.", drafted: false, live: true },
+  { id: 4, from: "Follow Up Boss", email: "leads@followupboss.com", subject: "Lead assigned - Vittorio Destefano", snippet: "New lead from Team: Brokerage Call-In. (647) 207-8660 â vdestefano@rogers.com", time: "3:40 PM (Apr 14)", category: "response_needed", priority: "medium", suggestedAction: "New inbound lead â call Vittorio at (647) 207-8660. Add to FUB pipeline.", drafted: false, live: true },
+  { id: 5, from: "Lino D'Angicco", email: "ldangicco@rogers.com", subject: "Re: Listing(s) for your review", snippet: "well that's not great.", time: "5:40 PM (Apr 14)", category: "response_needed", priority: "medium", suggestedAction: "Lino seems disappointed â follow up to understand his concern and address it.", drafted: false, live: true },
   { id: 6, from: "Clare @ Faris Team", email: "Clare@faristeam.ca", subject: "Client Appreciation: Morning At the Movies Sign-up!", snippet: "Our Cineplex Client Appreciation event is fast approaching and we need YOUR HELP!", time: "12:11 PM", category: "fyi", priority: "low", suggestedAction: "Sign up for Cineplex client appreciation event if attending.", drafted: false, live: true },
-  { id: 7, from: "Jeff @ Faris Team", email: "Jeff@faristeam.ca", subject: "📊 FARIS TEAM LISTINGS – WEEKLY UPDATE", snippet: "Week of April 6 to April 12 — listing activity improved. Sales, showings, and active listings all moving higher.", time: "12:56 PM (Apr 15)", category: "fyi", priority: "low", suggestedAction: "Review weekly listing stats. Buyer traffic picked up meaningfully.", drafted: false, live: true },
-  { id: 8, from: "Jeff @ Faris Team", email: "Jeff@faristeam.ca", subject: "📊 SIMCOE COUNTY – WEEKLY MARKET UPDATE", snippet: "Week of April 6 to April 12 — Simcoe County market continued to build momentum through early spring.", time: "12:49 PM (Apr 15)", category: "fyi", priority: "low", suggestedAction: "Review Simcoe County market trends for client conversations.", drafted: false, live: true },
-  { id: 9, from: "Jo (VA Hub)", email: "jo.thevahub@gmail.com", subject: "Jonathan Wallace EOD Report April 16, 2026", snippet: "I have organized the majority of your Outlook inbox emails up to April 12. Emails between April 12-19 remaining.", time: "1:22 PM", category: "fyi", priority: "low", suggestedAction: "VA progress update — Outlook inbox organized to April 12. No action needed.", drafted: false, live: true },
-  { id: 10, from: "REALM", email: "notifications@em.realmmlp.ca", subject: "[REALM] Your clients' saved searches have found listings", snippet: "Edward Kariuki's search — Homes in Midland and Area $350-$500k found two listings on Apr 15.", time: "2:07 AM", category: "followup_others", priority: "medium", suggestedAction: "Forward Midland listings to Edward Kariuki. 819 Birchwood Dr matched his search.", drafted: false, live: true },
-  { id: 11, from: "SISU", email: "noreply@sisu.co", subject: "Amendment to Deal Received — 62 O'Shaughnessy", snippet: "An amendment has been received for this deal. Sales Partner: Jonathan Wallace. Shane Steenhoek.", time: "5:13 PM (Apr 15)", category: "fyi", priority: "low", suggestedAction: "Amendment logged in SISU for 62 O'Shaughnessy. Kim already sent accepted amendment.", drafted: false, live: true },
-  { id: 12, from: "Make.com", email: "noreply@us2.make.com", subject: "🛑 Encountered errors in Agent Gmail Gateway scenario", snippet: "Your scenario Agent Gmail Gateway has encountered multiple errors.", time: "3:12 PM (Apr 14)", category: "auto_file", priority: "none", suggestedAction: "Make.com automation errors — check Agent Gmail Gateway scenario when you have time.", drafted: false, live: true },
+  { id: 7, from: "Jeff @ Faris Team", email: "Jeff@faristeam.ca", subject: "ð FARIS TEAM LISTINGS â WEEKLY UPDATE", snippet: "Week of April 6 to April 12 â listing activity improved. Sales, showings, and active listings all moving higher.", time: "12:56 PM (Apr 15)", category: "fyi", priority: "low", suggestedAction: "Review weekly listing stats. Buyer traffic picked up meaningfully.", drafted: false, live: true },
+  { id: 8, from: "Jeff @ Faris Team", email: "Jeff@faristeam.ca", subject: "ð SIMCOE COUNTY â WEEKLY MARKET UPDATE", snippet: "Week of April 6 to April 12 â Simcoe County market continued to build momentum through early spring.", time: "12:49 PM (Apr 15)", category: "fyi", priority: "low", suggestedAction: "Review Simcoe County market trends for client conversations.", drafted: false, live: true },
+  { id: 9, from: "Jo (VA Hub)", email: "jo.thevahub@gmail.com", subject: "Jonathan Wallace EOD Report April 16, 2026", snippet: "I have organized the majority of your Outlook inbox emails up to April 12. Emails between April 12-19 remaining.", time: "1:22 PM", category: "fyi", priority: "low", suggestedAction: "VA progress update â Outlook inbox organized to April 12. No action needed.", drafted: false, live: true },
+  { id: 10, from: "REALM", email: "notifications@em.realmmlp.ca", subject: "[REALM] Your clients' saved searches have found listings", snippet: "Edward Kariuki's search â Homes in Midland and Area $350-$500k found two listings on Apr 15.", time: "2:07 AM", category: "followup_others", priority: "medium", suggestedAction: "Forward Midland listings to Edward Kariuki. 819 Birchwood Dr matched his search.", drafted: false, live: true },
+  { id: 11, from: "SISU", email: "noreply@sisu.co", subject: "Amendment to Deal Received â 62 O'Shaughnessy", snippet: "An amendment has been received for this deal. Sales Partner: Jonathan Wallace. Shane Steenhoek.", time: "5:13 PM (Apr 15)", category: "fyi", priority: "low", suggestedAction: "Amendment logged in SISU for 62 O'Shaughnessy. Kim already sent accepted amendment.", drafted: false, live: true },
+  { id: 12, from: "Make.com", email: "noreply@us2.make.com", subject: "ð Encountered errors in Agent Gmail Gateway scenario", snippet: "Your scenario Agent Gmail Gateway has encountered multiple errors.", time: "3:12 PM (Apr 14)", category: "auto_file", priority: "none", suggestedAction: "Make.com automation errors â check Agent Gmail Gateway scenario when you have time.", drafted: false, live: true },
 ];
 
-// ─────────────────────────────────────────────
-// DATA: CALENDAR (Google Calendar — connection needs refresh)
-// ─────────────────────────────────────────────
+// âââââââââââââââââââââââââââââââââââââââââââââ
+// DATA: CALENDAR (Google Calendar â connection needs refresh)
+// âââââââââââââââââââââââââââââââââââââââââââââ
 // NOTE: Google Calendar MCP integration needs reconnection.
 // Showing only BrokerBay-confirmed events as LIVE data for now.
 const todayCalendar = [
-  { time: "12:30 PM", end: "1:30 PM", title: "Showing — 45 Brule St, Penetanguishene (Completed)", type: "showing", color: "#10b981", icon: CheckCircle2, source: "brokerbay", live: true },
+  { time: "12:30 PM", end: "1:30 PM", title: "Showing â 45 Brule St, Penetanguishene (Completed)", type: "showing", color: "#10b981", icon: CheckCircle2, source: "brokerbay", live: true },
 ];
-const gcalConnectionStatus = { connected: false, reason: "Google Calendar integration needs refresh — reconnect to pull full calendar." };
+const gcalConnectionStatus = { connected: false, reason: "Google Calendar integration needs refresh â reconnect to pull full calendar." };
 
-// ─────────────────────────────────────────────
-// DATA: BROKERBAY SHOWINGS (LIVE — parsed from Gmail)
-// ─────────────────────────────────────────────
+// âââââââââââââââââââââââââââââââââââââââââââââ
+// DATA: BROKERBAY SHOWINGS (LIVE â parsed from Gmail)
+// âââââââââââââââââââââââââââââââââââââââââââââ
 const brokerBayShowings = [
-  // TODAY — completed (Jonathan attended as buyer agent)
-  { id: "bb-1", time: "12:30 PM", end: "1:30 PM", date: "Today", property: "45 Brule Street, Penetanguishene", mls: "—", status: "completed",
+  // TODAY â completed (Jonathan attended as buyer agent)
+  { id: "bb-1", time: "12:30 PM", end: "1:30 PM", date: "Today", property: "45 Brule Street, Penetanguishene", mls: "â", status: "completed",
     requestedBy: "Jonathan Wallace (Buyer Agent)", buyerAgent: "Jonathan Wallace",
-    buyerName: "—", sellerName: "Peggy Hill / Christine Hanna (Re/Max Hallmark Peggy Hill Group)",
-    notes: "Modified from 3:30 PM → 12:30 PM. Feedback requested by listing agent.", lockboxCode: "4610",
+    buyerName: "â", sellerName: "Peggy Hill / Christine Hanna (Re/Max Hallmark Peggy Hill Group)",
+    notes: "Modified from 3:30 PM â 12:30 PM. Feedback requested by listing agent.", lockboxCode: "4610",
     source: "brokerbay", live: true, role: "buyer_agent" },
-  // TOMORROW — your listing 612 Bay St
-  { id: "bb-2", time: "11:15 AM", end: "12:15 PM", date: "Fri, Apr 17", property: "612 Bay Street, Midland", mls: "—", status: "confirmed",
+  // TOMORROW â your listing 612 Bay St
+  { id: "bb-2", time: "11:15 AM", end: "12:15 PM", date: "Fri, Apr 17", property: "612 Bay Street, Midland", mls: "â", status: "confirmed",
     requestedBy: "Caitlin Danielle Renton (Renton Realty)", buyerAgent: "Caitlin Danielle Renton",
-    buyerName: "—", sellerName: "Your Listing",
-    notes: "Caitlin Renton — caitlinrenton@outlook.com — 647-273-9850. Renton Realty office: 905-822-7737.", lockboxCode: "—",
+    buyerName: "â", sellerName: "Your Listing",
+    notes: "Caitlin Renton â caitlinrenton@outlook.com â 647-273-9850. Renton Realty office: 905-822-7737.", lockboxCode: "â",
     source: "brokerbay", live: true, role: "listing_agent" },
-  // TOMORROW — your listing 481 Islandview Lane
-  { id: "bb-3", time: "2:00 PM", end: "3:00 PM", date: "Fri, Apr 17", property: "481 Islandview Lane, Midland", mls: "—", status: "confirmed",
+  // TOMORROW â your listing 481 Islandview Lane
+  { id: "bb-3", time: "2:00 PM", end: "3:00 PM", date: "Fri, Apr 17", property: "481 Islandview Lane, Midland", mls: "â", status: "confirmed",
     requestedBy: "Jordan Iles (Real Broker Ontario Ltd.)", buyerAgent: "Jordan Iles",
-    buyerName: "—", sellerName: "Your Listing",
-    notes: "Jordan Iles — jiles@teamjordan.ca — Real Broker Ontario: 888-311-1172.", lockboxCode: "—",
+    buyerName: "â", sellerName: "Your Listing",
+    notes: "Jordan Iles â jiles@teamjordan.ca â Real Broker Ontario: 888-311-1172.", lockboxCode: "â",
     source: "brokerbay", live: true, role: "listing_agent" },
-  // SUNDAY — your listing 612 Bay St
-  { id: "bb-4", time: "12:30 PM", end: "1:30 PM", date: "Sun, Apr 19", property: "612 Bay Street, Midland", mls: "—", status: "confirmed",
+  // SUNDAY â your listing 612 Bay St
+  { id: "bb-4", time: "12:30 PM", end: "1:30 PM", date: "Sun, Apr 19", property: "612 Bay Street, Midland", mls: "â", status: "confirmed",
     requestedBy: "Rhys Williams (Keller Williams Experience Realty)", buyerAgent: "Rhys Williams",
-    buyerName: "—", sellerName: "Your Listing",
-    notes: "Rhys Williams — rhys@torrogroup.ca — Keller Williams: 705-720-2200.", lockboxCode: "—",
+    buyerName: "â", sellerName: "Your Listing",
+    notes: "Rhys Williams â rhys@torrogroup.ca â Keller Williams: 705-720-2200.", lockboxCode: "â",
     source: "brokerbay", live: true, role: "listing_agent" },
-  // NEXT WEEK — your listing 282 Robins Point Road (NEW REQUEST — needs confirmation)
-  { id: "bb-5", time: "9:30 AM", end: "10:30 AM", date: "Wed, Apr 22", property: "282 Robins Point Road", mls: "—", status: "requested",
+  // NEXT WEEK â your listing 282 Robins Point Road (NEW REQUEST â needs confirmation)
+  { id: "bb-5", time: "9:30 AM", end: "10:30 AM", date: "Wed, Apr 22", property: "282 Robins Point Road", mls: "â", status: "requested",
     requestedBy: "Nick Cuong Chuong (LPT Realty)", buyerAgent: "Nick Cuong Chuong",
-    buyerName: "—", sellerName: "Your Listing",
-    notes: "Home Inspection showing. Agent notes included. Needs CONFIRMATION.", lockboxCode: "—",
+    buyerName: "â", sellerName: "Your Listing",
+    notes: "Home Inspection showing. Agent notes included. Needs CONFIRMATION.", lockboxCode: "â",
     source: "brokerbay", live: true, role: "listing_agent" },
 ];
 
 const brokerBaySyncStatus = {
   connected: true,
-  lastSync: "Just now — pulled from Gmail",
+  lastSync: "Just now â pulled from Gmail",
   calendarFeedUrl: "webcal://edge.brokerbay.com/ical/agent/jw-9482.ics",
   googleCalendarLinked: true,
   totalShowingsThisWeek: 5,
@@ -102,9 +102,9 @@ const brokerBaySyncStatus = {
   pendingCount: 1,
 };
 
-// ─────────────────────────────────────────────
+// âââââââââââââââââââââââââââââââââââââââââââââ
 // DATA: METRICS + PIPELINE
-// ─────────────────────────────────────────────
+// âââââââââââââââââââââââââââââââââââââââââââââ
 const metricCards = [
   { title: "New Leads", value: "47", change: "+12%", trend: "up", period: "This month", color: "#2563eb", target: 60, current: 47 },
   { title: "Active Deals", value: "8", change: "+2", trend: "up", period: "In pipeline", color: "#f59e0b", target: 12, current: 8 },
@@ -131,27 +131,27 @@ const sidebarItems = [
   { id: "loo", label: "LOO", icon: FileText, badge: null },
 ];
 
-// ─────────────────────────────────────────────
+// âââââââââââââââââââââââââââââââââââââââââââââ
 // DATA: TOP PRIORITIES OF THE DAY
-// ─────────────────────────────────────────────
+// âââââââââââââââââââââââââââââââââââââââââââââ
 const defaultBig3 = [
   { id: 1, text: "Reply to Dan Landry re: 308 Christine listing strategy", done: false, category: "deal", categoryColor: "#ef4444", live: true },
-  { id: 2, text: "Confirm BrokerBay showing — 282 Robins Point Rd (Apr 22, Home Inspection)", done: false, category: "showing", categoryColor: "#2563eb", live: true },
-  { id: 3, text: "Follow up on 11 Joliet closing — buyer mortgage funds pending", done: false, category: "deal", categoryColor: "#ef4444", live: true },
+  { id: 2, text: "Confirm BrokerBay showing â 282 Robins Point Rd (Apr 22, Home Inspection)", done: false, category: "showing", categoryColor: "#2563eb", live: true },
+  { id: 3, text: "Follow up on 11 Joliet closing â buyer mortgage funds pending", done: false, category: "deal", categoryColor: "#ef4444", live: true },
 ];
 
 const backlogTasks = [
-  { id: 4, text: "Call new FUB lead Vittorio Destefano — (647) 207-8660", done: false, category: "lead", categoryColor: "#f59e0b", live: true },
+  { id: 4, text: "Call new FUB lead Vittorio Destefano â (647) 207-8660", done: false, category: "lead", categoryColor: "#f59e0b", live: true },
   { id: 5, text: "Respond to Lino D'Angicco re: listings review", done: false, category: "lead", categoryColor: "#f59e0b", live: true },
-  { id: 6, text: "Forward REALM listings to Edward Kariuki — Midland $350-$500k", done: false, category: "lead", categoryColor: "#f59e0b", live: true },
+  { id: 6, text: "Forward REALM listings to Edward Kariuki â Midland $350-$500k", done: false, category: "lead", categoryColor: "#f59e0b", live: true },
   { id: 7, text: "Submit outstanding feedback for 45 Brule St showing", done: false, category: "showing", categoryColor: "#2563eb", live: true },
   { id: 8, text: "Sign up for Faris Team Cineplex Client Appreciation event", done: false, category: "marketing", categoryColor: "#8b5cf6", live: true },
   { id: 9, text: "Review Make.com Agent Gmail Gateway errors", done: false, category: "tech", categoryColor: "#6b7280", live: true },
 ];
 
-// ─────────────────────────────────────────────
+// âââââââââââââââââââââââââââââââââââââââââââââ
 // COMPONENTS: SHARED
-// ─────────────────────────────────────────────
+// âââââââââââââââââââââââââââââââââââââââââââââ
 function ProgressRing({ pct, color, size = 48 }) {
   const r = (size - 8) / 2;
   const circ = 2 * Math.PI * r;
@@ -188,9 +188,9 @@ function SectionHeader({ title, count, action }) {
   );
 }
 
-// ─────────────────────────────────────────────
+// âââââââââââââââââââââââââââââââââââââââââââââ
 // HOUR OF POWER BAR (compact, always visible)
-// ─────────────────────────────────────────────
+// âââââââââââââââââââââââââââââââââââââââââââââ
 function HourOfPowerBar() {
   const [active, setActive] = useState(false);
   const [paused, setPaused] = useState(false);
@@ -338,9 +338,9 @@ function HourOfPowerBar() {
   );
 }
 
-// ─────────────────────────────────────────────
+// âââââââââââââââââââââââââââââââââââââââââââââ
 // MORNING BRIEFING
-// ─────────────────────────────────────────────
+// âââââââââââââââââââââââââââââââââââââââââââââ
 function MorningCalendarSnapshot() {
   const [status, setStatus] = useState({ connected: false });
   const [events, setEvents] = useState([]);
@@ -423,12 +423,12 @@ function MorningBriefing() {
         </div>
         <div>
           <div style={{ fontSize: 16, fontWeight: 800, color: "#92400e" }}>Good morning, Jonathan</div>
-          <div style={{ fontSize: 12, color: "#b45309" }}>Thursday, April 16 — Here's your day at a glance.</div>
+          <div style={{ fontSize: 12, color: "#b45309" }}>Thursday, April 16 â Here's your day at a glance.</div>
         </div>
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 12 }}>
-        {/* Listing Showings snapshot — LIVE from Gmail */}
+        {/* Listing Showings snapshot â LIVE from Gmail */}
         <div style={{ background: "#fff", borderRadius: 10, padding: 14, border: "1px solid #fde68a" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 10 }}>
             <MapPin size={14} color="#e11d48" />
@@ -485,16 +485,16 @@ function MorningBriefing() {
               <span key={b.label} style={{ fontSize: 10, fontWeight: 700, color: b.color, background: b.bg, padding: "3px 8px", borderRadius: 4 }}>{b.count} {b.label}</span>
             ))}
           </div>
-          <div style={{ fontSize: 11, color: "#6b7280" }}>Balanced rotation — no call bias.</div>
+          <div style={{ fontSize: 11, color: "#6b7280" }}>Balanced rotation â no call bias.</div>
         </div>
       </div>
     </Card>
   );
 }
 
-// ─────────────────────────────────────────────
+// âââââââââââââââââââââââââââââââââââââââââââââ
 // OUTSTANDING FEEDBACK BAR (compact, below brief)
-// ─────────────────────────────────────────────
+// âââââââââââââââââââââââââââââââââââââââââââââ
 function OutstandingFeedbackBar() {
   const [dismissed, setDismissed] = useState({});
   const visible = outstandingFeedback.filter(f => !dismissed[f.id]);
@@ -513,7 +513,7 @@ function OutstandingFeedbackBar() {
           </div>
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 13, fontWeight: 600, color: "#111827" }}>
-              Feedback due — {fb.address}
+              Feedback due â {fb.address}
             </div>
             <div style={{ fontSize: 11, color: "#6b7280", marginTop: 1 }}>
               {fb.listingAgent} &middot; {fb.brokerage} &middot; Shown {fb.time}
@@ -534,9 +534,9 @@ function OutstandingFeedbackBar() {
   );
 }
 
-// ─────────────────────────────────────────────
+// âââââââââââââââââââââââââââââââââââââââââââââ
 // CALL LIST SECTION
-// ─────────────────────────────────────────────
+// âââââââââââââââââââââââââââââââââââââââââââââ
 function CallListSection() {
   const [completed, setCompleted] = useState({});
   const bucketOrder = ["hot", "cold", "past", "active"];
@@ -545,9 +545,9 @@ function CallListSection() {
 
   return (
     <Card>
-      <SectionHeader title="Today's Call List" count={10} action="Refresh from FUB →" />
+      <SectionHeader title="Today's Call List" count={10} action="Refresh from FUB â" />
       <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 16, padding: "8px 12px", background: "#f9fafb", borderRadius: 8, border: "1px solid #f3f4f6" }}>
-        Auto-generated daily from Follow Up Boss. 3 Hot / 3 Cold / 2 Past Clients / 2 Active — ensuring balanced outreach with zero call bias.
+        Auto-generated daily from Follow Up Boss. 3 Hot / 3 Cold / 2 Past Clients / 2 Active â ensuring balanced outreach with zero call bias.
       </div>
       {bucketOrder.map(bucket => {
         const contacts = dailyCallList.filter(c => c.bucket === bucket);
@@ -593,9 +593,9 @@ function CallListSection() {
   );
 }
 
-// ─────────────────────────────────────────────
+// âââââââââââââââââââââââââââââââââââââââââââââ
 // EMAIL EA SECTION
-// ─────────────────────────────────────────────
+// âââââââââââââââââââââââââââââââââââââââââââââ
 function EmailEASection() {
   const [selectedEmail, setSelectedEmail] = useState(null);
   const [actions, setActions] = useState({});
@@ -609,7 +609,7 @@ function EmailEASection() {
   return (
     <Card>
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-        <SectionHeader title="Email Assistant" count={emailInbox.length} action="Open Gmail →" />
+        <SectionHeader title="Email Assistant" count={emailInbox.length} action="Open Gmail â" />
         <span style={{ fontSize: 9, fontWeight: 700, color: "#fff", background: "#10b981", padding: "2px 6px", borderRadius: 3, marginTop: -4 }}>LIVE</span>
       </div>
 
@@ -689,15 +689,15 @@ function EmailEASection() {
   );
 }
 
-// ─────────────────────────────────────────────
+// âââââââââââââââââââââââââââââââââââââââââââââ
 // CALENDAR SECTION
-// ─────────────────────────────────────────────
-// ─────────────────────────────────────────────
+// âââââââââââââââââââââââââââââââââââââââââââââ
+// âââââââââââââââââââââââââââââââââââââââââââââ
 // CALENDAR SECTION (personal + work events, no showings)
-// ─────────────────────────────────────────────
-// ─────────────────────────────────────────────
+// âââââââââââââââââââââââââââââââââââââââââââââ
+// âââââââââââââââââââââââââââââââââââââââââââââ
 // HOOK: Live Google Calendar Connection
-// ─────────────────────────────────────────────
+// âââââââââââââââââââââââââââââââââââââââââââââ
 function useGoogleCalendar() {
   const [gcalStatus, setGcalStatus] = useState({ connected: false, configured: false, reason: 'Checking...' });
   const [gcalEvents, setGcalEvents] = useState([]);
@@ -875,9 +875,9 @@ function CalendarSection() {
     </Card>
   );
 }
-// ─────────────────────────────────────────────
+// âââââââââââââââââââââââââââââââââââââââââââââ
 // SHOWINGS SECTION (dedicated BrokerBay view)
-// ─────────────────────────────────────────────
+// âââââââââââââââââââââââââââââââââââââââââââââ
 function ShowingsSection() {
   const [showTab, setShowTab] = useState("upcoming");
   const [expandedShowing, setExpandedShowing] = useState(null);
@@ -938,7 +938,7 @@ function ShowingsSection() {
         ))}
       </div>
 
-      {/* ── UPCOMING SHOWINGS — split by Listings / Buyers ── */}
+      {/* ââ UPCOMING SHOWINGS â split by Listings / Buyers ââ */}
       {showTab === "upcoming" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           {/* LISTING SHOWINGS */}
@@ -959,7 +959,7 @@ function ShowingsSection() {
                       <div style={{ width: 4, height: 40, borderRadius: 2, background: "#8b5cf6", flexShrink: 0 }} />
                       <div style={{ flex: 1 }}>
                         <div style={{ fontSize: 13, fontWeight: 600, color: "#111827" }}>{s.property}</div>
-                        <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 2 }}>{s.date} &middot; {s.time} — {s.end}</div>
+                        <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 2 }}>{s.date} &middot; {s.time} â {s.end}</div>
                         <div style={{ fontSize: 11, color: "#6b7280", marginTop: 1 }}>{s.buyerAgent} viewing your listing</div>
                       </div>
                       <span style={{ fontSize: 10, fontWeight: 600, color: st.color, background: st.bg, padding: "3px 8px", borderRadius: 4 }}>{st.label}</span>
@@ -1002,7 +1002,7 @@ function ShowingsSection() {
                       <div style={{ width: 4, height: 40, borderRadius: 2, background: "#059669", flexShrink: 0 }} />
                       <div style={{ flex: 1 }}>
                         <div style={{ fontSize: 13, fontWeight: 600, color: "#111827" }}>{s.property}</div>
-                        <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 2 }}>{s.date} &middot; {s.time} — {s.end}</div>
+                        <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 2 }}>{s.date} &middot; {s.time} â {s.end}</div>
                         <div style={{ fontSize: 11, color: "#6b7280", marginTop: 1 }}>You as buyer agent</div>
                       </div>
                       <span style={{ fontSize: 10, fontWeight: 600, color: st.color, background: st.bg, padding: "3px 8px", borderRadius: 4 }}>{st.label}</span>
@@ -1025,7 +1025,7 @@ function ShowingsSection() {
         </div>
       )}
 
-      {/* ── ALL SHOWINGS ── */}
+      {/* ââ ALL SHOWINGS ââ */}
       {showTab === "all" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
           {brokerBayShowings.map(s => {
@@ -1035,7 +1035,7 @@ function ShowingsSection() {
                 <div style={{ width: 4, height: 36, borderRadius: 2, background: "#e11d48", flexShrink: 0 }} />
                 <div style={{ flex: 1 }}>
                   <div style={{ fontSize: 12, fontWeight: 600, color: "#111827" }}>{s.property}</div>
-                  <div style={{ fontSize: 11, color: "#9ca3af" }}>{s.date} &middot; {s.time} — {s.end} &middot; {s.buyerAgent}</div>
+                  <div style={{ fontSize: 11, color: "#9ca3af" }}>{s.date} &middot; {s.time} â {s.end} &middot; {s.buyerAgent}</div>
                 </div>
                 <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
                   <span style={{ fontSize: 10, fontWeight: 600, color: s.role === "listing_agent" ? "#8b5cf6" : "#6b7280", background: s.role === "listing_agent" ? "#f5f3ff" : "#f3f4f6", padding: "2px 6px", borderRadius: 3 }}>{s.role === "listing_agent" ? "Listing" : "Buyer"}</span>
@@ -1047,7 +1047,7 @@ function ShowingsSection() {
         </div>
       )}
 
-      {/* ── SYNC STATUS ── */}
+      {/* ââ SYNC STATUS ââ */}
       {showTab === "sync" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           <div style={{ padding: 14, borderRadius: 12, background: "linear-gradient(135deg, #ecfdf5, #f0fdf4)", border: "1px solid #bbf7d0" }}>
@@ -1075,9 +1075,9 @@ function ShowingsSection() {
   );
 }
 
-// ─────────────────────────────────────────────
+// âââââââââââââââââââââââââââââââââââââââââââââ
 // TOP PRIORITIES OF THE DAY (drag to reorder)
-// ─────────────────────────────────────────────
+// âââââââââââââââââââââââââââââââââââââââââââââ
 function TopPriorities() {
   const [priorities, setPriorities] = useState(defaultBig3);
   const [backlog, setBacklog] = useState(backlogTasks);
@@ -1086,7 +1086,35 @@ function TopPriorities() {
   const [dragFrom, setDragFrom] = useState(null);
   const [dragOver, setDragOver] = useState(null);
 
-  const togglePriority = (id) => setPriorities(prev => prev.map(t => t.id === id ? { ...t, done: !t.done } : t));
+  const [completing, setCompleting] = useState(null); // id of task being completed (for animation)
+  const [doneCount, setDoneCount] = useState(0); // total tasks completed this session
+
+  const markDone = (id) => {
+    // Show green checkmark briefly
+    setCompleting(id);
+    setPriorities(prev => prev.map(t => t.id === id ? { ...t, done: true } : t));
+    // After brief delay, remove completed task and pull next from backlog
+    setTimeout(() => {
+      setDoneCount(c => c + 1);
+      setPriorities(prev => {
+        const remaining = prev.filter(t => t.id !== id);
+        return remaining;
+      });
+      setBacklog(prev => {
+        const nextTask = prev.find(t => !t.done);
+        if (nextTask) {
+          setPriorities(curr => {
+            if (curr.length < 3) return [...curr, nextTask];
+            return curr;
+          });
+          return prev.filter(t => t.id !== nextTask.id);
+        }
+        return prev;
+      });
+      setCompleting(null);
+    }, 600);
+  };
+
   const toggleBacklog = (id) => setBacklog(prev => prev.map(t => t.id === id ? { ...t, done: !t.done } : t));
 
   const promoteTask = (task) => {
@@ -1097,7 +1125,7 @@ function TopPriorities() {
 
   const demoteTask = (task) => {
     setPriorities(prev => prev.filter(t => t.id !== task.id));
-    setBacklog(prev => [task, ...prev]);
+    setBacklog(prev => [{ ...task, done: false }, ...prev]);
   };
 
   const addTask = () => {
@@ -1141,9 +1169,9 @@ function TopPriorities() {
     });
   };
 
-  const completedCount = priorities.filter(t => t.done).length;
-  const progressPct = Math.round((completedCount / Math.max(priorities.length, 1)) * 100);
-  const allDone = priorities.length > 0 && completedCount === priorities.length;
+  const totalTasks = priorities.length + backlog.length + doneCount;
+  const progressPct = totalTasks > 0 ? Math.round((doneCount / totalTasks) * 100) : 0;
+  const allDone = priorities.length === 0 && backlog.filter(t => !t.done).length === 0;
 
   return (
     <Card>
@@ -1155,7 +1183,7 @@ function TopPriorities() {
           </div>
           <div>
             <h3 style={{ fontSize: 15, fontWeight: 700, color: "#111827", margin: 0 }}>
-              Top Priorities {allDone && <span style={{ fontSize: 12, color: "#10b981", fontWeight: 600 }}>— All done!</span>}
+              Top Priorities {allDone && <span style={{ fontSize: 12, color: "#10b981", fontWeight: 600 }}>â All done!</span>}
             </h3>
             <div style={{ fontSize: 11, color: "#9ca3af" }}>Drag to reorder. The things that move the needle today.</div>
           </div>
@@ -1164,11 +1192,11 @@ function TopPriorities() {
           <div style={{ width: 60, height: 5, background: "#f3f4f6", borderRadius: 3, overflow: "hidden" }}>
             <div style={{ width: `${progressPct}%`, height: "100%", background: allDone ? "#10b981" : "#2563eb", borderRadius: 3, transition: "width 0.3s" }} />
           </div>
-          <span style={{ fontSize: 12, fontWeight: 700, color: allDone ? "#10b981" : "#2563eb" }}>{completedCount}/{priorities.length}</span>
+          <span style={{ fontSize: 12, fontWeight: 700, color: allDone ? "#10b981" : "#2563eb" }}>{doneCount}/{totalTasks}</span>
         </div>
       </div>
 
-      {/* Priority list — draggable */}
+      {/* Priority list â draggable */}
       <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 16 }}>
         {priorities.map((task, idx) => (
           <div
@@ -1183,7 +1211,8 @@ function TopPriorities() {
               background: dragOver === idx && dragFrom !== idx ? "#eff6ff" : task.done ? "#f0fdf4" : "#fff",
               border: dragOver === idx && dragFrom !== idx ? "2px solid #93c5fd" : task.done ? "1px solid #bbf7d0" : "1px solid #e5e7eb",
               boxShadow: dragFrom === idx ? "0 4px 12px rgba(0,0,0,0.1)" : task.done ? "none" : "0 1px 3px rgba(0,0,0,0.04)",
-              opacity: dragFrom === idx ? 0.5 : 1,
+              opacity: completing === task.id ? 0.4 : dragFrom === idx ? 0.5 : 1,
+              transform: completing === task.id ? "scale(0.97)" : "none",
               cursor: "grab", transition: "all 0.15s ease",
               userSelect: "none",
             }}
@@ -1246,12 +1275,13 @@ function TopPriorities() {
             </div>
 
             {/* Done / Demote */}
-            <button onClick={() => togglePriority(task.id)} style={{
-              background: task.done ? "#d1fae5" : "#f3f4f6", border: "none", borderRadius: 6,
-              padding: "5px 10px", fontSize: 11, cursor: "pointer",
-              color: task.done ? "#065f46" : "#6b7280", fontWeight: 600,
+            <button onClick={() => !task.done && markDone(task.id)} disabled={task.done || completing === task.id} style={{
+              background: task.done || completing === task.id ? "#d1fae5" : "#f3f4f6", border: "none", borderRadius: 6,
+              padding: "5px 10px", fontSize: 11, cursor: task.done ? "default" : "pointer",
+              color: task.done || completing === task.id ? "#065f46" : "#6b7280", fontWeight: 600,
+              transition: "all 0.3s ease",
             }}>
-              {task.done ? "Undo" : "Done"}
+              {task.done ? <span style={{ display: "flex", alignItems: "center", gap: 3 }}><Check size={11} /> Done</span> : "Done"}
             </button>
             <button onClick={() => demoteTask(task)} style={{
               background: "none", border: "none", color: "#d1d5db", cursor: "pointer", padding: 4,
@@ -1333,13 +1363,13 @@ function TopPriorities() {
   );
 }
 
-// ─────────────────────────────────────────────
-// MARKETING — BUFFER INTEGRATION
-// ─────────────────────────────────────────────
+// âââââââââââââââââââââââââââââââââââââââââââââ
+// MARKETING â BUFFER INTEGRATION
+// âââââââââââââââââââââââââââââââââââââââââââââ
 const bufferChannels = [
-  { id: "ch_ig", name: "jonathanwallacerealestate", service: "instagram", icon: "📸", color: "#E1306C", followers: 1842, growth: "+38", growthPct: "+2.1%", connected: true },
-  { id: "ch_li", name: "Jonathan Wallace", service: "linkedin", icon: "💼", color: "#0A66C2", followers: 623, growth: "+17", growthPct: "+2.8%", connected: true },
-  { id: "ch_gb", name: "Jonathan Wallace — Georgian Bay Realty", service: "google_business", icon: "📍", color: "#4285F4", followers: null, growth: null, growthPct: null, connected: true, reviews: 47, avgRating: 4.9 },
+  { id: "ch_ig", name: "jonathanwallacerealestate", service: "instagram", icon: "ð¸", color: "#E1306C", followers: 1842, growth: "+38", growthPct: "+2.1%", connected: true },
+  { id: "ch_li", name: "Jonathan Wallace", service: "linkedin", icon: "ð¼", color: "#0A66C2", followers: 623, growth: "+17", growthPct: "+2.8%", connected: true },
+  { id: "ch_gb", name: "Jonathan Wallace â Georgian Bay Realty", service: "google_business", icon: "ð", color: "#4285F4", followers: null, growth: null, growthPct: null, connected: true, reviews: 47, avgRating: 4.9 },
 ];
 
 const bufferMetrics = {
@@ -1351,31 +1381,31 @@ const bufferMetrics = {
 };
 
 const recentPosts = [
-  { id: 1, channel: "instagram", thumb: "🏡", caption: "Just listed — Stunning waterfront on Georgian Bay. 4 bed, 3 bath, panoramic views...", likes: 87, comments: 14, shares: 6, date: "Apr 14", status: "sent", engRate: "5.8%" },
-  { id: 2, channel: "instagram", thumb: "🔑", caption: "SOLD! Congratulations to the Morrison family on their new home in Midland...", likes: 124, comments: 23, shares: 11, date: "Apr 12", status: "sent", engRate: "8.6%" },
-  { id: 3, channel: "instagram", thumb: "📊", caption: "Q1 Georgian Bay Market Update — Inventory is low, demand is high. Here's what sellers need to know...", likes: 61, comments: 8, shares: 15, date: "Apr 10", status: "sent", engRate: "4.6%" },
-  { id: 4, channel: "instagram", thumb: "🌅", caption: "There's nothing like a Georgian Bay sunset. This is why we live here...", likes: 203, comments: 31, shares: 22, date: "Apr 8", status: "sent", engRate: "13.9%" },
-  { id: 5, channel: "instagram", thumb: "🏠", caption: "Price improvement! 22 Maple Dr, Tiny Township — Now $549,900...", likes: 45, comments: 5, shares: 3, date: "Apr 6", status: "sent", engRate: "2.9%" },
-  { id: 6, channel: "instagram", thumb: "🎥", caption: "Behind the scenes of today's listing photoshoot...", likes: 92, comments: 17, shares: 8, date: "Apr 4", status: "sent", engRate: "6.3%" },
-  { id: 7, channel: "linkedin", thumb: "📈", caption: "The Georgian Bay real estate market is shifting — here's my take on what Q2 holds for buyers and sellers...", likes: 34, comments: 12, shares: 8, date: "Apr 13", status: "sent", engRate: "8.7%" },
-  { id: 8, channel: "linkedin", thumb: "🤝", caption: "Grateful to be recognized in the Top 10 agents for Simcoe County this quarter...", likes: 67, comments: 19, shares: 5, date: "Apr 9", status: "sent", engRate: "14.6%" },
-  { id: 9, channel: "google_business", thumb: "⭐", caption: "New 5-star review! 'Jonathan made our first home purchase seamless...'", likes: null, comments: null, shares: null, date: "Apr 15", status: "sent", engRate: null },
+  { id: 1, channel: "instagram", thumb: "ð¡", caption: "Just listed â Stunning waterfront on Georgian Bay. 4 bed, 3 bath, panoramic views...", likes: 87, comments: 14, shares: 6, date: "Apr 14", status: "sent", engRate: "5.8%" },
+  { id: 2, channel: "instagram", thumb: "ð", caption: "SOLD! Congratulations to the Morrison family on their new home in Midland...", likes: 124, comments: 23, shares: 11, date: "Apr 12", status: "sent", engRate: "8.6%" },
+  { id: 3, channel: "instagram", thumb: "ð", caption: "Q1 Georgian Bay Market Update â Inventory is low, demand is high. Here's what sellers need to know...", likes: 61, comments: 8, shares: 15, date: "Apr 10", status: "sent", engRate: "4.6%" },
+  { id: 4, channel: "instagram", thumb: "ð", caption: "There's nothing like a Georgian Bay sunset. This is why we live here...", likes: 203, comments: 31, shares: 22, date: "Apr 8", status: "sent", engRate: "13.9%" },
+  { id: 5, channel: "instagram", thumb: "ð ", caption: "Price improvement! 22 Maple Dr, Tiny Township â Now $549,900...", likes: 45, comments: 5, shares: 3, date: "Apr 6", status: "sent", engRate: "2.9%" },
+  { id: 6, channel: "instagram", thumb: "ð¥", caption: "Behind the scenes of today's listing photoshoot...", likes: 92, comments: 17, shares: 8, date: "Apr 4", status: "sent", engRate: "6.3%" },
+  { id: 7, channel: "linkedin", thumb: "ð", caption: "The Georgian Bay real estate market is shifting â here's my take on what Q2 holds for buyers and sellers...", likes: 34, comments: 12, shares: 8, date: "Apr 13", status: "sent", engRate: "8.7%" },
+  { id: 8, channel: "linkedin", thumb: "ð¤", caption: "Grateful to be recognized in the Top 10 agents for Simcoe County this quarter...", likes: 67, comments: 19, shares: 5, date: "Apr 9", status: "sent", engRate: "14.6%" },
+  { id: 9, channel: "google_business", thumb: "â­", caption: "New 5-star review! 'Jonathan made our first home purchase seamless...'", likes: null, comments: null, shares: null, date: "Apr 15", status: "sent", engRate: null },
 ];
 
 const scheduledQueue = [
-  { id: 101, channel: "instagram", text: "New listing alert! 55 Bayfield St — 3 bed, 2 bath, steps from downtown Midland...", dueAt: "Tomorrow, 10:00 AM", status: "scheduled" },
+  { id: 101, channel: "instagram", text: "New listing alert! 55 Bayfield St â 3 bed, 2 bath, steps from downtown Midland...", dueAt: "Tomorrow, 10:00 AM", status: "scheduled" },
   { id: 102, channel: "linkedin", text: "5 things I've learned after 200+ real estate transactions in Georgian Bay...", dueAt: "Tomorrow, 12:30 PM", status: "scheduled" },
   { id: 103, channel: "instagram", text: "Open house this weekend! Join us Saturday 1-3 PM at 18 Bayshore Dr...", dueAt: "Fri, 9:00 AM", status: "scheduled" },
-  { id: 104, channel: "google_business", text: "Spring market update — Georgian Bay inventory is 23% lower than last year...", dueAt: "Fri, 2:00 PM", status: "scheduled" },
+  { id: 104, channel: "google_business", text: "Spring market update â Georgian Bay inventory is 23% lower than last year...", dueAt: "Fri, 2:00 PM", status: "scheduled" },
 ];
 
 const aiStrategyInsights = [
-  { id: 1, type: "trending", icon: "🔥", title: "Lifestyle content outperforms listings 3:1", detail: "Your sunset and behind-the-scenes posts get 3x more engagement than property listings. Try leading with lifestyle and weaving in listings naturally.", priority: "high", action: "Create 2 lifestyle posts this week" },
-  { id: 2, type: "timing", icon: "⏰", title: "Best posting window: Tues & Thurs, 11 AM–1 PM", detail: "Your audience is most active midday mid-week. Weekend posts get 40% less reach. Schedule key content for the sweet spot.", priority: "medium", action: "Shift weekend posts to Tuesday" },
-  { id: 3, type: "content", icon: "💡", title: "Video walkthroughs are your growth engine", detail: "Your listing video from Apr 4 had 6.3% engagement — well above your 4.7% average. Short-form video (Reels) should be 40% of your content mix.", priority: "high", action: "Film 1 walkthrough Reel this week" },
-  { id: 4, type: "engagement", icon: "💬", title: "Reply rate is building trust", detail: "You're responding to 92% of comments within 2 hours. This is excellent for algorithm favor. Keep it up — your engagement rate has climbed 0.6% this month.", priority: "low", action: "Maintain response cadence" },
-  { id: 5, type: "opportunity", icon: "🎯", title: "LinkedIn is your untapped channel", detail: "Your LinkedIn engagement rate (8.7%) is nearly double Instagram. Consider cross-posting market insights and professional milestones here more often.", priority: "high", action: "Post 3x/week on LinkedIn" },
-  { id: 6, type: "idea", icon: "✨", title: "Trending: 'Day in the life of a Realtor' content", detail: "This format is trending heavily on Instagram Reels. Pair it with Georgian Bay scenery for a unique angle that builds personal brand.", priority: "medium", action: "Shoot a 'day in the life' Reel" },
+  { id: 1, type: "trending", icon: "ð¥", title: "Lifestyle content outperforms listings 3:1", detail: "Your sunset and behind-the-scenes posts get 3x more engagement than property listings. Try leading with lifestyle and weaving in listings naturally.", priority: "high", action: "Create 2 lifestyle posts this week" },
+  { id: 2, type: "timing", icon: "â°", title: "Best posting window: Tues & Thurs, 11 AMâ1 PM", detail: "Your audience is most active midday mid-week. Weekend posts get 40% less reach. Schedule key content for the sweet spot.", priority: "medium", action: "Shift weekend posts to Tuesday" },
+  { id: 3, type: "content", icon: "ð¡", title: "Video walkthroughs are your growth engine", detail: "Your listing video from Apr 4 had 6.3% engagement â well above your 4.7% average. Short-form video (Reels) should be 40% of your content mix.", priority: "high", action: "Film 1 walkthrough Reel this week" },
+  { id: 4, type: "engagement", icon: "ð¬", title: "Reply rate is building trust", detail: "You're responding to 92% of comments within 2 hours. This is excellent for algorithm favor. Keep it up â your engagement rate has climbed 0.6% this month.", priority: "low", action: "Maintain response cadence" },
+  { id: 5, type: "opportunity", icon: "ð¯", title: "LinkedIn is your untapped channel", detail: "Your LinkedIn engagement rate (8.7%) is nearly double Instagram. Consider cross-posting market insights and professional milestones here more often.", priority: "high", action: "Post 3x/week on LinkedIn" },
+  { id: 6, type: "idea", icon: "â¨", title: "Trending: 'Day in the life of a Realtor' content", detail: "This format is trending heavily on Instagram Reels. Pair it with Georgian Bay scenery for a unique angle that builds personal brand.", priority: "medium", action: "Shoot a 'day in the life' Reel" },
 ];
 
 function MarketingSection() {
@@ -1391,10 +1421,10 @@ function MarketingSection() {
   ];
 
   const channelIcon = (svc) => {
-    if (svc === "instagram") return "📸";
-    if (svc === "linkedin") return "💼";
-    if (svc === "google_business") return "📍";
-    return "🔗";
+    if (svc === "instagram") return "ð¸";
+    if (svc === "linkedin") return "ð¼";
+    if (svc === "google_business") return "ð";
+    return "ð";
   };
 
   const filteredPosts = recentPosts.filter(p => p.channel === gridChannel);
@@ -1402,14 +1432,14 @@ function MarketingSection() {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
 
-      {/* HEADER ROW — Buffer branding + channel status */}
+      {/* HEADER ROW â Buffer branding + channel status */}
       <Card style={{ padding: "16px 20px" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <div style={{ width: 32, height: 32, borderRadius: 8, background: "#000", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16 }}>🅱️</div>
+            <div style={{ width: 32, height: 32, borderRadius: 8, background: "#000", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16 }}>ð±ï¸</div>
             <div>
               <div style={{ fontSize: 15, fontWeight: 700, color: "#111827" }}>Marketing Hub</div>
-              <div style={{ fontSize: 11, color: "#6b7280" }}>Powered by Buffer — 3 channels connected</div>
+              <div style={{ fontSize: 11, color: "#6b7280" }}>Powered by Buffer â 3 channels connected</div>
             </div>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -1437,7 +1467,7 @@ function MarketingSection() {
                   </>
                 ) : (
                   <>
-                    <span style={{ fontSize: 20, fontWeight: 800, color: "#111827" }}>{ch.avgRating} ⭐</span>
+                    <span style={{ fontSize: 20, fontWeight: 800, color: "#111827" }}>{ch.avgRating} â­</span>
                     <span style={{ fontSize: 11, fontWeight: 600, color: "#6b7280" }}>{ch.reviews} reviews</span>
                   </>
                 )}
@@ -1463,7 +1493,7 @@ function MarketingSection() {
         ))}
       </div>
 
-      {/* OVERVIEW TAB — Engagement Metrics */}
+      {/* OVERVIEW TAB â Engagement Metrics */}
       {activeTab === "overview" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           {/* Metrics Row */}
@@ -1494,7 +1524,7 @@ function MarketingSection() {
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 12, color: "#111827", fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{post.caption}</div>
                   <div style={{ fontSize: 10, color: "#6b7280", marginTop: 2 }}>
-                    {channelIcon(post.channel)} {post.date} • ❤️ {post.likes} • 💬 {post.comments} • 🔄 {post.shares}
+                    {channelIcon(post.channel)} {post.date} â¢ â¤ï¸ {post.likes} â¢ ð¬ {post.comments} â¢ ð {post.shares}
                   </div>
                 </div>
                 <div style={{ textAlign: "right", flexShrink: 0 }}>
@@ -1512,14 +1542,14 @@ function MarketingSection() {
               <span style={{ fontSize: 13, fontWeight: 700, color: "#fff" }}>AI Quick Insight</span>
             </div>
             <div style={{ fontSize: 12, color: "#d1d5db", lineHeight: 1.6 }}>
-              Your lifestyle and community content drives 3x more engagement than property listings alone. This week, consider pairing your 55 Bayfield listing with a "neighborhood spotlight" angle — showcase downtown Midland shops and restaurants nearby. Your best-performing post this month was the Georgian Bay sunset (13.9% engagement) — lean into that emotional storytelling.
+              Your lifestyle and community content drives 3x more engagement than property listings alone. This week, consider pairing your 55 Bayfield listing with a "neighborhood spotlight" angle â showcase downtown Midland shops and restaurants nearby. Your best-performing post this month was the Georgian Bay sunset (13.9% engagement) â lean into that emotional storytelling.
             </div>
             <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
               <div style={{ padding: "6px 12px", borderRadius: 6, background: "rgba(200,169,110,0.15)", color: "#c8a96e", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>
-                💡 Generate Content Ideas
+                ð¡ Generate Content Ideas
               </div>
               <div style={{ padding: "6px 12px", borderRadius: 6, background: "rgba(255,255,255,0.08)", color: "#9ca3af", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>
-                📊 Full Strategy Report
+                ð Full Strategy Report
               </div>
             </div>
           </Card>
@@ -1546,7 +1576,7 @@ function MarketingSection() {
           {/* Instagram-style Grid */}
           {gridChannel === "instagram" && (
             <Card>
-              <div style={{ fontSize: 13, fontWeight: 700, color: "#111827", marginBottom: 12 }}>📸 Instagram Grid Preview</div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: "#111827", marginBottom: 12 }}>ð¸ Instagram Grid Preview</div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 4 }}>
                 {filteredPosts.map(post => (
                   <div key={post.id} style={{
@@ -1560,7 +1590,7 @@ function MarketingSection() {
                       padding: "20px 8px 8px", color: "#fff",
                     }}>
                       <div style={{ fontSize: 9, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{post.caption.slice(0, 50)}...</div>
-                      <div style={{ fontSize: 9, marginTop: 2, opacity: 0.8 }}>❤️ {post.likes} 💬 {post.comments}</div>
+                      <div style={{ fontSize: 9, marginTop: 2, opacity: 0.8 }}>â¤ï¸ {post.likes} ð¬ {post.comments}</div>
                     </div>
                   </div>
                 ))}
@@ -1574,7 +1604,7 @@ function MarketingSection() {
           {/* LinkedIn Feed View */}
           {gridChannel === "linkedin" && (
             <Card>
-              <div style={{ fontSize: 13, fontWeight: 700, color: "#111827", marginBottom: 12 }}>💼 LinkedIn Feed</div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: "#111827", marginBottom: 12 }}>ð¼ LinkedIn Feed</div>
               {recentPosts.filter(p => p.channel === "linkedin").map(post => (
                 <div key={post.id} style={{ padding: "14px 0", borderBottom: "1px solid #f3f4f6" }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
@@ -1586,9 +1616,9 @@ function MarketingSection() {
                   </div>
                   <div style={{ fontSize: 12, color: "#374151", lineHeight: 1.5, marginBottom: 8 }}>{post.caption}</div>
                   <div style={{ display: "flex", gap: 16, fontSize: 10, color: "#6b7280" }}>
-                    <span>👍 {post.likes}</span>
-                    <span>💬 {post.comments} comments</span>
-                    <span>🔄 {post.shares} shares</span>
+                    <span>ð {post.likes}</span>
+                    <span>ð¬ {post.comments} comments</span>
+                    <span>ð {post.shares} shares</span>
                     <span style={{ marginLeft: "auto", fontWeight: 600, color: "#10b981" }}>{post.engRate} eng.</span>
                   </div>
                 </div>
@@ -1599,11 +1629,11 @@ function MarketingSection() {
           {/* Google Business View */}
           {gridChannel === "google_business" && (
             <Card>
-              <div style={{ fontSize: 13, fontWeight: 700, color: "#111827", marginBottom: 12 }}>📍 Google Business Profile</div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: "#111827", marginBottom: 12 }}>ð Google Business Profile</div>
               <div style={{ display: "flex", gap: 16, marginBottom: 16 }}>
                 <div style={{ flex: 1, background: "#f9fafb", borderRadius: 10, padding: "16px", textAlign: "center" }}>
                   <div style={{ fontSize: 28, fontWeight: 800, color: "#111827" }}>4.9</div>
-                  <div style={{ fontSize: 12, color: "#f59e0b" }}>⭐⭐⭐⭐⭐</div>
+                  <div style={{ fontSize: 12, color: "#f59e0b" }}>â­â­â­â­â­</div>
                   <div style={{ fontSize: 10, color: "#6b7280", marginTop: 4 }}>47 reviews</div>
                 </div>
                 <div style={{ flex: 1, background: "#f9fafb", borderRadius: 10, padding: "16px", textAlign: "center" }}>
@@ -1652,7 +1682,7 @@ function MarketingSection() {
               <div style={{ flex: 1 }}>
                 <div style={{ fontSize: 12, color: "#111827", lineHeight: 1.5 }}>{post.text}</div>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 6 }}>
-                  <span style={{ fontSize: 10, color: "#6b7280" }}>📅 {post.dueAt}</span>
+                  <span style={{ fontSize: 10, color: "#6b7280" }}>ð {post.dueAt}</span>
                   <span style={{ fontSize: 9, fontWeight: 600, color: "#c8a96e", background: "#fefce8", padding: "2px 8px", borderRadius: 4 }}>Scheduled</span>
                 </div>
               </div>
@@ -1706,16 +1736,16 @@ function MarketingSection() {
                       <div style={{ fontSize: 12, color: "#6b7280", lineHeight: 1.6, marginBottom: 10 }}>{insight.detail}</div>
                       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                         <div style={{ padding: "6px 12px", borderRadius: 6, background: "#c8a96e", color: "#fff", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>
-                          ✅ {insight.action}
+                          â {insight.action}
                         </div>
                         <div style={{ padding: "6px 12px", borderRadius: 6, background: "#f3f4f6", color: "#6b7280", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>
-                          📋 Add to Content Plan
+                          ð Add to Content Plan
                         </div>
                       </div>
                     </div>
                   )}
                   {expandedInsight !== insight.id && (
-                    <div style={{ fontSize: 11, color: "#9ca3af" }}>Click to expand — {insight.action}</div>
+                    <div style={{ fontSize: 11, color: "#9ca3af" }}>Click to expand â {insight.action}</div>
                   )}
                 </div>
               </div>
@@ -1732,13 +1762,13 @@ function MarketingSection() {
               {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((day, i) => {
                 const isToday = i === 2; // Wednesday
                 const planned = [
-                  [{ ch: "📸", type: "Listing" }],
-                  [{ ch: "💼", type: "Market Insight" }, { ch: "📸", type: "Lifestyle" }],
-                  [{ ch: "📸", type: "Reel" }],
-                  [{ ch: "💼", type: "Tips" }, { ch: "📍", type: "Update" }],
-                  [{ ch: "📸", type: "Open House" }],
+                  [{ ch: "ð¸", type: "Listing" }],
+                  [{ ch: "ð¼", type: "Market Insight" }, { ch: "ð¸", type: "Lifestyle" }],
+                  [{ ch: "ð¸", type: "Reel" }],
+                  [{ ch: "ð¼", type: "Tips" }, { ch: "ð", type: "Update" }],
+                  [{ ch: "ð¸", type: "Open House" }],
                   [],
-                  [{ ch: "📸", type: "Community" }],
+                  [{ ch: "ð¸", type: "Community" }],
                 ];
                 return (
                   <div key={day} style={{
@@ -1752,7 +1782,7 @@ function MarketingSection() {
                         {item.ch} {item.type}
                       </div>
                     )) : (
-                      <div style={{ fontSize: 9, color: "#d1d5db", padding: "3px 4px" }}>—</div>
+                      <div style={{ fontSize: 9, color: "#d1d5db", padding: "3px 4px" }}>â</div>
                     )}
                   </div>
                 );
@@ -1765,46 +1795,46 @@ function MarketingSection() {
   );
 }
 
-// ─────────────────────────────────────────────
+// âââââââââââââââââââââââââââââââââââââââââââââ
 // PLACEHOLDER
-// ─────────────────────────────────────────────
-// ─────────────────────────────────────────────
+// âââââââââââââââââââââââââââââââââââââââââââââ
+// âââââââââââââââââââââââââââââââââââââââââââââ
 // DATA: LISTING SHOWING INTELLIGENCE
 // (Parsed from BrokerBay emails via Gmail API)
-// ─────────────────────────────────────────────
-// LIVE listings — parsed from BrokerBay emails (you are listing agent)
+// âââââââââââââââââââââââââââââââââââââââââââââ
+// LIVE listings â parsed from BrokerBay emails (you are listing agent)
 const activeListings = [
   {
-    id: "lst-1", address: "612 Bay Street, Midland, ON", mls: "L4R 1L6", price: "—",
-    daysOnMarket: "—", seller: { name: "Jonathan Wallace (Listing Agent)", phone: "—" },
-    sellerClient: { name: "— (update in FUB)", phone: "—", fubId: "—" },
+    id: "lst-1", address: "612 Bay Street, Midland, ON", mls: "L4R 1L6", price: "â",
+    daysOnMarket: "â", seller: { name: "Jonathan Wallace (Listing Agent)", phone: "â" },
+    sellerClient: { name: "â (update in FUB)", phone: "â", fubId: "â" },
     photo: null, status: "active", live: true,
   },
   {
-    id: "lst-2", address: "481 Islandview Lane, Midland, ON", mls: "L4R 5H4", price: "—",
-    daysOnMarket: "—", seller: { name: "Jonathan Wallace (Listing Agent)", phone: "—" },
-    sellerClient: { name: "— (update in FUB)", phone: "—", fubId: "—" },
+    id: "lst-2", address: "481 Islandview Lane, Midland, ON", mls: "L4R 5H4", price: "â",
+    daysOnMarket: "â", seller: { name: "Jonathan Wallace (Listing Agent)", phone: "â" },
+    sellerClient: { name: "â (update in FUB)", phone: "â", fubId: "â" },
     photo: null, status: "active", live: true,
   },
   {
-    id: "lst-3", address: "282 Robins Point Road", mls: "L0K 2A0", price: "—",
-    daysOnMarket: "—", seller: { name: "Jonathan Wallace (Listing Agent)", phone: "—" },
-    sellerClient: { name: "— (update in FUB)", phone: "—", fubId: "—" },
+    id: "lst-3", address: "282 Robins Point Road", mls: "L0K 2A0", price: "â",
+    daysOnMarket: "â", seller: { name: "Jonathan Wallace (Listing Agent)", phone: "â" },
+    sellerClient: { name: "â (update in FUB)", phone: "â", fubId: "â" },
     photo: null, status: "active", live: true,
   },
 ];
 
-// LIVE — parsed from actual BrokerBay emails in Gmail (Apr 14–16)
+// LIVE â parsed from actual BrokerBay emails in Gmail (Apr 14â16)
 const showingIntelligence = [
-  // 612 Bay Street — YOUR LISTING
-  { id: "si-1", listingId: "lst-1", address: "612 Bay Street, Midland", date: "Apr 14", time: "—", end: "—",
+  // 612 Bay Street â YOUR LISTING
+  { id: "si-1", listingId: "lst-1", address: "612 Bay Street, Midland", date: "Apr 14", time: "â", end: "â",
     buyerAgent: "Rhys Williams (Keller Williams Experience Realty)", buyerAgentPhone: "705-720-2200", buyerAgentEmail: "rhys@torrogroup.ca",
     status: "confirmed", feedbackStatus: "n/a", live: true,
     feedback: null,
     sellerNotified: false, sellerNotifiedAt: null,
     emailSource: "info@mg.brokerbay.com", emailSubject: "Showing Request - 612 Bay Street", parsedAt: "Apr 14, 4:07 PM",
     followUpSentAt: null, followUpType: null,
-    notes: "Initial request — required listing agent confirmation.",
+    notes: "Initial request â required listing agent confirmation.",
   },
   { id: "si-2", listingId: "lst-1", address: "612 Bay Street, Midland", date: "Fri, Apr 17", time: "11:15 AM", end: "12:15 PM",
     buyerAgent: "Caitlin Danielle Renton (Renton Realty)", buyerAgentPhone: "647-273-9850", buyerAgentEmail: "caitlinrenton@outlook.com",
@@ -1822,9 +1852,9 @@ const showingIntelligence = [
     sellerNotified: false, sellerNotifiedAt: null,
     emailSource: "info@mg.brokerbay.com", emailSubject: "Showing Confirmed - 612 Bay Street", parsedAt: "Apr 15, 9:49 AM",
     followUpSentAt: null, followUpType: null,
-    notes: "Second showing request from Rhys — strong buyer interest signal.",
+    notes: "Second showing request from Rhys â strong buyer interest signal.",
   },
-  // 481 Islandview Lane — YOUR LISTING
+  // 481 Islandview Lane â YOUR LISTING
   { id: "si-4", listingId: "lst-2", address: "481 Islandview Lane, Midland", date: "Fri, Apr 17", time: "2:00 PM", end: "3:00 PM",
     buyerAgent: "Jordan Iles (Real Broker Ontario Ltd.)", buyerAgentPhone: "888-311-1172", buyerAgentEmail: "jiles@teamjordan.ca",
     status: "confirmed", feedbackStatus: "n/a", live: true,
@@ -1834,25 +1864,25 @@ const showingIntelligence = [
     followUpSentAt: null, followUpType: null,
     notes: "Request came in at 9:10 AM, confirmed at 10:55 AM same day.",
   },
-  // 282 Robins Point Road — YOUR LISTING (NEW REQUEST)
+  // 282 Robins Point Road â YOUR LISTING (NEW REQUEST)
   { id: "si-5", listingId: "lst-3", address: "282 Robins Point Road", date: "Wed, Apr 22", time: "9:30 AM", end: "10:30 AM",
-    buyerAgent: "Nick Cuong Chuong (LPT Realty)", buyerAgentPhone: "—", buyerAgentEmail: "—",
+    buyerAgent: "Nick Cuong Chuong (LPT Realty)", buyerAgentPhone: "â", buyerAgentEmail: "â",
     status: "requested", feedbackStatus: "n/a", live: true,
     feedback: null,
     sellerNotified: false, sellerNotifiedAt: null,
     emailSource: "info@mg.brokerbay.com", emailSubject: "Showing Request - 282 Robins Point Road", parsedAt: "Apr 16, 3:12 PM",
     followUpSentAt: null, followUpType: null,
-    notes: "Home Inspection showing — needs your CONFIRMATION. Agent included notes in request.",
+    notes: "Home Inspection showing â needs your CONFIRMATION. Agent included notes in request.",
   },
 ];
 
-// ─────────────────────────────────────────────
+// âââââââââââââââââââââââââââââââââââââââââââââ
 // DATA: OUTSTANDING FEEDBACK (you need to give)
-// LIVE — parsed from BrokerBay feedback request emails
-// ─────────────────────────────────────────────
+// LIVE â parsed from BrokerBay feedback request emails
+// âââââââââââââââââââââââââââââââââââââââââââââ
 const outstandingFeedback = [
   {
-    id: "fb-1", address: "45 Brule Street, Penetanguishene", date: "Today, Apr 16", time: "12:30 PM — 1:30 PM",
+    id: "fb-1", address: "45 Brule Street, Penetanguishene", date: "Today, Apr 16", time: "12:30 PM â 1:30 PM",
     listingAgent: "Peggy Hill / Christine Hanna", brokerage: "Re/Max Hallmark Peggy Hill Group Realty",
     listingAgentEmail: "info@peggyhill.com", listingAgentPhone: "(705) 739-4455",
     status: "outstanding", live: true, role: "buyer_agent",
@@ -1861,54 +1891,54 @@ const outstandingFeedback = [
   },
 ];
 
-// DRAFT — AI-generated follow-up messages (clearly marked)
+// DRAFT â AI-generated follow-up messages (clearly marked)
 const followUpQueue = [
   {
     id: "fq-1", showingId: "si-2", address: "612 Bay Street, Midland", type: "seller_sms",
-    recipient: "Seller (update name in FUB)", phone: "—",
-    scheduledFor: "Fri, Apr 17 — 2:15 PM", status: "draft", draft: true,
-    message: "Hi — just letting you know the showing at 612 Bay Street wrapped up. Caitlin Renton from Renton Realty brought her buyers through. We're following up for feedback now and will share what they thought as soon as we hear back. — Jonathan",
+    recipient: "Seller (update name in FUB)", phone: "â",
+    scheduledFor: "Fri, Apr 17 â 2:15 PM", status: "draft", draft: true,
+    message: "Hi â just letting you know the showing at 612 Bay Street wrapped up. Caitlin Renton from Renton Realty brought her buyers through. We're following up for feedback now and will share what they thought as soon as we hear back. â Jonathan",
   },
   {
     id: "fq-2", showingId: "si-2", address: "612 Bay Street, Midland", type: "agent_email",
     recipient: "Caitlin Danielle Renton (Renton Realty)", phone: "647-273-9850",
-    scheduledFor: "Fri, Apr 17 — 2:15 PM", status: "draft", draft: true,
-    message: "Hi Caitlin — thanks for showing 612 Bay Street today. Would love to get your buyers' feedback when you have a moment. Any thoughts on the property, layout, or price point? Appreciate it! — Jonathan Wallace",
+    scheduledFor: "Fri, Apr 17 â 2:15 PM", status: "draft", draft: true,
+    message: "Hi Caitlin â thanks for showing 612 Bay Street today. Would love to get your buyers' feedback when you have a moment. Any thoughts on the property, layout, or price point? Appreciate it! â Jonathan Wallace",
   },
   {
     id: "fq-3", showingId: "si-4", address: "481 Islandview Lane, Midland", type: "seller_sms",
-    recipient: "Seller (update name in FUB)", phone: "—",
-    scheduledFor: "Fri, Apr 17 — 5:00 PM", status: "draft", draft: true,
-    message: "Hi — the showing at 481 Islandview Lane finished this afternoon. Jordan Iles from Real Broker Ontario brought a buyer through. We're chasing feedback now and will update you as soon as we have it. — Jonathan",
+    recipient: "Seller (update name in FUB)", phone: "â",
+    scheduledFor: "Fri, Apr 17 â 5:00 PM", status: "draft", draft: true,
+    message: "Hi â the showing at 481 Islandview Lane finished this afternoon. Jordan Iles from Real Broker Ontario brought a buyer through. We're chasing feedback now and will update you as soon as we have it. â Jonathan",
   },
   {
     id: "fq-4", showingId: "si-4", address: "481 Islandview Lane, Midland", type: "agent_email",
     recipient: "Jordan Iles (Real Broker Ontario Ltd.)", phone: "888-311-1172",
-    scheduledFor: "Fri, Apr 17 — 5:00 PM", status: "draft", draft: true,
-    message: "Hi Jordan — thanks for showing 481 Islandview Lane today. Would love to hear what your buyers thought. Any feedback on the property, price, or features? Thanks! — Jonathan Wallace",
+    scheduledFor: "Fri, Apr 17 â 5:00 PM", status: "draft", draft: true,
+    message: "Hi Jordan â thanks for showing 481 Islandview Lane today. Would love to hear what your buyers thought. Any feedback on the property, price, or features? Thanks! â Jonathan Wallace",
   },
   {
     id: "fq-5", showingId: "si-3", address: "612 Bay Street, Midland", type: "seller_sms",
-    recipient: "Seller (update name in FUB)", phone: "—",
-    scheduledFor: "Sun, Apr 19 — 3:30 PM", status: "draft", draft: true,
-    message: "Hi — Rhys Williams from Keller Williams just finished showing 612 Bay Street. This is his second visit, which is a strong sign. Chasing feedback now. — Jonathan",
+    recipient: "Seller (update name in FUB)", phone: "â",
+    scheduledFor: "Sun, Apr 19 â 3:30 PM", status: "draft", draft: true,
+    message: "Hi â Rhys Williams from Keller Williams just finished showing 612 Bay Street. This is his second visit, which is a strong sign. Chasing feedback now. â Jonathan",
   },
 ];
 
-// ─────────────────────────────────────────────
-// P&L SECTION — Split Theory Financial Model (All 4 Tabs)
+// âââââââââââââââââââââââââââââââââââââââââââââ
+// P&L SECTION â Split Theory Financial Model (All 4 Tabs)
 // (Faithful replica of split-theory.html)
-// ─────────────────────────────────────────────
+// âââââââââââââââââââââââââââââââââââââââââââââ
 
 
 /**
- * PnlSection — Split Theory Financial Modelling Tool (All 4 Tabs)
+ * PnlSection â Split Theory Financial Modelling Tool (All 4 Tabs)
  * React translation of split-theory.html
  * All CSS embedded with .pnl-container scope to avoid conflicts
  */
 
 function PnlSection() {
-  // ── HELPER FUNCTIONS ──
+  // ââ HELPER FUNCTIONS ââ
   const fmt = (v) => '$' + Math.round(v).toLocaleString('en-CA');
   const pct = (v) => Math.round(v) + '%';
   const initials = (n) => n.trim().split(' ').filter(Boolean).map(w => w[0].toUpperCase()).slice(0, 2).join('') || '?';
@@ -1925,12 +1955,12 @@ function PnlSection() {
   };
   const ab = (amount, capHit) => capHit ? amount : amount * 0.95;
 
-  // ── TAB STATE ──
+  // ââ TAB STATE ââ
   const [activeTab, setActiveTab] = useState('pnl');
 
-  // ════════════════════════════════════════════
+  // ââââââââââââââââââââââââââââââââââââââââââââ
   // TAB 1: SPLIT CALCULATOR STATE
-  // ════════════════════════════════════════════
+  // ââââââââââââââââââââââââââââââââââââââââââââ
   const [spState, setSpState] = useState({ price: 700000, rate: 2.5, cap: 0 });
   const spUpdate = (key, value) => setSpState({ ...spState, [key]: parseFloat(value) });
 
@@ -1955,9 +1985,9 @@ function PnlSection() {
     return { gci, c, lS, bS };
   }, [spState]);
 
-  // ════════════════════════════════════════════
+  // ââââââââââââââââââââââââââââââââââââââââââââ
   // TAB 2: BUSINESS PROFILE STATE
-  // ════════════════════════════════════════════
+  // ââââââââââââââââââââââââââââââââââââââââââââ
   const [bpState, setBpState] = useState({ deals: 20, rate: 2.5, price: 575000, list: 60, team: 40, cap: 0 });
   const bpUpdate = (key, value) => setBpState({ ...bpState, [key]: parseFloat(value) });
 
@@ -1978,12 +2008,12 @@ function PnlSection() {
     const sets = [
       { side: 'list', a: 0.30, w: lP * tP * 0.60, label: 'Team deal', desc: 'Lead sourced by the team', pctLabel: 'Agent 30%' },
       { side: 'list', a: 0.60, w: lP * cP * 0.60, label: 'Cultivated deal', desc: 'You brought the client', pctLabel: 'Agent 60%' },
-      { side: 'list', a: 0.65, w: lP * cP * 0.40, label: 'Repeat client (cultivated)', desc: 'Nurtured back — your client', pctLabel: 'Agent 65%' },
+      { side: 'list', a: 0.65, w: lP * cP * 0.40, label: 'Repeat client (cultivated)', desc: 'Nurtured back â your client', pctLabel: 'Agent 65%' },
       { side: 'list', a: 0.60, w: lP * tP * 0.25, label: 'Repeat client (team lead)', desc: 'Team sourced, came back', pctLabel: 'Agent 60%' },
       { side: 'list', a: 0.25, w: lP * tP * 0.15, label: 'Repeat (no nurture proof)', desc: 'No documented nurture', pctLabel: 'Agent 25%' },
       { side: 'buyer', a: 0.50, w: bP * tP * 0.60, label: 'Team deal', desc: 'Lead sourced by the team', pctLabel: 'Agent 50%' },
       { side: 'buyer', a: 0.70, w: bP * cP * 0.60, label: 'Cultivated deal', desc: 'You brought the client', pctLabel: 'Agent 70%' },
-      { side: 'buyer', a: 0.75, w: bP * cP * 0.40, label: 'Repeat client (cultivated)', desc: 'Nurtured back — your client', pctLabel: 'Agent 75%' },
+      { side: 'buyer', a: 0.75, w: bP * cP * 0.40, label: 'Repeat client (cultivated)', desc: 'Nurtured back â your client', pctLabel: 'Agent 75%' },
       { side: 'buyer', a: 0.60, w: bP * tP * 0.25, label: 'Repeat client (team lead)', desc: 'Team sourced, came back', pctLabel: 'Agent 60%' },
       { side: 'buyer', a: 0.45, w: bP * tP * 0.15, label: 'Repeat (no nurture proof)', desc: 'No documented nurture', pctLabel: 'Agent 45%' },
     ];
@@ -1993,14 +2023,14 @@ function PnlSection() {
     const strength = wA >= 0.58 ? 'strong' : wA >= 0.45 ? 'solid' : 'growing';
     const overMsg = overDeals > 0 ? ` Your <b>${overDeals} deals above 50</b> move to the 85/15 high-volume split, adding <b>${fmt(overNet)}</b> to your take-home.` : '';
     const storyTitle = `A ${listLabel} agent who ${srcLabel}`;
-    const storyText = `Based on your profile, your weighted agent share is <b>${pct(wA * 100)}</b> of GCI. Across <b>${Math.round(deals)} deals</b> at an average of <b>${fmt(price)}</b>, your estimated annual take-home is <b>${fmt(agentNet)}</b> — a <b>${strength}</b> foundation.${overMsg} The more you grow your cultivated book, the higher your share climbs.`;
+    const storyText = `Based on your profile, your weighted agent share is <b>${pct(wA * 100)}</b> of GCI. Across <b>${Math.round(deals)} deals</b> at an average of <b>${fmt(price)}</b>, your estimated annual take-home is <b>${fmt(agentNet)}</b> â a <b>${strength}</b> foundation.${overMsg} The more you grow your cultivated book, the higher your share climbs.`;
 
     return { gci, totalGci, wA, agentNet, blendedPct, overDeals, overNet, sets, c, storyTitle, storyText };
   }, [bpState]);
 
-  // ════════════════════════════════════════════
+  // ââââââââââââââââââââââââââââââââââââââââââââ
   // TAB 3: RECRUITING STATE
-  // ════════════════════════════════════════════
+  // ââââââââââââââââââââââââââââââââââââââââââââ
   const [recAgents, setRecAgents] = useState([
     { id: 1, name: 'Agent 1', gci: 200000, year: 1 },
     { id: 2, name: 'Agent 2', gci: 150000, year: 3 },
@@ -2027,7 +2057,7 @@ function PnlSection() {
       const p = getPhase(a.year);
       const pctStr = p <= 2 ? '5%' : '2.5%';
       const capped = p <= 2 && (a.gci * 0.05 >= 7500);
-      const phaseLabel = p === 1 ? 'Year 1 — mentorship' : p === 2 ? 'Years 2–5 — passive' : 'Year 5+ — no cap';
+      const phaseLabel = p === 1 ? 'Year 1 â mentorship' : p === 2 ? 'Years 2â5 â passive' : 'Year 5+ â no cap';
       const phaseCls = p === 1 ? 'p1' : p === 2 ? 'p2' : 'p3';
       return { ...a, payout, pctStr, capped, phaseLabel, phaseCls, mentor: p === 1 };
     });
@@ -2048,9 +2078,9 @@ function PnlSection() {
   }, [recAgents]);
 
 
-  // ════════════════════════════════════════════
+  // ââââââââââââââââââââââââââââââââââââââââââââ
   // TAB 4: TEAM P&L STATE (from working v2)
-  // ════════════════════════════════════════════
+  // ââââââââââââââââââââââââââââââââââââââââââââ
   const [pnlAgents, setPnlAgents] = useState([
     { id: 1, name: 'Jonathan Wallace', deals: 40, avgPrice: 700000, listPct: 60, teamPct: 10, recruitedBy: 0, yearsOnTeam: 1, role: 'owner', ownerPct: 100, commRate: 2.5 },
     { id: 2, name: 'Sabrina Staunton', deals: 50, avgPrice: 900000, listPct: 70, teamPct: 10, recruitedBy: 0, yearsOnTeam: 1, role: 'agent', ownerPct: 0, commRate: 2.5 },
@@ -2062,7 +2092,7 @@ function PnlSection() {
 
   const [nextPnlId, setNextPnlId] = useState(7);
 
-  // ── STATE: Expenses & toggles ──
+  // ââ STATE: Expenses & toggles ââ
   const [pnlState, setPnlState] = useState({
     marketing: 2000,
     listingCost: 1250,
@@ -2100,15 +2130,15 @@ function PnlSection() {
     office: true,
   });
 
-  // ── STATE: Custom expenses ──
+  // ââ STATE: Custom expenses ââ
   const [customExps, setCustomExps] = useState([]);
   const [customExpId, setCustomExpId] = useState(1);
 
-  // ── STATE: Capital expenses ──
+  // ââ STATE: Capital expenses ââ
   const [capExps, setCapExps] = useState([]);
   const [capExId, setCapExId] = useState(1);
 
-  // ── HANDLERS: Agents ──
+  // ââ HANDLERS: Agents ââ
   const addPnlAgent = () => {
     const newAgent = {
       id: nextPnlId,
@@ -2209,7 +2239,7 @@ function PnlSection() {
     owners[owners.length - 1].ownerPct = Math.round((100 - even * (owners.length - 1)) * 10) / 10;
   };
 
-  // ── HANDLERS: Expenses ──
+  // ââ HANDLERS: Expenses ââ
   const togExp = (key, on) => {
     setExpToggles({ ...expToggles, [key]: on });
   };
@@ -2249,7 +2279,7 @@ function PnlSection() {
     }, 0);
   };
 
-  // ── HANDLERS: Capital Expenses ──
+  // ââ HANDLERS: Capital Expenses ââ
   const addCapEx = () => {
     setCapExps([...capExps, { id: capExId, name: 'New project', amount: 50000, months: 12 }]);
     setCapExId(capExId + 1);
@@ -2270,12 +2300,12 @@ function PnlSection() {
   const getCapExTotal = () => capExps.reduce((s, e) => s + e.amount, 0);
   const getCapExMonthly = () => capExps.reduce((s, e) => s + (e.months > 0 ? e.amount / e.months : 0), 0);
 
-  // ── HANDLERS: Global state ──
+  // ââ HANDLERS: Global state ââ
   const pnlU = (key, value) => {
     setPnlState({ ...pnlState, [key]: parseFloat(value) });
   };
 
-  // ── COMPUTE: P&L calculation ──
+  // ââ COMPUTE: P&L calculation ââ
   const pnlData = useMemo(() => {
     const s = pnlState;
     const t = expToggles;
@@ -2383,7 +2413,7 @@ function PnlSection() {
     }
 
     const margin = totalTeamRev > 0 ? Math.round(netProfit / totalTeamRev * 100) : 0;
-    const health = netProfit < 0 ? 'in the red' : margin < 15 ? 'tight — margins under 15%' : margin < 30 ? 'healthy' : 'strong';
+    const health = netProfit < 0 ? 'in the red' : margin < 15 ? 'tight â margins under 15%' : margin < 30 ? 'healthy' : 'strong';
     const listDrag = expiredCost > 5000 ? ` Your <b>${Math.round(s.expireRate)}% expire rate</b> costs <b>${fmt(expiredCost)}</b>/year in dead listing expenses.` : '';
     const recNote = totalRecBonus > 0 ? ` Recruiting bonuses cost the team <b>${fmt(totalRecBonus)}</b>/year.` : '';
     const ownerCount = allOwnersList.length;
@@ -2437,7 +2467,7 @@ function PnlSection() {
     };
   }, [pnlAgents, pnlState, expToggles, customExps, capExps]);
 
-  // ── EXPORT FUNCTIONS ──
+  // ââ EXPORT FUNCTIONS ââ
   const exportPnlCSV = () => {
     const s = pnlState, t = expToggles;
     const fmt_csv = v => '$' + (Math.round(v * 100) / 100);
@@ -2467,8 +2497,8 @@ function PnlSection() {
 
     // REVENUE
     addRow('REVENUE');
-    addRow('Agent deals — team share', fmt_csv(pnlData.agentOnlyRev));
-    addRow('Owner deals — team share', fmt_csv(pnlData.ownerRev));
+    addRow('Agent deals â team share', fmt_csv(pnlData.agentOnlyRev));
+    addRow('Owner deals â team share', fmt_csv(pnlData.ownerRev));
     addRow('Total Revenue', fmt_csv(pnlData.totalTeamRev));
     blank();
 
@@ -2479,7 +2509,7 @@ function PnlSection() {
       ['Admin bonus', pnlData.adminBonus, t.bonus],
       ['Office rent', pnlData.rentAnnual, t.rent],
       ['Marketing & lead gen', pnlData.mktAnnual, t.mkt],
-      ['CRM — Follow Up Boss', pnlData.crmAnnual, t.crm],
+      ['CRM â Follow Up Boss', pnlData.crmAnnual, t.crm],
       ['Software & tools', pnlData.swAnnual, t.sw],
       ['Listing costs (incl. expired)', pnlData.listCostAnnual, t.list],
       ['Buyer deal costs', pnlData.buyerCostAnnual, t.buyer],
@@ -2531,7 +2561,7 @@ function PnlSection() {
     window.print();
   };
 
-  // ── RENDER ──
+  // ââ RENDER ââ
   return (
     <div className="pnl-container">
       <style>{`
@@ -2724,9 +2754,9 @@ function PnlSection() {
         <button className={`tab ${activeTab === 'pnl' ? 'active' : ''}`} onClick={() => setActiveTab('pnl')}>Team P&L</button>
       </div>
 
-      {/* ════════════════════════════════════════════ */}
+      {/* ââââââââââââââââââââââââââââââââââââââââââââ */}
       {/* TAB 1: SPLIT CALCULATOR */}
-      {/* ════════════════════════════════════════════ */}
+      {/* ââââââââââââââââââââââââââââââââââââââââââââ */}
       {activeTab === 'splits' && (
         <div>
           <div className="section-title">Key principles</div>
@@ -2738,7 +2768,7 @@ function PnlSection() {
             <li className="pi"><span className="pi-num">5</span><div><div className="pi-text">First two years: phone and dues are covered</div><div className="pi-sub">After year two, agents cover their own costs via automatic payment. No invoices.</div></div></li>
             <li className="pi"><span className="pi-num">6</span><div><div className="pi-text">Assistant model is earned, not given</div><div className="pi-sub">Triggered at 40 deals in a year or 20 deals in the first two quarters. If targets are not hit after year two, the agent shares the cost or loses the assistant.</div></div></li>
             <li className="pi"><span className="pi-num">7</span><div>
-              <div className="pi-text">Commission cut accountability — team deals only</div>
+              <div className="pi-text">Commission cut accountability â team deals only</div>
               <div className="pi-sub">Applies only when an agent voluntarily cuts their commission to bring together a team deal (listing or buyer side). No penalty if the coop agent is offering below 2.5%. No penalty ever on personal or cultivated deals.</div>
               <table className="cut-table">
                 <thead><tr><th>Cut number</th><th>Consequence</th></tr></thead>
@@ -2750,7 +2780,7 @@ function PnlSection() {
               </table>
             </div></li>
             <li className="pi"><span className="pi-num">8</span><div><div className="pi-text">Recruiting bonus: 5% of recruited agent GCI, max $7,500/year</div><div className="pi-sub">Paid at year end. Continues every year both agents remain on the team. See recruiting tab for full phase structure.</div></div></li>
-            <li className="pi"><span className="pi-num">9</span><div><div className="pi-text">Celebrate the team, not just the top performers</div><div className="pi-sub">No top 10 leaderboard. Every member of a championship team earns a ring — regardless of individual stats.</div></div></li>
+            <li className="pi"><span className="pi-num">9</span><div><div className="pi-text">Celebrate the team, not just the top performers</div><div className="pi-sub">No top 10 leaderboard. Every member of a championship team earns a ring â regardless of individual stats.</div></div></li>
             <li className="pi"><span className="pi-num">10</span><div><div className="pi-text">High-volume agents keep more after 50 deals</div><div className="pi-sub">Every deal above 50 in a calendar year moves to Agent 85% / Team 15%, provided the agent has no assistant. Team lead split applies if applicable.</div></div></li>
             <li className="pi"><span className="pi-num">11</span><div><div className="pi-text">Loyalty bonuses are front-loaded and bought back</div><div className="pi-sub">Paid upfront at milestone. Recovered at 5% of agent share per personal deal in that calendar year, up to the bonus amount. Phase changes always at year end.</div></div></li>
           </ul>
@@ -2843,9 +2873,9 @@ function PnlSection() {
         </div>
       )}
 
-      {/* ════════════════════════════════════════════ */}
+      {/* ââââââââââââââââââââââââââââââââââââââââââââ */}
       {/* TAB 2: BUSINESS PROFILE */}
-      {/* ════════════════════════════════════════════ */}
+      {/* ââââââââââââââââââââââââââââââââââââââââââââ */}
       {activeTab === 'profile' && (
         <div>
           <div className="bp-grid">
@@ -2901,7 +2931,7 @@ function PnlSection() {
             <div className="metric"><div className="metric-label">Total GCI</div><div className="metric-val">{fmt(bpCalc.totalGci)}</div></div>
             <div className="metric"><div className="metric-label">Weighted agent share</div><div className="metric-val" style={{ color: 'var(--color-purple)' }}>{pct(bpCalc.blendedPct * 100)}{bpCalc.overDeals > 0 ? ' (blended)' : ''}</div></div>
             <div className="metric"><div className="metric-label">Est. annual take-home</div><div className="metric-val green">{fmt(bpCalc.agentNet)}</div></div>
-            <div className="metric"><div className="metric-label">Per deal average</div><div className="metric-val">{bpState.deals > 0 ? fmt(bpCalc.agentNet / bpState.deals) : '—'}</div></div>
+            <div className="metric"><div className="metric-label">Per deal average</div><div className="metric-val">{bpState.deals > 0 ? fmt(bpCalc.agentNet / bpState.deals) : 'â'}</div></div>
           </div>
 
           <div className="section-title">Deal breakdown</div>
@@ -2942,14 +2972,14 @@ function PnlSection() {
         </div>
       )}
 
-      {/* ════════════════════════════════════════════ */}
+      {/* ââââââââââââââââââââââââââââââââââââââââââââ */}
       {/* TAB 3: RECRUITING */}
-      {/* ════════════════════════════════════════════ */}
+      {/* ââââââââââââââââââââââââââââââââââââââââââââ */}
       {activeTab === 'recruiting' && (
         <div>
           <div className="rec-hero">
-            <div className="rec-hero-title">Jonathan Wallace — recruiting revenue share</div>
-            <div className="rec-hero-sub">Every agent you recruit and support generates annual income — paid at year end. The team handles onboarding and admin. You focus on people and mentorship in year one.</div>
+            <div className="rec-hero-title">Jonathan Wallace â recruiting revenue share</div>
+            <div className="rec-hero-sub">Every agent you recruit and support generates annual income â paid at year end. The team handles onboarding and admin. You focus on people and mentorship in year one.</div>
           </div>
 
           <div className="section-title">Revenue share structure</div>
@@ -2962,7 +2992,7 @@ function PnlSection() {
           <div className="rec-summary">
             <div className="metric"><div className="metric-label">Total annual rev share</div><div className="metric-val green">{fmt(recCalc.total)}</div></div>
             <div className="metric"><div className="metric-label">Recruited agents</div><div className="metric-val" style={{ color: 'var(--color-purple)' }}>{recCalc.count}</div></div>
-            <div className="metric"><div className="metric-label">Avg per agent</div><div className="metric-val">{recCalc.count > 0 ? fmt(recCalc.avg) : '—'}</div></div>
+            <div className="metric"><div className="metric-label">Avg per agent</div><div className="metric-val">{recCalc.count > 0 ? fmt(recCalc.avg) : 'â'}</div></div>
           </div>
 
           <div className="section-title">Your recruited agents</div>
@@ -2997,7 +3027,7 @@ function PnlSection() {
                   </div>
                 </div>
                 <div className="agent-result">
-                  <div className="ar-breakdown">{fmt(a.gci)} × {a.pctStr}{a.capped ? ' → capped at $7,500' : ''}</div>
+                  <div className="ar-breakdown">{fmt(a.gci)} Ã {a.pctStr}{a.capped ? ' â capped at $7,500' : ''}</div>
                   <div>
                     <div className="ar-payout">{fmt(a.payout)}</div>
                     {a.mentor && <div className="ar-mentor">Mentorship year</div>}
@@ -3024,23 +3054,23 @@ function PnlSection() {
             </div>
             <div className="legend" style={{ marginTop: '1rem', marginBottom: 0 }}>
               <div className="leg"><div className="leg-dot" style={{ background: '#534AB7' }}></div>Year 1 (5%, mentorship)</div>
-              <div className="leg"><div className="leg-dot" style={{ background: '#1D9E75' }}></div>Years 2–5 (5%, passive)</div>
+              <div className="leg"><div className="leg-dot" style={{ background: '#1D9E75' }}></div>Years 2â5 (5%, passive)</div>
               <div className="leg"><div className="leg-dot" style={{ background: '#BA7517' }}></div>Year 5+ (2.5%, no cap)</div>
             </div>
           </div>
-          <div className="footnote">Revenue share paid at end of each calendar year. Phase changes take effect at end of calendar year — never mid-year. Cap of $7,500 applies per agent in years 1 through 5. After year 5, 2.5% with no cap continues indefinitely as long as both agents remain on the team.</div>
+          <div className="footnote">Revenue share paid at end of each calendar year. Phase changes take effect at end of calendar year â never mid-year. Cap of $7,500 applies per agent in years 1 through 5. After year 5, 2.5% with no cap continues indefinitely as long as both agents remain on the team.</div>
         </div>
       )}
 
-      {/* ════════════════════════════════════════════ */}
+      {/* ââââââââââââââââââââââââââââââââââââââââââââ */}
       {/* TAB 4: TEAM P&L */}
-      {/* ════════════════════════════════════════════ */}
+      {/* ââââââââââââââââââââââââââââââââââââââââââââ */}
       {activeTab === 'pnl' && (
         <div>
       {/* HERO BOX */}
       <div className="rec-hero">
         <div className="rec-hero-title">Team owner profit & loss</div>
-        <div className="rec-hero-sub">Model the true cost of running your team. Revenue is calculated from the split structure. Expenses include every hard cost of carrying agents, listings, and overhead — including expired listings that generate zero revenue.</div>
+        <div className="rec-hero-sub">Model the true cost of running your team. Revenue is calculated from the split structure. Expenses include every hard cost of carrying agents, listings, and overhead â including expired listings that generate zero revenue.</div>
       </div>
 
       {/* GLOBAL COST SETTINGS */}
@@ -3160,7 +3190,7 @@ function PnlSection() {
                 {isOwner && (
                   <div style={{ display: 'flex', gap: '12px', marginBottom: '10px' }}>
                     <div style={{ flex: 1 }}>
-                      <div className="ac-label">Ownership % <span style={{ fontWeight: '400', color: 'var(--color-text-tertiary)' }}>(linked — always totals 100%)</span></div>
+                      <div className="ac-label">Ownership % <span style={{ fontWeight: '400', color: 'var(--color-text-tertiary)' }}>(linked â always totals 100%)</span></div>
                       <input type="range" min="5" max={maxOwn} step="1" value={Math.round(a.ownerPct)} onChange={(e) => updatePnlAgent(a.id, 'ownerPct', e.target.value)} />
                       <div className="ac-val" style={{ color: 'var(--color-purple)', fontWeight: '700' }}>{Math.round(a.ownerPct)}%</div>
                     </div>
@@ -3168,10 +3198,10 @@ function PnlSection() {
                 )}
                 <div className="agent-result">
                   <div className="ar-breakdown" dangerouslySetInnerHTML={{
-                    __html: `<span style="font-weight:600">GCI ${fmt(gci)}</span> → <span style="color:var(--color-green);font-weight:600">${isOwner ? 'Kept' : 'Agent share'} ${fmt(agentKeep)} (${Math.round(wA * 100)}%${capExcess > 0 ? ' + ' + fmt(capExcess) + ' over cap' : ''})</span> · <span style="color:var(--color-amber);font-weight:600">Team ${fmt(teamRev)}${isOwner && capExcess > 0 ? ' (capped at ' + fmt(cap) + ')' : ' (' + Math.round(teamPct * 100) + '%)'}` +
-                    (isOwner ? `</span> · <span style="color:var(--color-purple);font-weight:600">${a.ownerPct}% ownership` : `</span>`) +
-                    (recEarned > 0 ? `</span> · <span style="color:var(--color-teal);font-weight:600">Rec earned +${fmt(recEarned)}` : `</span>`) +
-                    (recCost > 0 ? `</span> · <span style="color:var(--color-purple)">Rec bonus ${fmt(recCost)} → ${recruiter?.name}` : `</span>`)
+                    __html: `<span style="font-weight:600">GCI ${fmt(gci)}</span> â <span style="color:var(--color-green);font-weight:600">${isOwner ? 'Kept' : 'Agent share'} ${fmt(agentKeep)} (${Math.round(wA * 100)}%${capExcess > 0 ? ' + ' + fmt(capExcess) + ' over cap' : ''})</span> Â· <span style="color:var(--color-amber);font-weight:600">Team ${fmt(teamRev)}${isOwner && capExcess > 0 ? ' (capped at ' + fmt(cap) + ')' : ' (' + Math.round(teamPct * 100) + '%)'}` +
+                    (isOwner ? `</span> Â· <span style="color:var(--color-purple);font-weight:600">${a.ownerPct}% ownership` : `</span>`) +
+                    (recEarned > 0 ? `</span> Â· <span style="color:var(--color-teal);font-weight:600">Rec earned +${fmt(recEarned)}` : `</span>`) +
+                    (recCost > 0 ? `</span> Â· <span style="color:var(--color-purple)">Rec bonus ${fmt(recCost)} â ${recruiter?.name}` : `</span>`)
                   }} />
                   <div style={{ textAlign: 'right' }}>
                     <div style={{ fontSize: '18px', fontWeight: '700', color: 'var(--color-green)' }}>{fmt(agentKeep + recEarned)}</div>
@@ -3190,7 +3220,7 @@ function PnlSection() {
         <div className="metric"><div className="metric-label">Total annual revenue</div><div className="metric-val green">{fmt(pnlData.totalTeamRev)}</div></div>
         <div className="metric"><div className="metric-label">Total annual expenses</div><div className="metric-val red">{fmt(pnlData.totalExp)}</div></div>
         <div className="metric"><div className="metric-label">Net profit</div><div className="metric-val" style={{ color: pnlData.netProfit >= 0 ? 'var(--color-green)' : 'var(--color-red)' }}>{fmt(pnlData.netProfit)}</div></div>
-        <div className="metric"><div className="metric-label">Profit per agent</div><div className="metric-val" style={{ color: pnlData.netProfit >= 0 ? 'var(--color-green)' : 'var(--color-red)' }}>{pnlData.numAgents > 0 ? fmt(pnlData.netProfit / pnlData.numAgents) : '—'}</div></div>
+        <div className="metric"><div className="metric-label">Profit per agent</div><div className="metric-val" style={{ color: pnlData.netProfit >= 0 ? 'var(--color-green)' : 'var(--color-red)' }}>{pnlData.numAgents > 0 ? fmt(pnlData.netProfit / pnlData.numAgents) : 'â'}</div></div>
       </div>
 
       {/* BREAKDOWN */}
@@ -3199,11 +3229,11 @@ function PnlSection() {
         <div className="bpbc">
           <div className="bpbc-title">Revenue</div>
           <div className="bpbc-row">
-            <div><div className="bpbc-name">Agent deals — team's share</div><div className="bpbc-desc">{pnlData.numAgents} agents · {Math.round(pnlData.agentOnlyDeals)} deals</div></div>
+            <div><div className="bpbc-name">Agent deals â team's share</div><div className="bpbc-desc">{pnlData.numAgents} agents Â· {Math.round(pnlData.agentOnlyDeals)} deals</div></div>
             <div style={{ textAlign: 'right' }}><div className="bpbc-amt">{fmt(pnlData.agentOnlyRev)}</div></div>
           </div>
           <div className="bpbc-row">
-            <div><div className="bpbc-name">Owner deals — team share</div><div className="bpbc-desc">{pnlData.allOwnersList.length} owner{pnlData.allOwnersList.length > 1 ? 's' : ''} · team share from weighted split</div></div>
+            <div><div className="bpbc-name">Owner deals â team share</div><div className="bpbc-desc">{pnlData.allOwnersList.length} owner{pnlData.allOwnersList.length > 1 ? 's' : ''} Â· team share from weighted split</div></div>
             <div style={{ textAlign: 'right' }}><div className="bpbc-amt">{fmt(pnlData.ownerRev)}</div></div>
           </div>
           <div className="bpbc-row" style={{ borderTop: '1.5px solid var(--color-border)', paddingTop: '10px' }}>
@@ -3218,13 +3248,13 @@ function PnlSection() {
             { key: 'bonus', name: 'Admin bonus', desc: pnlData.adminBonus, hasSlider: true, min: 100, max: 500, value: pnlState.adminBonusRate, onChange: (v) => pnlU('adminBonusRate', v) },
             { key: 'rent', name: 'Office rent', desc: pnlData.rentAnnual, hasSlider: true, min: 1000, max: 5000, value: pnlState.rentCost, onChange: (v) => pnlU('rentCost', v) },
             { key: 'mkt', name: 'Marketing & lead gen', desc: pnlData.mktAnnual, hasSlider: true, min: 1000, max: 15000, value: pnlState.marketing, onChange: (v) => pnlU('marketing', v) },
-            { key: 'crm', name: 'CRM — Follow Up Boss', desc: pnlData.crmAnnual, hasSlider: true, min: 25, max: 150, value: pnlState.crmCost, onChange: (v) => pnlU('crmCost', v) },
+            { key: 'crm', name: 'CRM â Follow Up Boss', desc: pnlData.crmAnnual, hasSlider: true, min: 25, max: 150, value: pnlState.crmCost, onChange: (v) => pnlU('crmCost', v) },
             { key: 'sw', name: 'Software & tools', desc: pnlData.swAnnual, hasSlider: true, min: 25, max: 150, value: pnlState.swCost, onChange: (v) => pnlU('swCost', v) },
             { key: 'list', name: 'Listing costs (incl. expired)', desc: pnlData.listCostAnnual, hasSlider: true, min: 750, max: 1500, value: pnlState.listingCost, onChange: (v) => pnlU('listingCost', v) },
             { key: 'buyer', name: 'Buyer deal costs', desc: pnlData.buyerCostAnnual, hasSlider: true, min: 50, max: 500, value: pnlState.buyerCost, onChange: (v) => pnlU('buyerCost', v) },
             { key: 'onboard', name: 'Agent onboarding', desc: pnlData.onboard, hasSlider: true, min: 200, max: 2000, value: pnlState.onboardCost, onChange: (v) => pnlU('onboardCost', v) },
             { key: 'recbonus', name: 'Recruiting bonuses', desc: pnlData.totalRecBonus, hasSlider: false },
-            { key: 'brok', name: 'Owner brokerage — 5%, $5k cap', desc: pnlData.ownerBrok, hasSlider: false },
+            { key: 'brok', name: 'Owner brokerage â 5%, $5k cap', desc: pnlData.ownerBrok, hasSlider: false },
             { key: 'web', name: 'Website & hosting', desc: pnlData.webAnnual, hasSlider: true, min: 100, max: 1000, value: pnlState.webCost, onChange: (v) => pnlU('webCost', v) },
             { key: 'events', name: 'Client events', desc: pnlData.eventsAnnual, hasSlider: true, min: 1000, max: 15000, value: pnlState.eventsCost, onChange: (v) => pnlU('eventsCost', v) },
             { key: 'billboard', name: 'Billboards', desc: pnlData.billboardAnnual, hasSlider: true, min: 500, max: 3000, value: pnlState.billboardCost, onChange: (v) => pnlU('billboardCost', v) },
@@ -3238,17 +3268,17 @@ function PnlSection() {
               <div style={{ flex: 1 }}>
                 <div className="bpbc-name">{exp.name}</div>
                 <div className="bpbc-desc">
-                  {exp.key === 'admin' && `${fmt(pnlState.adminSalary)} base — CPP, EI, vacation`}
+                  {exp.key === 'admin' && `${fmt(pnlState.adminSalary)} base â CPP, EI, vacation`}
                   {exp.key === 'bonus' && `${fmt(pnlState.adminBonusRate)}/deal after 80 deals`}
                   {exp.key === 'rent' && `${fmt(pnlState.rentCost)}/month`}
                   {exp.key === 'mkt' && fmt(pnlState.marketing) + '/month'}
-                  {exp.key === 'crm' && `${fmt(pnlState.crmCost)} × ${pnlData.numAll} members × 12 mo`}
-                  {exp.key === 'sw' && `${fmt(pnlState.swCost)} × ${pnlData.numAll} members × 12 mo`}
-                  {exp.key === 'list' && `${Math.round(pnlData.allListingsTaken)} listings taken (${Math.round(pnlData.expiredCount)} expired) × ${fmt(pnlState.listingCost)}`}
-                  {exp.key === 'buyer' && `${Math.round(pnlData.totalBuyers)} buyer deals × ${fmt(pnlState.buyerCost)}`}
-                  {exp.key === 'onboard' && `${fmt(pnlState.onboardCost)} × ${pnlData.numAll} roster members`}
+                  {exp.key === 'crm' && `${fmt(pnlState.crmCost)} Ã ${pnlData.numAll} members Ã 12 mo`}
+                  {exp.key === 'sw' && `${fmt(pnlState.swCost)} Ã ${pnlData.numAll} members Ã 12 mo`}
+                  {exp.key === 'list' && `${Math.round(pnlData.allListingsTaken)} listings taken (${Math.round(pnlData.expiredCount)} expired) Ã ${fmt(pnlState.listingCost)}`}
+                  {exp.key === 'buyer' && `${Math.round(pnlData.totalBuyers)} buyer deals Ã ${fmt(pnlState.buyerCost)}`}
+                  {exp.key === 'onboard' && `${fmt(pnlState.onboardCost)} Ã ${pnlData.numAll} roster members`}
                   {exp.key === 'recbonus' && (pnlData.totalRecBonus > 0 ? '5%/2.5% of recruited agents\' GCI' : 'No recruited agents')}
-                  {exp.key === 'brok' && `${pnlData.allOwnersList.length} owner${pnlData.allOwnersList.length > 1 ? 's' : ''} — 5% each, $5k cap`}
+                  {exp.key === 'brok' && `${pnlData.allOwnersList.length} owner${pnlData.allOwnersList.length > 1 ? 's' : ''} â 5% each, $5k cap`}
                   {exp.key === 'web' && `${fmt(pnlState.webCost)}/month`}
                   {exp.key === 'events' && 'Annual client event budget'}
                   {exp.key === 'billboard' && `${fmt(pnlState.billboardCost)}/month`}
@@ -3279,7 +3309,7 @@ function PnlSection() {
                     <span>$</span>
                     <input className="custom-exp-amt" type="number" value={e.amount} onChange={(e2) => updateCustomExp(e.id, 'amount', e2.target.value)} style={{ width: '70px' }} />
                     <button className="custom-exp-freq" onClick={() => toggleCustomFreq(e.id)}>{e.freq}</button>
-                    <button className="custom-exp-remove" onClick={() => removeCustomExp(e.id)}>×</button>
+                    <button className="custom-exp-remove" onClick={() => removeCustomExp(e.id)}>Ã</button>
                   </div>
                 </div>
                 <div style={{ textAlign: 'right' }}>
@@ -3299,9 +3329,9 @@ function PnlSection() {
 
       {/* STORY BOX */}
       <div className="story-box">
-        <div className="story-title">{pnlData.numAgents}-agent, {pnlData.ownerCount}-owner team — {pnlData.health}</div>
+        <div className="story-title">{pnlData.numAgents}-agent, {pnlData.ownerCount}-owner team â {pnlData.health}</div>
         <div className="story-text" dangerouslySetInnerHTML={{
-          __html: `Everyone runs through the <b>standard weighted split</b>. Team share from <b>${Math.round(pnlData.totalDeals)} total deals</b> generates <b>${fmt(pnlData.totalTeamRev)}</b> in revenue against <b>${fmt(pnlData.totalExp)}</b> in expenses — <b>${pnlData.margin}% margin</b>. After <b>${Math.round(pnlState.reinvestPct)}% carryover</b> (${fmt(pnlData.reinvestAmt)}), <b>${fmt(pnlData.distributableProfit)}</b> is distributed to ${pnlData.ownerCount} owner${pnlData.ownerCount > 1 ? 's' : ''}.${pnlData.listDrag}${pnlData.recNote}`
+          __html: `Everyone runs through the <b>standard weighted split</b>. Team share from <b>${Math.round(pnlData.totalDeals)} total deals</b> generates <b>${fmt(pnlData.totalTeamRev)}</b> in revenue against <b>${fmt(pnlData.totalExp)}</b> in expenses â <b>${pnlData.margin}% margin</b>. After <b>${Math.round(pnlState.reinvestPct)}% carryover</b> (${fmt(pnlData.reinvestAmt)}), <b>${fmt(pnlData.distributableProfit)}</b> is distributed to ${pnlData.ownerCount} owner${pnlData.ownerCount > 1 ? 's' : ''}.${pnlData.listDrag}${pnlData.recNote}`
         }} />
       </div>
 
@@ -3317,7 +3347,7 @@ function PnlSection() {
                 <div className="agent-av" style={{ background: 'var(--color-purple)', color: 'white' }}>{initials(o.name)}</div>
                 <div>
                   <div style={{ fontSize: '13px', fontWeight: '600' }}>{o.name}</div>
-                  <div style={{ fontSize: '11px', color: 'var(--color-text-secondary)' }}>{o.normalizedPct}% ownership · {o.role === 'coowner' ? 'Co-Owner' : 'Owner'}</div>
+                  <div style={{ fontSize: '11px', color: 'var(--color-text-secondary)' }}>{o.normalizedPct}% ownership Â· {o.role === 'coowner' ? 'Co-Owner' : 'Owner'}</div>
                 </div>
               </div>
               <div style={{ textAlign: 'right' }}>
@@ -3351,7 +3381,7 @@ function PnlSection() {
       <div className="section-title">Profit carryover & capital planning</div>
       <div className="bp-grid">
         <div className="bp-ctrl">
-          <div className="bp-ctrl-title">Profit carryover <span style={{ fontWeight: '400', fontSize: '11px', color: 'var(--color-text-tertiary)' }}>— agreed by all owners</span></div>
+          <div className="bp-ctrl-title">Profit carryover <span style={{ fontWeight: '400', fontSize: '11px', color: 'var(--color-text-tertiary)' }}>â agreed by all owners</span></div>
           <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0' }}>
             <div>
               <div className="bpbc-name">Net profit</div>
@@ -3365,7 +3395,7 @@ function PnlSection() {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div>
                 <div className="bpbc-name">Carried over into business</div>
-                <div className="bpbc-desc">{pct(pnlState.reinvestPct)} — agreed by all owners</div>
+                <div className="bpbc-desc">{pct(pnlState.reinvestPct)} â agreed by all owners</div>
               </div>
               <div style={{ textAlign: 'right' }}>
                 <div className="bpbc-amt" style={{ color: 'var(--color-purple)', fontSize: '15px' }}>{fmt(pnlData.reinvestAmt)}</div>
@@ -3394,7 +3424,7 @@ function PnlSection() {
                 <div key={e.id} style={{ paddingBottom: '8px', borderBottom: '0.5px solid var(--color-border)' }}>
                   <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '6px' }}>
                     <input className="custom-exp-input" type="text" value={e.name} onChange={(e2) => updateCapEx(e.id, 'name', e2.target.value)} style={{ flex: 1 }} />
-                    <button className="custom-exp-remove" onClick={() => removeCapEx(e.id)}>×</button>
+                    <button className="custom-exp-remove" onClick={() => removeCapEx(e.id)}>Ã</button>
                   </div>
                   <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
                     <div style={{ flex: 1 }}>
@@ -3405,7 +3435,7 @@ function PnlSection() {
                     <div style={{ flex: 1 }}>
                       <div className="ac-label">Finance over (months)</div>
                       <input type="range" min="1" max="60" step="1" value={e.months} onChange={(e2) => updateCapEx(e.id, 'months', e2.target.value)} style={{ width: '100%' }} />
-                      <div className="ac-val">{e.months} mo → {fmt(monthly)}/mo</div>
+                      <div className="ac-val">{e.months} mo â {fmt(monthly)}/mo</div>
                     </div>
                   </div>
                 </div>
@@ -3421,7 +3451,7 @@ function PnlSection() {
             <div><div className="bpbc-name">Covered by carryover?</div></div>
             <div style={{ textAlign: 'right' }}>
               <div className="bpbc-amt" style={{ fontSize: '13px', color: pnlData.capExTotal === 0 ? 'var(--color-text-secondary)' : pnlData.capExCovered ? 'var(--color-green)' : 'var(--color-red)' }}>
-                {pnlData.capExTotal === 0 ? 'No capital expenses planned' : pnlData.capExCovered ? 'Fully covered by carryover (+' + fmt(pnlData.reinvestAmt - pnlData.capExTotal) + ' surplus)' : 'Shortfall of ' + fmt(pnlData.capExTotal - pnlData.reinvestAmt) + ' · ' + fmt(pnlData.capExMonthly) + '/mo if financed'}
+                {pnlData.capExTotal === 0 ? 'No capital expenses planned' : pnlData.capExCovered ? 'Fully covered by carryover (+' + fmt(pnlData.reinvestAmt - pnlData.capExTotal) + ' surplus)' : 'Shortfall of ' + fmt(pnlData.capExTotal - pnlData.reinvestAmt) + ' Â· ' + fmt(pnlData.capExMonthly) + '/mo if financed'}
               </div>
             </div>
           </div>
@@ -3429,7 +3459,7 @@ function PnlSection() {
       </div>
 
       {/* 5-YEAR FUND BALANCE */}
-      <div className="section-title">Carryover fund balance — 5-year projection</div>
+      <div className="section-title">Carryover fund balance â 5-year projection</div>
       <div style={{ overflowX: 'auto', marginBottom: '1.25rem' }}>
         <table className="cut-table" style={{ minWidth: '600px' }}>
           <thead>
@@ -3492,7 +3522,7 @@ function PnlSection() {
 
 
 // SELLERS: LISTING SHOWINGS TRACKER
-// ─────────────────────────────────────────────
+// âââââââââââââââââââââââââââââââââââââââââââââ
 function SellersSection() {
   const [sellerTab, setSellerTab] = useState("overview");
   const [expandedListing, setExpandedListing] = useState(null);
@@ -3511,12 +3541,12 @@ function SellersSection() {
     received: { color: "#059669", bg: "#ecfdf5", label: "Feedback In" },
     pending: { color: "#d97706", bg: "#fffbeb", label: "Chasing Feedback" },
     awaiting: { color: "#2563eb", bg: "#eff6ff", label: "Follow-Up Scheduled" },
-    "n/a": { color: "#9ca3af", bg: "#f9fafb", label: "—" },
+    "n/a": { color: "#9ca3af", bg: "#f9fafb", label: "â" },
   };
 
   const interestStyles = {
     hot: { color: "#dc2626", label: "Very Interested" },
-    warm: { color: "#f59e0b", label: "Warm — May Return" },
+    warm: { color: "#f59e0b", label: "Warm â May Return" },
     cool: { color: "#6b7280", label: "Lukewarm" },
     cold: { color: "#3b82f6", label: "Not Interested" },
   };
@@ -3542,7 +3572,7 @@ function SellersSection() {
             <h3 style={{ fontSize: 16, fontWeight: 800, color: "#111827", margin: 0 }}>Listing Showings Intelligence</h3>
             <span style={{ fontSize: 9, fontWeight: 700, color: "#fff", background: "#10b981", padding: "2px 6px", borderRadius: 3 }}>LIVE</span>
           </div>
-          <div style={{ fontSize: 12, color: "#6b7280", marginTop: 2 }}>Powered by BrokerBay emails → AI parsing → Follow Up Boss</div>
+          <div style={{ fontSize: 12, color: "#6b7280", marginTop: 2 }}>Powered by BrokerBay emails â AI parsing â Follow Up Boss</div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <span style={{ width: 7, height: 7, borderRadius: "50%", background: "#10b981" }} />
@@ -3576,7 +3606,7 @@ function SellersSection() {
         ))}
       </div>
 
-      {/* ── LISTING OVERVIEW ── */}
+      {/* ââ LISTING OVERVIEW ââ */}
       {sellerTab === "overview" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           {activeListings.map(listing => {
@@ -3619,14 +3649,14 @@ function SellersSection() {
                     <div style={{ fontSize: 11, fontWeight: 700, color: "#6b7280", textTransform: "uppercase", letterSpacing: 0.5, marginTop: 12, marginBottom: 8 }}>Showing History</div>
                     {listingShowings.map(s => {
                       const st = statusStyles[s.status] || { color: "#6b7280", bg: "#f3f4f6", label: s.status };
-                      const fb = feedbackStyles[s.feedbackStatus] || { color: "#9ca3af", bg: "#f9fafb", label: "—" };
+                      const fb = feedbackStyles[s.feedbackStatus] || { color: "#9ca3af", bg: "#f9fafb", label: "â" };
                       const isShowingExpanded = expandedShowing === s.id;
                       return (
                         <div key={s.id} style={{ marginBottom: 6 }}>
                           <div onClick={() => setExpandedShowing(isShowingExpanded ? null : s.id)} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", borderRadius: 8, background: "#fff", border: "1px solid #e5e7eb", cursor: "pointer" }}>
                             <div style={{ width: 3, height: 32, borderRadius: 2, background: st.color, flexShrink: 0 }} />
                             <div style={{ flex: 1 }}>
-                              <div style={{ fontSize: 12, fontWeight: 600, color: "#111827" }}>{s.date} &middot; {s.time} — {s.end}</div>
+                              <div style={{ fontSize: 12, fontWeight: 600, color: "#111827" }}>{s.date} &middot; {s.time} â {s.end}</div>
                               <div style={{ fontSize: 11, color: "#6b7280" }}>{s.buyerAgent}</div>
                             </div>
                             <span style={{ fontSize: 10, fontWeight: 600, color: st.color, background: st.bg, padding: "2px 8px", borderRadius: 4 }}>{st.label}</span>
@@ -3637,7 +3667,7 @@ function SellersSection() {
                             <div style={{ margin: "4px 0 0 16px", padding: 12, background: "#fff", borderRadius: 8, border: "1px solid #e5e7eb", fontSize: 12 }}>
                               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
                                 <div><span style={{ color: "#9ca3af" }}>Agent:</span> <span style={{ fontWeight: 600 }}>{s.buyerAgent}</span></div>
-                                <div><span style={{ color: "#9ca3af" }}>Agent Phone:</span> <span style={{ fontWeight: 600 }}>{s.buyerAgentPhone || "—"}</span></div>
+                                <div><span style={{ color: "#9ca3af" }}>Agent Phone:</span> <span style={{ fontWeight: 600 }}>{s.buyerAgentPhone || "â"}</span></div>
                                 <div><span style={{ color: "#9ca3af" }}>Email Parsed:</span> <span style={{ fontWeight: 600 }}>{s.parsedAt}</span></div>
                                 <div><span style={{ color: "#9ca3af" }}>Follow-Up Sent:</span> <span style={{ fontWeight: 600 }}>{s.followUpSentAt || "Scheduled"}</span></div>
                                 {s.sellerNotified && <div><span style={{ color: "#9ca3af" }}>Seller Notified:</span> <span style={{ fontWeight: 600 }}>{s.sellerNotifiedAt}</span></div>}
@@ -3671,7 +3701,7 @@ function SellersSection() {
         </div>
       )}
 
-      {/* ── MY FEEDBACK — Outstanding feedback YOU need to give ── */}
+      {/* ââ MY FEEDBACK â Outstanding feedback YOU need to give ââ */}
       {sellerTab === "feedback" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           <div style={{ padding: 12, borderRadius: 10, background: "linear-gradient(135deg, #fef2f2, #fff1f2)", border: "1px solid #fecdd3" }}>
@@ -3732,11 +3762,11 @@ function SellersSection() {
 
           {/* Recently completed feedback */}
           <div style={{ marginTop: 8, fontSize: 11, fontWeight: 700, color: "#6b7280", textTransform: "uppercase", letterSpacing: 0.5 }}>Completed Feedback</div>
-          <div style={{ padding: 20, textAlign: "center", color: "#d1d5db", fontSize: 12 }}>No completed feedback yet — this section populates as you submit.</div>
+          <div style={{ padding: 20, textAlign: "center", color: "#d1d5db", fontSize: 12 }}>No completed feedback yet â this section populates as you submit.</div>
         </div>
       )}
 
-      {/* ── FOLLOW-UPS QUEUE ── */}
+      {/* ââ FOLLOW-UPS QUEUE ââ */}
       {sellerTab === "followups" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           <div style={{ padding: 12, borderRadius: 10, background: "linear-gradient(135deg, #fff1f2, #ffe4e6)", border: "1px solid #fecdd3" }}>
@@ -3765,7 +3795,7 @@ function SellersSection() {
                     {fq.type.includes("sms") ? <MessageCircle size={14} color="#8b5cf6" /> : <Send size={14} color="#2563eb" />}
                   </div>
                   <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: 12, fontWeight: 600, color: "#111827" }}>{typeLabels[fq.type]} — {fq.recipient}</div>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: "#111827" }}>{typeLabels[fq.type]} â {fq.recipient}</div>
                     <div style={{ fontSize: 11, color: "#6b7280" }}>{fq.address} &middot; {fq.scheduledFor}</div>
                   </div>
                   <span style={{ fontSize: 10, fontWeight: 600, color: qc.color, background: qc.bg, padding: "3px 8px", borderRadius: 4 }}>{qc.label}</span>
@@ -3792,7 +3822,7 @@ function SellersSection() {
         </div>
       )}
 
-      {/* ── AUTOMATION SETTINGS ── */}
+      {/* ââ AUTOMATION SETTINGS ââ */}
       {sellerTab === "automation" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           {/* How the automation works */}
@@ -3801,13 +3831,13 @@ function SellersSection() {
             <div style={{ fontSize: 11, color: "#c7d2fe", lineHeight: 1.6, marginBottom: 14 }}>AI monitors your Gmail for BrokerBay notifications, parses showing details, and triggers automated follow-ups through Follow Up Boss.</div>
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
               {[
-                { step: "1", icon: "📧", title: "Gmail Scan", desc: "Every 60s, check for new BrokerBay emails (requests, confirmations, cancellations)" },
-                { step: "2", icon: "🤖", title: "AI Parsing", desc: "Extract property, time, agent, status from email content using Claude" },
-                { step: "3", icon: "📋", title: "Dashboard Update", desc: "Showing appears in Agent HQ instantly" },
-                { step: "4", icon: "⏰", title: "2-Hour Timer", desc: "After showing ends, wait 2 hours then trigger follow-up" },
-                { step: "5", icon: "💬", title: "Seller SMS via FUB", desc: "Auto-text seller: 'Showing just finished, chasing feedback for you'" },
-                { step: "6", icon: "✉️", title: "Agent Follow-Up", desc: "Email buyer's agent requesting feedback on the showing" },
-                { step: "7", icon: "⭐", title: "Feedback Logged", desc: "When agent replies, AI parses feedback and updates the dashboard" },
+                { step: "1", icon: "ð§", title: "Gmail Scan", desc: "Every 60s, check for new BrokerBay emails (requests, confirmations, cancellations)" },
+                { step: "2", icon: "ð¤", title: "AI Parsing", desc: "Extract property, time, agent, status from email content using Claude" },
+                { step: "3", icon: "ð", title: "Dashboard Update", desc: "Showing appears in Agent HQ instantly" },
+                { step: "4", icon: "â°", title: "2-Hour Timer", desc: "After showing ends, wait 2 hours then trigger follow-up" },
+                { step: "5", icon: "ð¬", title: "Seller SMS via FUB", desc: "Auto-text seller: 'Showing just finished, chasing feedback for you'" },
+                { step: "6", icon: "âï¸", title: "Agent Follow-Up", desc: "Email buyer's agent requesting feedback on the showing" },
+                { step: "7", icon: "â­", title: "Feedback Logged", desc: "When agent replies, AI parses feedback and updates the dashboard" },
               ].map((s, i) => (
                 <div key={i} style={{ display: "flex", alignItems: "center", gap: 12 }}>
                   <div style={{ width: 28, height: 28, borderRadius: 8, background: "rgba(255,255,255,0.15)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, flexShrink: 0 }}>{s.icon}</div>
@@ -3852,9 +3882,9 @@ function SellersSection() {
           {/* Connection status */}
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
             {[
-              { service: "Gmail", status: "Connected", color: "#059669", icon: "📧" },
-              { service: "Follow Up Boss", status: "Connected", color: "#059669", icon: "💬" },
-              { service: "BrokerBay", status: "Via Gmail", color: "#2563eb", icon: "🏠" },
+              { service: "Gmail", status: "Connected", color: "#059669", icon: "ð§" },
+              { service: "Follow Up Boss", status: "Connected", color: "#059669", icon: "ð¬" },
+              { service: "BrokerBay", status: "Via Gmail", color: "#2563eb", icon: "ð " },
             ].map(c => (
               <div key={c.service} style={{ padding: "12px 10px", borderRadius: 10, background: "#f9fafb", border: "1px solid #e5e7eb", textAlign: "center" }}>
                 <div style={{ fontSize: 18, marginBottom: 4 }}>{c.icon}</div>
@@ -3879,9 +3909,9 @@ function PlaceholderSection({ title, icon: Icon }) {
   );
 }
 
-// ─────────────────────────────────────────────
+// âââââââââââââââââââââââââââââââââââââââââââââ
 // METRIC CARD
-// ─────────────────────────────────────────────
+// âââââââââââââââââââââââââââââââââââââââââââââ
 function MetricCard({ card }) {
   const pct = Math.round((card.current / card.target) * 100);
   return (
@@ -3909,9 +3939,9 @@ function MetricCard({ card }) {
   );
 }
 
-// ─────────────────────────────────────────────
+// âââââââââââââââââââââââââââââââââââââââââââââ
 // SECTION ROUTER
-// ─────────────────────────────────────────────
+// âââââââââââââââââââââââââââââââââââââââââââââ
 function SectionContent({ section }) {
   switch (section) {
     case "briefing": return (
@@ -3935,7 +3965,7 @@ function SectionContent({ section }) {
     case "emails": return <EmailEASection />;
     case "calendar": return <CalendarSection />;
     case "showings": return <ShowingsSection />;
-    case "crm": return <PlaceholderSection title="Follow Up Boss — Deal Pipeline" icon={Users} />;
+    case "crm": return <PlaceholderSection title="Follow Up Boss â Deal Pipeline" icon={Users} />;
     case "leadgen": return <PlaceholderSection title="Lead Gen" icon={Target} />;
     case "pnl": return <PnlSection />;
     case "personal": return <PlaceholderSection title="Personal" icon={User} />;
@@ -3949,9 +3979,9 @@ function SectionContent({ section }) {
   }
 }
 
-// ─────────────────────────────────────────────
+// âââââââââââââââââââââââââââââââââââââââââââââ
 // MAIN DASHBOARD
-// ─────────────────────────────────────────────
+// âââââââââââââââââââââââââââââââââââââââââââââ
 export default function Dashboard() {
   const [section, setSection] = useState("briefing");
   const [collapsed, setCollapsed] = useState(false);
@@ -4051,7 +4081,7 @@ export default function Dashboard() {
 
         {/* Content */}
         <div style={{ flex: 1, overflowY: "auto", padding: 22 }}>
-          {/* Hour of Power — always visible */}
+          {/* Hour of Power â always visible */}
           <HourOfPowerBar />
 
           {/* Morning briefing (only on briefing tab) */}
