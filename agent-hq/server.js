@@ -3113,29 +3113,23 @@ function parseGeoWarehouseText(text) {
   const assessMatch = t.match(/Current Assessment\s*\*?\s*:\s*\n?\s*\$([\d,]+)/i);
   if (assessMatch) fields.assessedValue = assessMatch[1].replace(/,/g, '');
 
-  // --- Taxation Year ---
-  // In the raw text: "Taxation YearPhased-In Assessment**" then values like "2026\n$328,000"
-  // Or look for the year after the assessment values block
-  const taxBlock = t.match(/Taxation Year\s*Phased-In Assessment[\s\S]*?\n(\d{4})\n/i);
-  if (taxBlock) {
-    fields.taxYear = taxBlock[1];
-  } else {
-    // Fallback: find "2026" or "2025" near "Taxation Year"
-    const taxYrAlt = t.match(/Taxation Year[\s\S]{0,200}?\n(\d{4})\n/i);
-    if (taxYrAlt) fields.taxYear = taxYrAlt[1];
-  }
-
   // --- Property Taxes ---
   // "Residential Property Tax Details" section has rows like "2025$2,898"
-  // Grab the most recent (last) year's tax
+  // Grab the most recent (last) year's tax — this is the most current data
   const taxSection = t.match(/Residential Property Tax Details\s*\n([\s\S]*?)(?:\nReport Generated|$)/i);
   if (taxSection) {
     const taxRows = [...taxSection[1].matchAll(/(\d{4})\s*\$\s*([\d,]+)/g)];
     if (taxRows.length > 0) {
       const lastRow = taxRows[taxRows.length - 1];
       fields.taxes = lastRow[2].replace(/,/g, '');
-      if (!fields.taxYear) fields.taxYear = lastRow[1];
+      fields.taxYear = lastRow[1]; // Tax year matches the tax amount
     }
+  }
+
+  // --- Fallback Taxation Year (from assessment section) ---
+  if (!fields.taxYear) {
+    const taxBlock = t.match(/Taxation Year\s*Phased-In Assessment[\s\S]*?\n(\d{4})\n/i);
+    if (taxBlock) fields.taxYear = taxBlock[1];
   }
 
   // --- Year Built, Bedrooms, Bathrooms ---
