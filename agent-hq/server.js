@@ -1559,6 +1559,326 @@ app.get('/api/fub/people/:id', async (req, res) => {
   }
 });
 
+// ─────────────────────────────────────────────
+// FUB LEAD AUTO-IMPORT FROM GMAIL
+// ─────────────────────────────────────────────
+
+// Parse "Lead assigned" email — extract name, phone, email, source
+function parseLeadAssignedEmail(subject, body) {
+  const result = { name: null, firstName: null, lastName: null, phone: null, email: null, source: null };
+
+  // Name from subject: "Lead assigned – Dennis McMaster" or "Lead assigned - Dennis McMaster"
+  const subjMatch = subject.match(/Lead assigned\s*[–\-]\s*(.+)/i);
+  if (subjMatch) {
+    result.name = subjMatch[1].trim();
+    const parts = result.name.split(/\s+/);
+    result.firstName = parts[0] || '';
+    result.lastName = parts.slice(1).join(' ') || '';
+  }
+
+  // Also try "You've received a new lead named X from Y"
+  const bodyNameMatch = body.match(/new lead named\s+([A-Za-z\s'-]+?)\s+from/i);
+  if (bodyNameMatch && !result.name) {
+    result.name = bodyNameMatch[1].trim();
+    const parts = result.name.split(/\s+/);
+    result.firstName = parts[0] || '';
+    result.lastName = parts.slice(1).join(' ') || '';
+  }
+
+  // Source from body: "from SP: Networking" or "from Team: Brokerage Call-In"
+  const sourceMatch = body.match(/from\s+((?:SP|Team|Source|Lead Source)[:\s]+[^\n<]+)/i);
+  if (sourceMatch) result.source = sourceMatch[1].trim();
+
+  // Phone: look for phone number patterns
+  const phoneMatch = body.match(/\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}/);
+  if (phoneMatch) result.phone = phoneMatch[0];
+
+  // Email: look for email in body (not the FUB system emails)
+  const emailMatches = body.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g);
+  if (emailMatches) {
+    // Filter out FUB system emails
+    const filtered = emailMatches.filter(e =>
+      !e.includes('followupboss.com') && !e.includes('faristeam.ca') && !e.includes('noreply')
+    );
+    if (filtered.length > 0) result.email = filtered[0];
+  }
+
+  return result;
+}
+
+// Parse "mentioned you in a note" email — extract the note content and contact details
+function parseNoteEmail(subject, body) {
+  const result = { contactName: null, noteSender: null, noteBody: '', emails: [], phone: null };
+
+  // Contact name from subject: "Aidan Hurban mentioned you in a note about Dennis McMaster"
+  const nameMatch = subject.match(/note about\s+(.+)/i);
+  if (nameMatch) result.contactName = nameMatch[1].trim();
+
+  // Note sender from subject
+  const senderMatch = subject.match(/^(.+?)\s+mentioned you/i);
+  if (senderMatch) result.noteSender = senderMatch[1].trim();
+
+  // Extract note body — everything between "— Note —" and "Click here to open"
+  const noteStart = body.indexOf('— Note —');
+  const noteAlt = body.indexOf('-- Note --');
+  const start = noteStart !== -1 ? noteStart + 8 : (noteAlt !== -1 ? noteAlt + 10 : -1);
+  const clickEnd = body.indexOf('Click here to open');
+  const contactEnd = body.indexOf('Contact details');
+
+  if (start !== -1) {
+    const end = contactEnd !== -1 ? contactEnd : (clickEnd !== -1 ? clickEnd : body.length);
+    result.noteBody = body.slice(start, end)
+      .replace(/<[^>]*>/g, '')
+      .replace(/\r\n/g, '\n')
+      .trim();
+  } else {
+    // Fallback: try to get the main body content
+    result.noteBody = body
+      .replace(/<[^>]*>/g, '')
+      .replace(/Change your notification settings.*/s, '')
+      .replace(/Click here to open.*/s, '')
+      .trim();
+  }
+
+  // Extract contact details section
+  const detailsMatch = body.match(/Contact details[:\s]*([\s\S]*?)(?:Change your|$)/i);
+  if (detailsMatch) {
+    const details = detailsMatch[1];
+    // All emails
+    const emailMatches = details.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g);
+    if (emailMatches) result.emails = emailMatches.filter(e => !e.includes('followupboss') && !e.includes('faristeam'));
+    // Phone
+    const phoneMatch = details.match(/\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}/);
+    if (phoneMatch) result.phone = phoneMatch[0];
+    // Name from details
+    const detailNameMatch = details.match(/Name:\s*(.+)/i);
+    if (detailNameMatch && !result.contactName) result.contactName = detailNameMatch[1].trim();
+  }
+
+  return result;
+}
+
+// GET /api/fub/leads/scan — Scan Gmail for new FUB lead emails and auto-import
+app.get('/api/fub/leads/scan', async (req, res) => {
+  if (!FUB_API_KEY) return res.json({ error: 'FUB_API_KEY not configured', success: false });
+  if (!tokens) return res.json({ error: 'Gmail not connected', success: false });
+
+  try {
+    const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
+    const results = { leadsCreated: [], notesAdded: [], errors: [], scanned: 0 };
+
+    // Load already-processed email IDs from file (or memory)
+    let processedIds = [];
+    const processedPath = path.join(__dirname, '.fub-processed-leads.json');
+    try {
+      if (fs.existsSync(processedPath)) {
+        processedIds = JSON.parse(fs.readFileSync(processedPath, 'utf8'));
+      }
+    } catch {}
+
+    // 1) Scan for "Lead assigned" emails from Follow Up Boss (last 7 days)
+    const leadQuery = 'from:leads@followupboss.com subject:"Lead assigned" newer_than:7d';
+    const leadMsgs = await gmail.users.messages.list({ userId: 'me', q: leadQuery, maxResults: 20 });
+    const leadMessages = leadMsgs.data.messages || [];
+
+    for (const msg of leadMessages) {
+      if (processedIds.includes(msg.id)) continue;
+      results.scanned++;
+
+      try {
+        const full = await gmail.users.messages.get({ userId: 'me', id: msg.id, format: 'full' });
+        const headers = full.data.payload.headers;
+        const subject = headers.find(h => h.name.toLowerCase() === 'subject')?.value || '';
+        const body = getEmailBody(full.data.payload);
+
+        const lead = parseLeadAssignedEmail(subject, body);
+        if (!lead.name) {
+          results.errors.push({ emailId: msg.id, error: 'Could not parse lead name', subject });
+          continue;
+        }
+
+        // Check if contact already exists in FUB by name or email
+        let existingId = null;
+        if (lead.email) {
+          try {
+            const searchResp = await fetch(`${FUB_BASE}/people?email=${encodeURIComponent(lead.email)}&limit=1`, { headers: fubHeaders() });
+            if (searchResp.ok) {
+              const searchData = await searchResp.json();
+              if (searchData.people && searchData.people.length > 0) {
+                existingId = searchData.people[0].id;
+              }
+            }
+          } catch {}
+        }
+
+        if (existingId) {
+          // Contact already exists — just mark as processed
+          processedIds.push(msg.id);
+          results.leadsCreated.push({ name: lead.name, fubId: existingId, status: 'already_exists', emailId: msg.id });
+          continue;
+        }
+
+        // Create new contact in FUB
+        const newPerson = {
+          firstName: lead.firstName,
+          lastName: lead.lastName,
+          stage: 'Lead',
+          source: lead.source || 'Email Lead',
+          phones: lead.phone ? [{ value: lead.phone, type: 'Mobile' }] : [],
+          emails: lead.email ? [{ value: lead.email }] : [],
+          tags: ['Agent HQ Import'],
+        };
+
+        const createResp = await fetch(`${FUB_BASE}/people`, {
+          method: 'POST',
+          headers: fubHeaders(),
+          body: JSON.stringify(newPerson),
+        });
+
+        if (createResp.ok) {
+          const created = await createResp.json();
+          processedIds.push(msg.id);
+          results.leadsCreated.push({
+            name: lead.name,
+            fubId: created.id,
+            phone: lead.phone,
+            email: lead.email,
+            source: lead.source,
+            status: 'created',
+            emailId: msg.id,
+          });
+          console.log(`[FUB] Created lead: ${lead.name} (ID: ${created.id})`);
+        } else {
+          const errText = await createResp.text();
+          results.errors.push({ name: lead.name, error: `Create failed: ${createResp.status} — ${errText}`, emailId: msg.id });
+        }
+      } catch (err) {
+        results.errors.push({ emailId: msg.id, error: err.message });
+      }
+    }
+
+    // 2) Scan for "mentioned you in a note about" emails (follow-up notes)
+    const noteQuery = 'from:notifications@followupboss.com subject:"mentioned you in a note" newer_than:7d';
+    const noteMsgs = await gmail.users.messages.list({ userId: 'me', q: noteQuery, maxResults: 20 });
+    const noteMessages = noteMsgs.data.messages || [];
+
+    for (const msg of noteMessages) {
+      if (processedIds.includes(msg.id)) continue;
+      results.scanned++;
+
+      try {
+        const full = await gmail.users.messages.get({ userId: 'me', id: msg.id, format: 'full' });
+        const headers = full.data.payload.headers;
+        const subject = headers.find(h => h.name.toLowerCase() === 'subject')?.value || '';
+        const body = getEmailBody(full.data.payload);
+
+        const noteData = parseNoteEmail(subject, body);
+        if (!noteData.contactName || !noteData.noteBody) {
+          results.errors.push({ emailId: msg.id, error: 'Could not parse note', subject });
+          continue;
+        }
+
+        // Find the contact in FUB by name
+        let personId = null;
+        const nameParts = noteData.contactName.split(/\s+/);
+        const searchName = encodeURIComponent(noteData.contactName);
+        try {
+          const searchResp = await fetch(`${FUB_BASE}/people?name=${searchName}&limit=5`, { headers: fubHeaders() });
+          if (searchResp.ok) {
+            const searchData = await searchResp.json();
+            if (searchData.people && searchData.people.length > 0) {
+              // Find best match
+              personId = searchData.people[0].id;
+            }
+          }
+        } catch {}
+
+        // If no match by name, try by email from the note's contact details
+        if (!personId && noteData.emails.length > 0) {
+          for (const em of noteData.emails) {
+            try {
+              const resp = await fetch(`${FUB_BASE}/people?email=${encodeURIComponent(em)}&limit=1`, { headers: fubHeaders() });
+              if (resp.ok) {
+                const data = await resp.json();
+                if (data.people && data.people.length > 0) {
+                  personId = data.people[0].id;
+                  break;
+                }
+              }
+            } catch {}
+          }
+        }
+
+        if (!personId) {
+          results.errors.push({ contactName: noteData.contactName, error: 'Contact not found in FUB', emailId: msg.id });
+          continue;
+        }
+
+        // Add the note to the contact
+        const noteHtml = `<p><strong>Note from ${noteData.noteSender || 'Team'}:</strong></p>` +
+          noteData.noteBody.split('\n').filter(l => l.trim()).map(l => `<p>${l}</p>`).join('') +
+          (noteData.emails.length > 1 ? `<p><em>Additional emails: ${noteData.emails.join(', ')}</em></p>` : '');
+
+        const noteResp = await fetch(`${FUB_BASE}/notes`, {
+          method: 'POST',
+          headers: fubHeaders(),
+          body: JSON.stringify({
+            personId,
+            body: noteHtml,
+            subject: `Note from ${noteData.noteSender || 'Team'} — imported by Agent HQ`,
+            isHtml: true,
+          }),
+        });
+
+        if (noteResp.ok) {
+          processedIds.push(msg.id);
+          results.notesAdded.push({
+            contactName: noteData.contactName,
+            personId,
+            noteSender: noteData.noteSender,
+            notePreview: noteData.noteBody.slice(0, 100) + (noteData.noteBody.length > 100 ? '...' : ''),
+            status: 'added',
+            emailId: msg.id,
+          });
+          console.log(`[FUB] Note added for ${noteData.contactName} (ID: ${personId})`);
+        } else {
+          const errText = await noteResp.text();
+          results.errors.push({ contactName: noteData.contactName, error: `Note failed: ${noteResp.status} — ${errText}`, emailId: msg.id });
+        }
+      } catch (err) {
+        results.errors.push({ emailId: msg.id, error: err.message });
+      }
+    }
+
+    // Save processed IDs (keep last 200 to avoid file growing forever)
+    try {
+      fs.writeFileSync(processedPath, JSON.stringify(processedIds.slice(-200)));
+    } catch {}
+
+    // Also persist to localStorage-compatible backup endpoint
+    res.json({
+      success: true,
+      ...results,
+      summary: `${results.leadsCreated.filter(l => l.status === 'created').length} leads created, ${results.notesAdded.length} notes added, ${results.errors.length} errors`,
+    });
+  } catch (err) {
+    console.error('[FUB] Lead scan error:', err);
+    res.json({ error: err.message, success: false });
+  }
+});
+
+// GET /api/fub/leads/processed — check what's already been imported
+app.get('/api/fub/leads/processed', (req, res) => {
+  const processedPath = path.join(__dirname, '.fub-processed-leads.json');
+  try {
+    if (fs.existsSync(processedPath)) {
+      const ids = JSON.parse(fs.readFileSync(processedPath, 'utf8'));
+      return res.json({ count: ids.length, ids });
+    }
+  } catch {}
+  res.json({ count: 0, ids: [] });
+});
+
 // POST /api/fub/log-call — log a call + note in Follow Up Boss
 app.post('/api/fub/log-call', async (req, res) => {
   if (!FUB_API_KEY) return res.json({ error: 'FUB_API_KEY not configured', success: false });

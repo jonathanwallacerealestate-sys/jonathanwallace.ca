@@ -952,6 +952,121 @@ function FeedbackCard({ fb }) {
 // ─────────────────────────────────────────────
 // CALL LIST SECTION
 // ─────────────────────────────────────────────
+// ─────────────────────────────────────────────
+// LEAD AUTO-IMPORT BAR
+// ─────────────────────────────────────────────
+function LeadImportBar() {
+  const [scanning, setScanning] = useState(false);
+  const [lastResult, setLastResult] = useState(() => {
+    try {
+      const saved = localStorage.getItem('agenthq-lead-import-last');
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return null;
+  });
+  const [expanded, setExpanded] = useState(false);
+
+  const runScan = async () => {
+    setScanning(true);
+    try {
+      const res = await fetch('/api/fub/leads/scan');
+      const data = await res.json();
+      const result = { ...data, scannedAt: new Date().toISOString() };
+      setLastResult(result);
+      setExpanded(true);
+      try { localStorage.setItem('agenthq-lead-import-last', JSON.stringify(result)); } catch {}
+    } catch (err) {
+      console.error('[Lead Import] Scan error:', err);
+    }
+    setScanning(false);
+  };
+
+  const newLeads = lastResult?.leadsCreated?.filter(l => l.status === 'created') || [];
+  const existingLeads = lastResult?.leadsCreated?.filter(l => l.status === 'already_exists') || [];
+  const notesAdded = lastResult?.notesAdded || [];
+  const errors = lastResult?.errors || [];
+
+  return (
+    <div style={{ marginBottom: 14, background: "#fff", borderRadius: 10, border: "1px solid #e5e7eb", overflow: "hidden" }}>
+      <div style={{
+        display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 14px",
+        background: newLeads.length > 0 ? "#eff6ff" : "#fafafa",
+        cursor: lastResult ? "pointer" : "default",
+      }} onClick={() => lastResult && setExpanded(!expanded)}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <Inbox size={14} color="#2563eb" />
+          <span style={{ fontSize: 12, fontWeight: 700, color: "#111827" }}>Lead Import from Gmail</span>
+          {newLeads.length > 0 && (
+            <span style={{ fontSize: 10, fontWeight: 700, color: "#fff", background: "#2563eb", padding: "1px 6px", borderRadius: 3 }}>
+              {newLeads.length} new
+            </span>
+          )}
+          {notesAdded.length > 0 && (
+            <span style={{ fontSize: 10, fontWeight: 700, color: "#fff", background: "#8b5cf6", padding: "1px 6px", borderRadius: 3 }}>
+              {notesAdded.length} notes
+            </span>
+          )}
+          {lastResult && !expanded && (
+            <span style={{ fontSize: 10, color: "#9ca3af" }}>
+              Last scan: {new Date(lastResult.scannedAt).toLocaleTimeString()}
+            </span>
+          )}
+        </div>
+        <button onClick={(e) => { e.stopPropagation(); runScan(); }} disabled={scanning} style={{
+          display: "flex", alignItems: "center", gap: 4, background: "#2563eb", color: "#fff", border: "none", borderRadius: 6,
+          padding: "5px 12px", fontSize: 11, fontWeight: 600, cursor: scanning ? "wait" : "pointer",
+        }}>
+          <RefreshCw size={11} style={{ animation: scanning ? "spin 1s linear infinite" : "none" }} />
+          {scanning ? "Scanning..." : "Scan Gmail"}
+        </button>
+      </div>
+
+      {expanded && lastResult && (
+        <div style={{ padding: "10px 14px", borderTop: "1px solid #e5e7eb" }}>
+          {newLeads.length > 0 && (
+            <div style={{ marginBottom: 10 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: "#065f46", marginBottom: 6 }}>New Leads Created in FUB:</div>
+              {newLeads.map((l, i) => (
+                <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4, fontSize: 12 }}>
+                  <CheckCircle2 size={12} color="#10b981" />
+                  <strong>{l.name}</strong>
+                  {l.phone && <span style={{ color: "#6b7280" }}>{l.phone}</span>}
+                  {l.email && <span style={{ color: "#6b7280" }}>{l.email}</span>}
+                  {l.source && <span style={{ fontSize: 10, color: "#2563eb", background: "#eff6ff", padding: "1px 5px", borderRadius: 3 }}>{l.source}</span>}
+                </div>
+              ))}
+            </div>
+          )}
+          {notesAdded.length > 0 && (
+            <div style={{ marginBottom: 10 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: "#5b21b6", marginBottom: 6 }}>Notes Added to Contacts:</div>
+              {notesAdded.map((n, i) => (
+                <div key={i} style={{ marginBottom: 4, fontSize: 12 }}>
+                  <CheckCircle2 size={12} color="#8b5cf6" style={{ display: "inline", verticalAlign: "middle", marginRight: 6 }} />
+                  <strong>{n.contactName}</strong> — <span style={{ color: "#6b7280" }}>{n.notePreview}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          {existingLeads.length > 0 && (
+            <div style={{ fontSize: 11, color: "#9ca3af", marginBottom: 6 }}>
+              {existingLeads.length} lead(s) already existed in FUB — skipped.
+            </div>
+          )}
+          {errors.length > 0 && (
+            <div style={{ fontSize: 11, color: "#ef4444", marginBottom: 6 }}>
+              {errors.length} error(s): {errors.map(e => e.error || e.contactName).join(', ')}
+            </div>
+          )}
+          {lastResult.success && newLeads.length === 0 && notesAdded.length === 0 && errors.length === 0 && (
+            <div style={{ fontSize: 12, color: "#9ca3af" }}>No new lead emails found in the last 7 days.</div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // Individual call card with log/voicemail actions
 function CallCard({ c, onLogged }) {
   const cKey = c.fubId || c.id;
@@ -1165,6 +1280,7 @@ function CallListSection() {
           : <>Set <code>FUB_API_KEY</code> in Railway to connect Follow Up Boss and generate a live call list.</>}
         {generatedAt && <span style={{ fontSize: 10, color: "#9ca3af", marginLeft: 8 }}>Generated: {new Date(generatedAt).toLocaleTimeString()}</span>}
       </div>
+      <LeadImportBar />
       {loading && dailyCallList.length === 0 && (
         <div style={{ textAlign: "center", padding: "40px 0", color: "#9ca3af", fontSize: 13 }}>
           <RefreshCw size={20} style={{ animation: "spin 1s linear infinite", marginBottom: 8 }} /><br />
