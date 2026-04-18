@@ -1927,7 +1927,7 @@ function loadTjState() {
     lastProcessedAt: null,
     stageId: null,        // FUB stage ID for "Old Team Jordan Leads"
     processedEmailIds: {}, // email ID → result ('created'|'existing'|'skipped'|'error')
-    approvedContacts: [], // emails/phones already imported — for cross-batch dedup
+    knownContactKeys: [], // all emails, phones, and normalized names from processed contacts — for cross-batch dedup
     recentActivity: [],   // last 20 actions for the dashboard
   };
 }
@@ -2293,9 +2293,33 @@ app.post('/api/tj/scan', async (req, res) => {
   // 2) Parse each email and categorize
   const candidates = []; // contacts ready for approval
   const skipped = [];    // auto-filtered out (with reason)
-  const seenEmails = new Set(); // deduplicate contacts by email/phone
-  // Seed with previously approved contacts so they don't appear in future batches
-  for (const key of (state.approvedContacts || [])) { seenEmails.add(key); }
+  const knownKeys = new Set(); // deduplicate by email, phone, and normalized name
+  // Seed with all keys from previously processed contacts
+  for (const key of (state.knownContactKeys || state.approvedContacts || [])) { knownKeys.add(key); }
+
+  // Helper: normalize a name for fuzzy matching (lowercase, remove middle initials, trim)
+  const normalizeName = (first, last) => {
+    if (!first || !last) return null;
+    return `${first.toLowerCase().trim()} ${last.toLowerCase().trim()}`.replace(/\s+/g, ' ');
+  };
+
+  // Helper: check if any key from a contact matches known keys
+  const isKnownContact = (emails, phones, firstName, lastName) => {
+    for (const e of emails) { if (e && knownKeys.has(e.toLowerCase())) return 'email'; }
+    for (const p of phones) { if (p && knownKeys.has(p.replace(/\D/g, ''))) return 'phone'; }
+    const nameKey = normalizeName(firstName, lastName);
+    if (nameKey && knownKeys.has(nameKey)) return 'name';
+    return false;
+  };
+
+  // Helper: add all keys from a contact to the known set
+  const trackContact = (emails, phones, firstName, lastName) => {
+    for (const e of emails) { if (e) knownKeys.add(e.toLowerCase()); }
+    for (const p of phones) { if (p) knownKeys.add(p.replace(/\D/g, '')); }
+    const nameKey = normalizeName(firstName, lastName);
+    if (nameKey) knownKeys.add(nameKey);
+  };
+
   let scannedCount = 0;
 
   for (const msgId of batchIds) {
@@ -2414,8 +2438,12 @@ app.post('/api/tj/scan', async (req, res) => {
           }
           if (existing) {
             skipped.push({ msgId, name: contactName, email: contactEmail, reason: 'Already in FUB', fubId: existing.id });
-            if (!state.approvedContacts) state.approvedContacts = [];
-            if (contactEmail) state.approvedContacts.push(contactEmail.toLowerCase());
+            // Track all their info so future emails from them are caught
+            if (!state.knownContactKeys) state.knownContactKeys = [];
+            const allE = parsed.emails || []; const allP = parsed.phones || [];
+            for (const e of allE) { if (e) { knownKeys.add(e.toLowerCase()); state.knownContactKeys.push(e.toLowerCase()); } }
+            for (const p of allP) { const pk = p.replace(/\D/g, ''); if (pk) { knownKeys.add(pk); state.knownContactKeys.push(pk); } }
+            if (contactName) { const parts = contactName.split(/\s+/).filter(Boolean); const nk = normalizeName(parts[0], parts.slice(1).join(' ')); if (nk) { knownKeys.add(nk); state.knownContactKeys.push(nk); } }
             state.processedEmailIds[msgId] = 'existing';
             state.leadsSkippedExisting++;
             scannedCount++;
@@ -2457,17 +2485,19 @@ app.post('/api/tj/scan', async (req, res) => {
         contactType = 'lawyer';
       }
 
-      // Deduplicate: skip if we've already seen this email in this batch or a previous batch
-      // Deduplicate by email or phone within the batch
-      const dedupKey = contactEmail ? contactEmail.toLowerCase() : (parsed.phones[0] ? parsed.phones[0].replace(/\D/g, '') : null);
-      if (dedupKey && seenEmails.has(dedupKey)) {
-        skipped.push({ msgId, name: contactName, email: contactEmail, reason: 'Duplicate (already in this batch)' });
+      // Deduplicate: check ALL emails, phones, and name against known contacts
+      const allEmails = parsed.emails || [];
+      const allPhones = parsed.phones || [];
+      const matchType = isKnownContact(allEmails, allPhones, firstName, lastName);
+      if (matchType) {
+        skipped.push({ msgId, name: `${firstName} ${lastName}`, email: contactEmail, reason: `Duplicate (matched by ${matchType})` });
         state.processedEmailIds[msgId] = 'skipped';
         state.emailsSkipped++;
         scannedCount++;
         continue;
       }
-      if (dedupKey) seenEmails.add(dedupKey);
+      // Track this contact's keys so future emails from them are caught
+      trackContact(allEmails, allPhones, firstName, lastName);
 
       candidates.push({
         msgId,
@@ -2496,11 +2526,12 @@ app.post('/api/tj/scan', async (req, res) => {
     }
   }
 
-  // Store pending candidates in state for the approve step
+  // Store pending candidates and updated known keys
   state.pendingCandidates = candidates;
+  state.knownContactKeys = [...knownKeys]; // persist all tracked keys including this batch
   state.currentBatch++;
   state.lastProcessedAt = new Date().toISOString();
-  state.status = 'review'; // new status: waiting for approval
+  state.status = 'review'; // waiting for approval
   saveTjState(state);
 
   res.json({
@@ -2563,8 +2594,11 @@ app.post('/api/tj/approve', async (req, res) => {
       const existing = email ? await findPersonInFub(email, `${firstName} ${lastName}`.trim()) : null;
       if (existing) {
         state.processedEmailIds[candidate.msgId] = 'existing';
-        if (!state.approvedContacts) state.approvedContacts = [];
-        if (email) state.approvedContacts.push(email.toLowerCase());
+        if (!state.knownContactKeys) state.knownContactKeys = [];
+        if (email) state.knownContactKeys.push(email.toLowerCase());
+        if (phone) state.knownContactKeys.push(phone.replace(/\D/g, ''));
+        const nk = `${firstName} ${lastName}`.trim().toLowerCase();
+        if (nk.includes(' ')) state.knownContactKeys.push(nk);
         state.leadsSkippedExisting++;
         state.processedCount++;
         results.skippedExisting = (results.skippedExisting || 0) + 1;
@@ -2629,10 +2663,15 @@ app.post('/api/tj/approve', async (req, res) => {
         }
 
         state.processedEmailIds[candidate.msgId] = 'created';
-        // Track this contact so they don't appear in future batches
-        if (!state.approvedContacts) state.approvedContacts = [];
-        if (email) state.approvedContacts.push(email.toLowerCase());
-        if (phone) state.approvedContacts.push(phone.replace(/\D/g, ''));
+        // Track ALL contact info so they don't appear in future batches
+        if (!state.knownContactKeys) state.knownContactKeys = [];
+        if (email) state.knownContactKeys.push(email.toLowerCase());
+        if (phone) state.knownContactKeys.push(phone.replace(/\D/g, ''));
+        const nameKey = `${firstName} ${lastName}`.trim().toLowerCase();
+        if (nameKey.includes(' ')) state.knownContactKeys.push(nameKey);
+        // Also track additional emails/phones from the email body
+        for (const ae of (additionalEmails || [])) { if (ae) state.knownContactKeys.push(ae.toLowerCase()); }
+        for (const ap of (additionalPhones || [])) { if (ap) state.knownContactKeys.push(ap.replace(/\D/g, '')); }
 
         if (isRealtor) { state.realtorsCreated++; }
         else if (isLawyer) { state.lawyersCreated = (state.lawyersCreated || 0) + 1; }
