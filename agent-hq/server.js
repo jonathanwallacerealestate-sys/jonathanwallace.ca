@@ -370,6 +370,53 @@ app.get('/api/calendar/status', async (req, res) => {
 // ─────────────────────────────────────────────
 // API: Calendar Events
 // ─────────────────────────────────────────────
+
+// Helper: fetch events from ALL calendars (primary + imported Outlook, etc.)
+async function fetchAllCalendarEvents(calendarApi, timeMin, timeMax, maxResults = 50) {
+  // Get all calendar IDs the user has access to
+  const calListRes = await calendarApi.calendarList.list({ maxResults: 100 });
+  const calendars = calListRes.data.items || [];
+  console.log(`[GCal] Found ${calendars.length} calendars: ${calendars.map(c => c.summary || c.id).join(', ')}`);
+
+  // Fetch events from each calendar in parallel
+  const allEvents = [];
+  const results = await Promise.allSettled(
+    calendars.map(async (cal) => {
+      try {
+        const evRes = await calendarApi.events.list({
+          calendarId: cal.id,
+          timeMin,
+          timeMax,
+          maxResults,
+          singleEvents: true,
+          orderBy: 'startTime',
+        });
+        return (evRes.data.items || []).map(ev => ({
+          ...ev,
+          _calendarName: cal.summary || cal.id,
+          _calendarId: cal.id,
+        }));
+      } catch (e) {
+        console.warn(`[GCal] Failed to fetch from calendar "${cal.summary || cal.id}": ${e.message}`);
+        return [];
+      }
+    })
+  );
+
+  for (const r of results) {
+    if (r.status === 'fulfilled') allEvents.push(...r.value);
+  }
+
+  // Sort merged events by start time
+  allEvents.sort((a, b) => {
+    const aStart = new Date(a.start?.dateTime || a.start?.date || 0).getTime();
+    const bStart = new Date(b.start?.dateTime || b.start?.date || 0).getTime();
+    return aStart - bStart;
+  });
+
+  return allEvents;
+}
+
 app.get('/api/calendar/events', async (req, res) => {
   if (!tokens || !tokens.access_token) {
     return res.status(401).json({ error: 'Not authenticated', events: [] });
@@ -386,16 +433,9 @@ app.get('/api/calendar/events', async (req, res) => {
     const timeMin = req.query.timeMin || startOfDay.toISOString();
     const timeMax = req.query.timeMax || endOfDay.toISOString();
 
-    const response = await calendar.events.list({
-      calendarId: 'primary',
-      timeMin,
-      timeMax,
-      maxResults: 50,
-      singleEvents: true,
-      orderBy: 'startTime',
-    });
+    const allEvents = await fetchAllCalendarEvents(calendar, timeMin, timeMax, 50);
 
-    const events = (response.data.items || []).map(ev => ({
+    const events = allEvents.map(ev => ({
       id: ev.id,
       title: ev.summary || '(No title)',
       description: ev.description || '',
@@ -405,6 +445,7 @@ app.get('/api/calendar/events', async (req, res) => {
       allDay: !ev.start.dateTime,
       status: ev.status,
       htmlLink: ev.htmlLink,
+      calendarName: ev._calendarName,
       attendees: (ev.attendees || []).map(a => ({ email: a.email, name: a.displayName, status: a.responseStatus })),
       conferenceLink: ev.hangoutLink || (ev.conferenceData?.entryPoints?.[0]?.uri) || null,
     }));
@@ -419,23 +460,20 @@ app.get('/api/calendar/events', async (req, res) => {
         const { credentials } = await oauth2Client.refreshAccessToken();
         saveTokens(credentials);
         oauth2Client.setCredentials(credentials);
-        // Retry the request
+        // Retry the request — fetch from all calendars
         const calendar = google.calendar({ version: 'v3', auth: oauth2Client });
         const now = new Date();
         const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
         const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
-        const response = await calendar.events.list({
-          calendarId: 'primary',
-          timeMin: req.query.timeMin || startOfDay.toISOString(),
-          timeMax: req.query.timeMax || endOfDay.toISOString(),
-          maxResults: 50, singleEvents: true, orderBy: 'startTime',
-        });
-        const events = (response.data.items || []).map(ev => ({
+        const retryEvents = await fetchAllCalendarEvents(calendar,
+          req.query.timeMin || startOfDay.toISOString(),
+          req.query.timeMax || endOfDay.toISOString(), 50);
+        const events = retryEvents.map(ev => ({
           id: ev.id, title: ev.summary || '(No title)',
           start: ev.start.dateTime || ev.start.date,
           end: ev.end.dateTime || ev.end.date,
           location: ev.location || '', allDay: !ev.start.dateTime,
-          status: ev.status, htmlLink: ev.htmlLink,
+          status: ev.status, htmlLink: ev.htmlLink, calendarName: ev._calendarName,
         }));
         return res.json({ events, count: events.length });
       } catch (_) {}
@@ -458,22 +496,16 @@ app.get('/api/calendar/upcoming', async (req, res) => {
     const now = new Date();
     const weekOut = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
 
-    const response = await calendar.events.list({
-      calendarId: 'primary',
-      timeMin: now.toISOString(),
-      timeMax: weekOut.toISOString(),
-      maxResults: 100,
-      singleEvents: true,
-      orderBy: 'startTime',
-    });
+    const allEvents = await fetchAllCalendarEvents(calendar, now.toISOString(), weekOut.toISOString(), 100);
 
-    const events = (response.data.items || []).map(ev => ({
+    const events = allEvents.map(ev => ({
       id: ev.id,
       title: ev.summary || '(No title)',
       start: ev.start.dateTime || ev.start.date,
       end: ev.end.dateTime || ev.end.date,
       location: ev.location || '',
       allDay: !ev.start.dateTime,
+      calendarName: ev._calendarName,
     }));
 
     res.json({ events, count: events.length });
@@ -483,6 +515,28 @@ app.get('/api/calendar/upcoming', async (req, res) => {
 });
 
 // ─────────────────────────────────────────────
+// API: List all connected calendars (for debugging & Syncs page)
+app.get('/api/calendar/list', async (req, res) => {
+  if (!tokens || !tokens.access_token) {
+    return res.status(401).json({ error: 'Not authenticated', calendars: [] });
+  }
+  try {
+    const calendar = google.calendar({ version: 'v3', auth: oauth2Client });
+    const calListRes = await calendar.calendarList.list({ maxResults: 100 });
+    const calendars = (calListRes.data.items || []).map(c => ({
+      id: c.id,
+      name: c.summary || c.id,
+      description: c.description || '',
+      primary: c.primary || false,
+      accessRole: c.accessRole,
+      backgroundColor: c.backgroundColor,
+    }));
+    res.json({ calendars, count: calendars.length });
+  } catch (err) {
+    res.status(500).json({ error: err.message, calendars: [] });
+  }
+});
+
 // API: Task State Persistence
 // ─────────────────────────────────────────────
 const TASKS_PATH = path.join(__dirname, '.task-state.json');
