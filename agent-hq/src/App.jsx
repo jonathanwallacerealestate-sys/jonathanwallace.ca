@@ -536,44 +536,176 @@ function formatFeedbackSandwich(raw) {
 }
 
 // ─────────────────────────────────────────────
-// OUTSTANDING FEEDBACK BAR (compact, below brief)
+// OUTSTANDING FEEDBACK BAR (compact, with inline dictation)
 // ─────────────────────────────────────────────
 function OutstandingFeedbackBar() {
   const [dismissed, setDismissed] = useState({});
   const [submitted, setSubmitted] = useState(getSubmittedFeedback());
+  const [expandedId, setExpandedId] = useState(null);
+  const [rawInput, setRawInput] = useState('');
+  const [formatted, setFormatted] = useState('');
+  const [mode, setMode] = useState('idle'); // idle | dictating | formatting | formatted | done
+  const [, forceUpdate] = useState(0);
+
   const visible = outstandingFeedback.filter(f => !dismissed[f.id] && !submitted.includes(f.id));
   if (visible.length === 0) return null;
 
+  const handleFormat = async (fb) => {
+    setMode('formatting');
+    try {
+      const res = await fetch('/api/feedback/format', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ raw: rawInput, address: fb.address, listingAgent: fb.listingAgent }),
+      });
+      const data = await res.json();
+      setFormatted(data.formatted || formatFeedbackSandwich(rawInput));
+    } catch {
+      setFormatted(formatFeedbackSandwich(rawInput));
+    }
+    setMode('formatted');
+  };
+
+  const handleSubmit = (fb) => {
+    // Copy formatted text to clipboard
+    navigator.clipboard?.writeText(formatted).catch(() => {});
+    // Mark as submitted
+    markFeedbackSubmitted(fb.id);
+    setSubmitted(prev => [...prev, fb.id]);
+    // Open BrokerBay
+    if (fb.feedbackUrl) window.open(fb.feedbackUrl, '_blank');
+    setMode('done');
+    setExpandedId(null);
+    setRawInput('');
+    setFormatted('');
+    forceUpdate(n => n + 1);
+  };
+
+  const handleMarkDone = (fb) => {
+    markFeedbackSubmitted(fb.id);
+    setSubmitted(prev => [...prev, fb.id]);
+    forceUpdate(n => n + 1);
+  };
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 0 }}>
-      {visible.map(fb => (
-        <div key={fb.id} style={{
-          display: "flex", alignItems: "center", gap: 14, padding: "12px 16px",
-          borderRadius: 12, background: "#fff", border: "1px solid #e5e7eb",
-          boxShadow: "0 1px 3px rgba(0,0,0,0.04)",
-        }}>
-          <div style={{ width: 36, height: 36, borderRadius: 10, background: "#fef2f2", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-            <MessageCircle size={16} color="#e11d48" />
-          </div>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 13, fontWeight: 600, color: "#111827" }}>
-              Feedback due — {fb.address}
+      {visible.map(fb => {
+        const isExpanded = expandedId === fb.id;
+
+        return (
+          <div key={fb.id} style={{
+            borderRadius: 12, background: "#fff", border: isExpanded ? "2px solid #e11d48" : "1px solid #e5e7eb",
+            boxShadow: "0 1px 3px rgba(0,0,0,0.04)", overflow: "hidden",
+          }}>
+            {/* Compact bar */}
+            <div style={{
+              display: "flex", alignItems: "center", gap: 14, padding: "12px 16px",
+            }}>
+              <div style={{ width: 36, height: 36, borderRadius: 10, background: "#fef2f2", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                <MessageCircle size={16} color="#e11d48" />
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: "#111827" }}>
+                  Feedback due — {fb.address}
+                </div>
+                <div style={{ fontSize: 11, color: "#6b7280", marginTop: 1 }}>
+                  {fb.listingAgent} &middot; {fb.brokerage} &middot; Shown {fb.time}
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <span style={{ fontSize: 9, fontWeight: 700, color: "#fff", background: "#10b981", padding: "2px 6px", borderRadius: 3 }}>LIVE</span>
+                <button onClick={() => {
+                  if (isExpanded) {
+                    setExpandedId(null); setMode('idle'); setRawInput(''); setFormatted('');
+                  } else {
+                    setExpandedId(fb.id); setMode('dictating');
+                  }
+                }} style={{ padding: "6px 14px", borderRadius: 8, border: "none", background: "#e11d48", color: "#fff", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>
+                  {isExpanded ? "Close" : "Leave Feedback"}
+                </button>
+                <button onClick={() => handleMarkDone(fb)} title="Already submitted on BrokerBay" style={{ padding: "6px 10px", borderRadius: 8, border: "1px solid #e5e7eb", background: "#fff", color: "#9ca3af", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>
+                  Done
+                </button>
+                <button onClick={() => setDismissed(prev => ({ ...prev, [fb.id]: true }))} style={{ padding: "6px 10px", borderRadius: 8, border: "1px solid #e5e7eb", background: "#fff", color: "#d1d5db", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>
+                  ✕
+                </button>
+              </div>
             </div>
-            <div style={{ fontSize: 11, color: "#6b7280", marginTop: 1 }}>
-              {fb.listingAgent} &middot; {fb.brokerage} &middot; Shown {fb.time}
-            </div>
+
+            {/* Expanded dictation panel */}
+            {isExpanded && (
+              <div style={{ padding: "0 16px 16px 16px" }}>
+                {mode === 'dictating' && (
+                  <div style={{ padding: 14, borderRadius: 10, border: "1px solid #fecdd3", background: "#fff8f8" }}>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: "#be123c", marginBottom: 6 }}>Dictate your feedback for {fb.address}</div>
+                    <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 8 }}>Speak naturally. Include what your client thought (positives first), any concerns, and questions. AI will format it professionally.</div>
+                    <textarea
+                      value={rawInput}
+                      onChange={e => setRawInput(e.target.value)}
+                      autoFocus
+                      placeholder={'e.g. "My client might be interested in this property. It shows well and the location is great. Could use a little work — basement is unfinished and a bit rough around the edges. Questions: when was the last time the sump pump went off? There\'s a stain in the main floor bedroom, do you know what that\'s from?"'}
+                      style={{
+                        width: "100%", minHeight: 100, padding: 12, borderRadius: 8, border: "1px solid #fecdd3",
+                        fontSize: 13, fontFamily: "inherit", resize: "vertical", outline: "none",
+                        lineHeight: 1.5, background: "#fff", boxSizing: "border-box",
+                      }}
+                    />
+                    <div style={{ display: "flex", gap: 8, marginTop: 10, justifyContent: "space-between", alignItems: "center" }}>
+                      <div style={{ fontSize: 10, color: "#9ca3af" }}>AI will organize: positives → constructive notes → questions</div>
+                      <button
+                        onClick={() => handleFormat(fb)}
+                        disabled={!rawInput.trim()}
+                        style={{
+                          padding: "8px 20px", borderRadius: 8, border: "none",
+                          background: rawInput.trim() ? "#e11d48" : "#d1d5db",
+                          color: "#fff", fontSize: 12, fontWeight: 600,
+                          cursor: rawInput.trim() ? "pointer" : "not-allowed",
+                        }}
+                      >
+                        Format with AI →
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {mode === 'formatting' && (
+                  <div style={{ padding: 20, borderRadius: 10, background: "#fff8f8", textAlign: "center" }}>
+                    <RefreshCw size={18} color="#e11d48" style={{ margin: "0 auto 6px", animation: "spin 1s linear infinite" }} />
+                    <div style={{ fontSize: 12, fontWeight: 600, color: "#374151" }}>Formatting your feedback...</div>
+                  </div>
+                )}
+
+                {mode === 'formatted' && (
+                  <div style={{ padding: 14, borderRadius: 10, border: "1px solid #86efac", background: "#f0fdf4" }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: "#16a34a" }}>Formatted — Ready to Submit</div>
+                      <button onClick={() => setMode('dictating')} style={{ fontSize: 11, color: "#3b82f6", background: "none", border: "none", cursor: "pointer", fontWeight: 600 }}>← Edit</button>
+                    </div>
+                    <div style={{
+                      padding: 12, borderRadius: 8, background: "#fff", border: "1px solid #bbf7d0",
+                      fontSize: 12, lineHeight: 1.6, color: "#1f2937", whiteSpace: "pre-wrap",
+                      maxHeight: 200, overflowY: "auto",
+                    }}>
+                      {formatted}
+                    </div>
+                    <div style={{ display: "flex", gap: 8, marginTop: 10, justifyContent: "flex-end" }}>
+                      <button onClick={() => { navigator.clipboard?.writeText(formatted); }} style={{ padding: "7px 14px", borderRadius: 8, border: "1px solid #e5e7eb", background: "#fff", color: "#374151", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>
+                        Copy
+                      </button>
+                      <button
+                        onClick={() => handleSubmit(fb)}
+                        style={{ padding: "7px 18px", borderRadius: 8, border: "none", background: "#16a34a", color: "#fff", fontSize: 11, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", gap: 5 }}
+                      >
+                        <ExternalLink size={12} /> Submit on BrokerBay
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
-          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            <span style={{ fontSize: 9, fontWeight: 700, color: "#fff", background: "#10b981", padding: "2px 6px", borderRadius: 3 }}>LIVE</span>
-            <button onClick={() => fb.feedbackUrl && window.open(fb.feedbackUrl, '_blank')} style={{ padding: "6px 14px", borderRadius: 8, border: "none", background: "#e11d48", color: "#fff", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>
-              Leave Feedback
-            </button>
-            <button onClick={() => setDismissed(prev => ({ ...prev, [fb.id]: true }))} style={{ padding: "6px 10px", borderRadius: 8, border: "1px solid #e5e7eb", background: "#fff", color: "#9ca3af", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>
-              Dismiss
-            </button>
-          </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
