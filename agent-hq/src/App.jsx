@@ -544,7 +544,7 @@ function MorningCalendarSnapshot() {
           padding: "6px 12px", borderRadius: 6, fontSize: 10, fontWeight: 700, cursor: "pointer",
           display: "flex", alignItems: "center", gap: 4, width: "100%", justifyContent: "center",
         }}>
-          <RefreshCw size={10} /> Reconnect Google Calendar
+          <RefreshCw size={10} /> Reconnect to Google
         </button>
       )}
     </div>
@@ -2383,7 +2383,7 @@ function CalendarSection() {
         <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 14px", borderRadius: 10, background: "#fffbeb", border: "1px solid #fde68a", marginBottom: 12 }}>
           <AlertTriangle size={16} color="#d97706" />
           <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 12, fontWeight: 600, color: "#92400e" }}>Google Calendar disconnected</div>
+            <div style={{ fontSize: 12, fontWeight: 600, color: "#92400e" }}>Google disconnected</div>
             <div style={{ fontSize: 11, color: "#b45309" }}>
               {gcalStatus.configured
                 ? "Session expired — one click to reconnect."
@@ -2397,7 +2397,7 @@ function CalendarSection() {
               display: "flex", alignItems: "center", gap: 6, whiteSpace: "nowrap",
               boxShadow: "0 2px 8px rgba(37,99,235,0.3)",
             }}>
-              <RefreshCw size={12} /> Reconnect
+              <RefreshCw size={12} /> Reconnect to Google
             </button>
           )}
         </div>
