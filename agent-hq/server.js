@@ -2988,11 +2988,15 @@ function parseNoteEmail(subject, body) {
   return result;
 }
 
-// GET /api/fub/leads/scan — Scan Gmail for new FUB lead emails and auto-import
-app.get('/api/fub/leads/scan', async (req, res) => {
-  if (!FUB_API_KEY) return res.json({ error: 'FUB_API_KEY not configured', success: false });
-  if (!tokens) return res.json({ error: 'Gmail not connected', success: false });
+// ── FUB Lead Scan — core function (used by endpoint + 30-min interval) ──
+let fubLeadScanLog = [];
+const MAX_LEAD_SCAN_LOG = 20;
 
+async function runFubLeadScan(trigger = 'manual') {
+  if (!FUB_API_KEY) return { error: 'FUB_API_KEY not configured', success: false };
+  if (!tokens) return { error: 'Gmail not connected', success: false };
+
+  const startTime = Date.now();
   try {
     const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
     const results = { leadsCreated: [], notesAdded: [], errors: [], scanned: 0 };
@@ -3185,16 +3189,70 @@ app.get('/api/fub/leads/scan', async (req, res) => {
       fs.writeFileSync(processedPath, JSON.stringify(processedIds.slice(-200)));
     } catch {}
 
-    // Also persist to localStorage-compatible backup endpoint
-    res.json({
-      success: true,
-      ...results,
-      summary: `${results.leadsCreated.filter(l => l.status === 'created').length} leads created, ${results.notesAdded.length} notes added, ${results.errors.length} errors`,
-    });
+    const summary = `${results.leadsCreated.filter(l => l.status === 'created').length} leads created, ${results.notesAdded.length} notes added, ${results.errors.length} errors`;
+    const elapsed = Date.now() - startTime;
+
+    // Log this scan run
+    const logEntry = {
+      trigger,
+      timestamp: new Date().toLocaleString('en-US', { timeZone: 'America/Toronto' }),
+      elapsed: `${elapsed}ms`,
+      summary,
+      leadsCreated: results.leadsCreated.filter(l => l.status === 'created').length,
+      notesAdded: results.notesAdded.length,
+      errors: results.errors.length,
+      scanned: results.scanned,
+    };
+    fubLeadScanLog.unshift(logEntry);
+    if (fubLeadScanLog.length > MAX_LEAD_SCAN_LOG) fubLeadScanLog.pop();
+    console.log(`[FUB Lead Scan] ${trigger}: ${summary} (${elapsed}ms)`);
+
+    return { success: true, ...results, summary };
   } catch (err) {
     console.error('[FUB] Lead scan error:', err);
-    res.json({ error: err.message, success: false });
+    const logEntry = {
+      trigger,
+      timestamp: new Date().toLocaleString('en-US', { timeZone: 'America/Toronto' }),
+      error: err.message,
+    };
+    fubLeadScanLog.unshift(logEntry);
+    if (fubLeadScanLog.length > MAX_LEAD_SCAN_LOG) fubLeadScanLog.pop();
+    return { error: err.message, success: false };
   }
+}
+
+// 30-minute auto-scan interval
+const FUB_LEAD_SCAN_INTERVAL = 30 * 60 * 1000;
+setInterval(() => {
+  const now = new Date();
+  const estString = now.toLocaleString('en-US', { timeZone: 'America/Toronto', hour: 'numeric', minute: 'numeric', hour12: true });
+  console.log(`[FUB Lead Scan] Auto-scan firing (${estString} EST)`);
+  runFubLeadScan(`auto_${estString.replace(/[:\s]/g, '')}`);
+}, FUB_LEAD_SCAN_INTERVAL);
+
+// Run once on startup (after tokens load)
+setTimeout(() => {
+  console.log('[FUB Lead Scan] Running startup scan...');
+  runFubLeadScan('startup');
+}, 30 * 1000);
+
+// GET /api/fub/leads/scan — Manual trigger (also used by dashboard button)
+app.get('/api/fub/leads/scan', async (req, res) => {
+  const result = await runFubLeadScan('manual');
+  res.json(result);
+});
+
+// GET /api/fub/leads/scan-status — View auto-scan status and recent logs
+app.get('/api/fub/leads/scan-status', (req, res) => {
+  const now = new Date();
+  const estString = now.toLocaleString('en-US', { timeZone: 'America/Toronto' });
+  res.json({
+    currentTimeEST: estString,
+    schedule: 'Every 30 minutes (24/7 on Railway)',
+    lastScan: fubLeadScanLog[0] || null,
+    totalScans: fubLeadScanLog.length,
+    recentLogs: fubLeadScanLog.slice(0, 10),
+  });
 });
 
 // GET /api/fub/leads/processed — check what's already been imported
