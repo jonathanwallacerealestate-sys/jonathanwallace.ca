@@ -2378,16 +2378,17 @@ app.post('/api/tj/scan', async (req, res) => {
         continue;
       }
 
-      if (!contactEmail && !contactName) {
-        skipped.push({ msgId, reason: 'No contact info' });
+      // Only skip if there's truly nothing — no email, no phone, no name
+      const hasPhone = parsed.phones.length > 0;
+      if (!contactEmail && !hasPhone && !contactName) {
+        skipped.push({ msgId, reason: 'No contact info at all' });
         state.processedEmailIds[msgId] = 'skipped';
         state.emailsSkipped++;
         scannedCount++;
         continue;
       }
-
-      if (!contactEmail) {
-        skipped.push({ msgId, name: contactName, reason: 'Name only — no email' });
+      if (!contactEmail && !hasPhone) {
+        skipped.push({ msgId, name: contactName, reason: 'Name only — no email or phone' });
         state.processedEmailIds[msgId] = 'skipped';
         state.emailsSkipped++;
         scannedCount++;
@@ -2415,15 +2416,16 @@ app.post('/api/tj/scan', async (req, res) => {
       }
 
       // Deduplicate: skip if we've already seen this email in this batch or a previous batch
-      const emailKey = contactEmail.toLowerCase();
-      if (seenEmails.has(emailKey)) {
+      // Deduplicate by email or phone within the batch
+      const dedupKey = contactEmail ? contactEmail.toLowerCase() : (parsed.phones[0] ? parsed.phones[0].replace(/\D/g, '') : null);
+      if (dedupKey && seenEmails.has(dedupKey)) {
         skipped.push({ msgId, name: contactName, email: contactEmail, reason: 'Duplicate (already in this batch)' });
         state.processedEmailIds[msgId] = 'skipped';
         state.emailsSkipped++;
         scannedCount++;
         continue;
       }
-      seenEmails.add(emailKey);
+      if (dedupKey) seenEmails.add(dedupKey);
 
       candidates.push({
         msgId,
