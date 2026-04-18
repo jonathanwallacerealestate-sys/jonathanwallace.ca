@@ -2293,6 +2293,20 @@ app.post('/api/tj/process', async (req, res) => {
       const lastName = nameParts.slice(1).join(' ') || '';
       const isRealtor = parsed.isRealtor;
 
+      // For realtors: determine source type and strip property-specific data
+      let realtorSource = null;
+      if (isRealtor) {
+        if (parsed.isShowingRequest) realtorSource = 'Showing Request';
+        else if (parsed.isBrokerBuyRequest) realtorSource = 'Broker Buy Request';
+        else if (parsed.brokerage) realtorSource = 'Brokerage Signature';
+        else realtorSource = 'Email Correspondence';
+      }
+
+      // Filter noteWorthy: realtors should NOT get property address, MLS, deal value, closing date
+      const noteWorthyForContact = isRealtor
+        ? parsed.noteWorthy.filter(n => !n.startsWith('Property:') && !n.startsWith('MLS#:') && !n.startsWith('Deal Value:') && !n.startsWith('Closing:') && !n.startsWith('YSP:'))
+        : parsed.noteWorthy;
+
       const newPerson = {
         firstName, lastName,
         stage: isRealtor ? 'Real Estate Agent' : 'Old Team Jordan Leads',
@@ -2317,12 +2331,13 @@ app.post('/api/tj/process', async (req, res) => {
 
           const noteLines = [
             `<p><strong>Imported from Team Jordan Email Archive</strong></p>`,
-            `<p>Original email: "${parsed.subject}" (${parsed.date})</p>`,
           ];
-          if (parsed.noteWorthy.length > 0) noteLines.push(`<p><strong>Deal Info:</strong> ${parsed.noteWorthy.join(' | ')}</p>`);
+          if (isRealtor && realtorSource) noteLines.push(`<p><strong>Source:</strong> ${realtorSource}</p>`);
+          noteLines.push(`<p>Original email: "${parsed.subject}" (${parsed.date})</p>`);
+          if (noteWorthyForContact.length > 0) noteLines.push(`<p><strong>${isRealtor ? 'Agent Info' : 'Deal Info'}:</strong> ${noteWorthyForContact.join(' | ')}</p>`);
           if (parsed.emails.length > 1) noteLines.push(`<p>Additional emails: ${parsed.emails.slice(1).join(', ')}</p>`);
           if (parsed.phones.length > 1) noteLines.push(`<p>Additional phones: ${parsed.phones.slice(1).join(', ')}</p>`);
-          if (parsed.names.length > 0) noteLines.push(`<p>Names referenced: ${parsed.names.join(', ')}</p>`);
+          if (!isRealtor && parsed.names.length > 0) noteLines.push(`<p>Names referenced: ${parsed.names.join(', ')}</p>`);
 
           try {
             await fetch(`${FUB_BASE}/notes`, {
