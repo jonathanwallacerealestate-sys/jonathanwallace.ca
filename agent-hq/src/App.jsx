@@ -5956,7 +5956,7 @@ function ListingForm() {
                     <X size={14} color="#ef4444" />
                   </button>
                 </div>
-                <div style={gridStyle(4)}>
+                <div style={gridStyle(3)}>
                   <FormField label="Room Name">
                     <input style={inputStyle} value={room.name} onChange={e => updateRoom(idx, 'name', e.target.value)} placeholder="e.g. Primary Bedroom" />
                   </FormField>
@@ -5964,9 +5964,6 @@ function ListingForm() {
                     <select style={selectStyle} value={room.level} onChange={e => updateRoom(idx, 'level', e.target.value)}>
                       {['Main', 'Upper', 'Lower', 'Basement'].map(l => <option key={l}>{l}</option>)}
                     </select>
-                  </FormField>
-                  <FormField label="Dimensions">
-                    <input style={inputStyle} value={room.dimensions} onChange={e => updateRoom(idx, 'dimensions', e.target.value)} placeholder="12 x 14" />
                   </FormField>
                   <FormField label="Flooring">
                     <select style={selectStyle} value={room.flooring || ''} onChange={e => updateRoom(idx, 'flooring', e.target.value)}>
