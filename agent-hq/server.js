@@ -3367,16 +3367,30 @@ function parseMLSListingText(text) {
 
     const garType = atOffset(21);
     if (garType) {
-      if (/attach/i.test(garType)) fields.parkingType = 'Attached Garage';
-      else if (/detach/i.test(garType)) fields.parkingType = 'Detached Garage';
-      else if (/carport/i.test(garType)) fields.parkingType = 'Carport';
+      if (/attach/i.test(garType)) fields.garageType = 'Attached';
+      else if (/detach/i.test(garType)) fields.garageType = 'Detached';
+      else if (/built/i.test(garType)) fields.garageType = 'Built-In';
+      else if (/carport/i.test(garType)) fields.garageType = 'Carport';
+      else if (/none/i.test(garType)) fields.garageType = 'None';
+      else fields.garageType = garType;
     }
 
     const garSpaces = atOffset(22);
-    if (garSpaces && /^\d+$/.test(garSpaces)) fields.parkingSpaces = garSpaces;
+    if (garSpaces && /^\d+$/.test(garSpaces)) fields.garageSpaces = garSpaces;
 
+    // Driveway — REALM has "Private Double", "Mutual", etc.
     const driveway = atOffset(23);
-    if (driveway) fields.drivewayMaterial = driveway;
+    if (driveway) {
+      // Extract size from driveway description (e.g. "Private Double" → "Double")
+      if (/single/i.test(driveway)) fields.drivewaySize = 'Single';
+      else if (/double/i.test(driveway)) fields.drivewaySize = 'Double';
+      else if (/triple/i.test(driveway)) fields.drivewaySize = 'Triple';
+      else fields.drivewaySize = driveway;
+    }
+
+    // Driveway parking spaces (offset +24 = PARKING DRIVE SPACES)
+    const driveSpaces = atOffset(24);
+    if (driveSpaces && /^\d+$/.test(driveSpaces)) fields.drivewaySpaces = driveSpaces;
 
     const basement = atOffset(27);
     if (basement) {

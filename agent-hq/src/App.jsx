@@ -5345,7 +5345,7 @@ const PROPERTY_TYPES = ['Detached', 'Semi-Detached', 'Townhouse', 'Condo', 'Bung
 const BASEMENT_TYPES = ['Full', 'Partial', 'Crawl Space', 'None'];
 const WATER_SOURCES = ['Municipal', 'Drilled Well', 'Dug Well', 'Lake', 'Shared Well', 'Cistern'];
 const SEWER_TYPES = ['Municipal Sewer', 'Septic Tank', 'Holding Tank', 'Septic Bed'];
-const PARKING_TYPES = ['Attached Garage', 'Detached Garage', 'Carport', 'Driveway Only', 'None'];
+const GARAGE_TYPES = ['Attached', 'Detached', 'Built-In', 'Carport', 'None'];
 const FLOORING_TYPES = ['Hardwood', 'Laminate', 'Vinyl Plank', 'Tile', 'Carpet', 'Concrete', 'Other'];
 
 function defaultFormData() {
@@ -5364,7 +5364,7 @@ function defaultFormData() {
     hydroProvider: '', propaneProvider: '', gasProvider: '', internetProvider: '', internetType: '',
     basementType: '', basementFinish: '', basementWalkout: '', basementCeilingHeight: '', basementNotes: '',
     waterSource: '', sewerType: '', wellDetails: '', septicDetails: '',
-    parkingType: '', parkingSpaces: '', drivewayMaterial: '', garageType: '', garageSpaces: '',
+    garageType: '', garageSpaces: '', drivewaySize: '', drivewayMaterial: '', drivewaySpaces: '',
     appliancesIncluded: [],
     otherInclusions: [], inclusionsNotes: '', exclusions: '',
     visibleUpgrades: '', hiddenUpgrades: '', floorPlanChanges: '',
@@ -5841,9 +5841,11 @@ function ListingForm() {
           {/* SECTION 11: PARKING & GARAGE */}
           <FormSection title="Parking & Garage" icon={Home} expanded={expanded.parking} onToggle={() => toggle('parking')}>
             <div style={gridStyle(3)}>
-              <FormField label="Parking Type">{sel('parkingType', PARKING_TYPES, 'Select...')}</FormField>
-              <FormField label="Parking Spaces">{sel('parkingSpaces', ['1','2','3','4','5','6+'], 'Select...')}</FormField>
+              <FormField label="Garage Type">{sel('garageType', GARAGE_TYPES, 'Select...')}</FormField>
+              <FormField label="Garage Spaces">{sel('garageSpaces', ['1','2','3','4','5'], 'Select...')}</FormField>
+              <FormField label="Driveway Size">{inp('drivewaySize', 'e.g. Single, Double, Triple')}</FormField>
               <FormField label="Driveway Material">{inp('drivewayMaterial', 'e.g. Paved, Gravel, Interlocking')}</FormField>
+              <FormField label="Driveway Parking Spaces">{sel('drivewaySpaces', ['1','2','3','4','5','6','7','8','9','10+'], 'Select...')}</FormField>
             </div>
           </FormSection>
 
