@@ -2398,7 +2398,34 @@ app.post('/api/tj/scan', async (req, res) => {
         continue;
       }
 
-      // NOTE: FUB cross-reference moved to approve step to keep scan fast
+      // Cross-reference against FUB — skip contacts that already exist
+      if (contactEmail || parsed.phones[0]) {
+        try {
+          let existing = contactEmail ? await findPersonInFub(contactEmail, contactName) : null;
+          if (!existing && parsed.phones[0]) {
+            try {
+              const phoneClean = parsed.phones[0].replace(/\D/g, '');
+              const phoneResp = await fetch(`${FUB_BASE}/people?phone=${encodeURIComponent(phoneClean)}&limit=1`, { headers: fubHeaders() });
+              if (phoneResp.ok) {
+                const phoneData = await phoneResp.json();
+                if (phoneData.people && phoneData.people.length > 0) existing = phoneData.people[0];
+              }
+            } catch {}
+          }
+          if (existing) {
+            skipped.push({ msgId, name: contactName, email: contactEmail, reason: 'Already in FUB', fubId: existing.id });
+            if (!state.approvedContacts) state.approvedContacts = [];
+            if (contactEmail) state.approvedContacts.push(contactEmail.toLowerCase());
+            state.processedEmailIds[msgId] = 'existing';
+            state.leadsSkippedExisting++;
+            scannedCount++;
+            continue;
+          }
+        } catch (err) {
+          console.error('[TJ] FUB lookup error during scan:', err.message);
+        }
+      }
+
       // --- BUILD CANDIDATE FOR REVIEW ---
       const nameParts = (contactName || '').split(/\s+/).filter(Boolean);
       const firstName = nameParts[0] || '';
@@ -2531,37 +2558,11 @@ app.post('/api/tj/approve', async (req, res) => {
     const isRealtor = type === 'realtor';
     const isLawyer = type === 'lawyer';
 
-    // Cross-reference against FUB by email AND phone (moved here from scan for speed)
+    // Quick safety check — in case contact was added to FUB between scan and approve
     try {
-      let existing = await findPersonInFub(email, `${firstName} ${lastName}`.trim());
-      // Also check by phone if no email match
-      if (!existing && phone) {
-        try {
-          const phoneClean = phone.replace(/\D/g, '');
-          const phoneResp = await fetch(`${FUB_BASE}/people?phone=${encodeURIComponent(phoneClean)}&limit=1`, { headers: fubHeaders() });
-          if (phoneResp.ok) {
-            const phoneData = await phoneResp.json();
-            if (phoneData.people && phoneData.people.length > 0) existing = phoneData.people[0];
-          }
-        } catch {}
-      }
+      const existing = email ? await findPersonInFub(email, `${firstName} ${lastName}`.trim()) : null;
       if (existing) {
-        // Already in FUB — add notes if applicable, skip creation
-        if (noteWorthy.length > 0 && !isLawyer) {
-          try {
-            await fetch(`${FUB_BASE}/notes`, {
-              method: 'POST', headers: fubHeaders(),
-              body: JSON.stringify({
-                personId: existing.id,
-                body: `<p><strong>Team Jordan Archive:</strong></p><p>${noteWorthy.join(' | ')}</p><p><em>Email: ${candidate.subject} (${candidate.date})</em></p>`,
-                isHtml: true,
-              }),
-            });
-            state.notesAdded++;
-          } catch {}
-        }
         state.processedEmailIds[candidate.msgId] = 'existing';
-        // Track so they don't reappear in future batches
         if (!state.approvedContacts) state.approvedContacts = [];
         if (email) state.approvedContacts.push(email.toLowerCase());
         state.leadsSkippedExisting++;
@@ -2570,7 +2571,7 @@ app.post('/api/tj/approve', async (req, res) => {
         continue;
       }
     } catch (err) {
-      console.error('[TJ] FUB lookup error:', err.message);
+      console.error('[TJ] FUB safety check error:', err.message);
     }
 
     // Map type to FUB stage and tags
