@@ -2033,7 +2033,7 @@ function EmailEASection() {
                       </>
                     )}
                     {t.state !== 'closed' && (
-                      <button onClick={() => { updateThreadState?.(tid, 'closed'); setSelectedThread(null); }} style={{ display: "flex", alignItems: "center", gap: 4, background: "#10b981", color: "#fff", border: "none", borderRadius: 6, padding: "6px 10px", fontSize: 11, fontWeight: 700, cursor: "pointer" }}><CheckCircle2 size={11} /> Done — No Action Needed</button>
+                      <button onClick={() => { updateThreadState?.(tid, 'closed'); setSelectedThread(null); }} style={{ display: "flex", alignItems: "center", gap: 4, background: "#10b981", color: "#fff", border: "none", borderRadius: 6, padding: "6px 10px", fontSize: 11, fontWeight: 700, cursor: "pointer" }}><CheckCircle2 size={11} /> Done</button>
                     )}
                     {t.state === 'closed' && (
                       <button onClick={() => updateThreadState?.(tid, 'awaiting_you')} style={{ display: "flex", alignItems: "center", gap: 4, background: "#fef2f2", color: "#ef4444", border: "1px solid #fecaca", borderRadius: 6, padding: "6px 10px", fontSize: 11, fontWeight: 600, cursor: "pointer" }}><Reply size={11} /> Reopen</button>
