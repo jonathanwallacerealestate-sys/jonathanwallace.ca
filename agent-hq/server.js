@@ -3,6 +3,8 @@ import { google } from 'googleapis';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import multer from 'multer';
+import pdfParse from 'pdf-parse';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -2990,6 +2992,455 @@ app.delete('/api/listing-form/:propertyId', (req, res) => {
     res.json({ success: true });
   } catch (err) {
     res.json({ success: false, error: err.message });
+  }
+});
+
+// ─────────────────────────────────────────────
+// PDF IMPORT — GeoWarehouse & Old MLS Listings
+// ─────────────────────────────────────────────
+
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 * 1024 * 1024 } });
+
+// Parse GeoWarehouse PDF into structured fields
+function parseGeoWarehouseText(text) {
+  const fields = { _source: 'geowarehouse' };
+  const t = text.replace(/\r\n/g, '\n');
+
+  // Address — appears on cover: "160  RUE LAFONTAINE ROAD WEST\nTINY"
+  const addrMatch = t.match(/GeoWarehouse Address:\s*\n?\s*(.+?)(?:\n\s*(.+?))?(?:\n|$)/i);
+  if (addrMatch) {
+    fields.address = addrMatch[1].trim();
+    if (addrMatch[2] && addrMatch[2].trim().length < 30) fields.city = addrMatch[2].trim();
+  }
+  // Fallback address from header
+  if (!fields.address) {
+    const headerAddr = t.match(/(\d+\s+[A-Z][A-Z\s]+(?:ROAD|RD|STREET|ST|AVE|AVENUE|DR|DRIVE|BLVD|CRES|COURT|CT|WAY|LANE|LN|PL|PLACE|CIRCLE|CIR)[A-Z\s]*),\s*([A-Z]+)/i);
+    if (headerAddr) { fields.address = headerAddr[1].trim(); fields.city = headerAddr[2].trim(); }
+  }
+
+  // PIN
+  const pinMatch = t.match(/PIN[:\s]+(\d{9,})/i);
+  if (pinMatch) fields.pin = pinMatch[1];
+
+  // Legal Description
+  const legalMatch = t.match(/Legal Description\s*\n\s*(.+?)(?:\n\n|\nReport)/is);
+  if (legalMatch) fields.legalDescription = legalMatch[1].trim().replace(/\n/g, ' ');
+
+  // Ownership
+  const ownerMatch = t.match(/Owner Name:\s*\n?\s*(.+?)(?:\n\n|\n[A-Z])/is);
+  if (ownerMatch) {
+    const names = ownerMatch[1].trim().split(/[;\n]/).map(n => n.trim()).filter(Boolean);
+    if (names.length > 0) {
+      // Parse "LAST, FIRST" format
+      const parseName = (n) => { const parts = n.split(',').map(p => p.trim()); return parts.length >= 2 ? `${parts[1]} ${parts[0]}` : n; };
+      fields.sellerName = parseName(names[0]);
+      if (names.length > 1) fields.sellerName2 = parseName(names[1]);
+    }
+  }
+
+  // Ownership Type
+  const ownerTypeMatch = t.match(/Ownership Type:\s*(.+)/i);
+  if (ownerTypeMatch) fields.ownershipType = ownerTypeMatch[1].trim();
+
+  // Lot Size — "Area:  107391.43 sq.ft (2.465 ac)"
+  const areaMatch = t.match(/Area:\s*([\d,.]+)\s*sq\.?ft\s*\(([\d.]+)\s*ac\)/i);
+  if (areaMatch) {
+    fields.lotSize = `${areaMatch[1]} sq ft (${areaMatch[2]} ac)`;
+  }
+
+  // Frontage & Depth
+  const frontMatch = t.match(/Frontage:\s*([\d.]+)\s*ft/i);
+  if (frontMatch) fields.frontage = frontMatch[1] + ' ft';
+  const depthMatch = t.match(/Depth:\s*([\d.]+)\s*ft/i);
+  if (depthMatch) fields.depth = depthMatch[1] + ' ft';
+
+  // Lot Dimensions from measurements
+  const measMatch = t.match(/Measurements:\s*([\d.]+ft[\s\S]*?)(?:\n\s*Lot Measurement|\n\n)/i);
+  if (measMatch) fields.lotDimensions = measMatch[1].replace(/\n/g, ' ').trim();
+  if (fields.frontage && fields.depth) {
+    fields.lotDimensions = fields.lotDimensions || `${fields.frontage} x ${fields.depth}`;
+  }
+
+  // ARN (Assessment Roll Number)
+  const arnMatch = t.match(/ARN\s*\n?\s*(\d{15,})/i);
+  if (arnMatch) fields.arn = arnMatch[1];
+
+  // Assessment value
+  const assessMatch = t.match(/Current Assessment\s*\*?\s*:?\s*\$?([\d,]+)/i);
+  if (assessMatch) fields.assessedValue = assessMatch[1].replace(/,/g, '');
+
+  // Taxation year and phased assessment
+  const taxYearMatch = t.match(/Taxation Year\s*\n\s*(\d{4})/i);
+  if (taxYearMatch) fields.taxYear = taxYearMatch[1];
+
+  // Phased-In Assessment
+  const phasedMatch = t.match(/Phased-In Assessment\s*\*?\*?\s*\n?\s*\$?([\d,]+)/i);
+  if (phasedMatch) fields.assessedValue = phasedMatch[1].replace(/,/g, '');
+
+  // Year Built
+  const builtMatch = t.match(/(?:Year\s+Built|Year)\s*\n?\s*(\d{4})\s+(\d+)/i);
+  if (!builtMatch) {
+    // Try table format: "301 1880 11 3 1 2"
+    const structMatch = t.match(/\d{3}\s+(\d{4})\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)/);
+    if (structMatch) {
+      fields.yearBuilt = structMatch[1];
+      fields.bedrooms = structMatch[3];
+      const fullBaths = parseInt(structMatch[4]) || 0;
+      const halfBaths = parseInt(structMatch[5]) || 0;
+      fields.bathrooms = halfBaths > 0 ? `${fullBaths}.5` : String(fullBaths);
+    }
+  }
+
+  // Description field (e.g. "Single-family detached (not on water)")
+  const descMatch = t.match(/Description:\s*(.+)/i);
+  if (descMatch) {
+    const desc = descMatch[1].trim().toLowerCase();
+    if (desc.includes('detach')) fields.propertyType = 'Detached';
+    else if (desc.includes('semi')) fields.propertyType = 'Semi-Detached';
+    else if (desc.includes('town') || desc.includes('row')) fields.propertyType = 'Townhouse';
+    else if (desc.includes('condo')) fields.propertyType = 'Condo';
+    if (desc.includes('on water') && !desc.includes('not on water')) fields.isWaterfront = true;
+  }
+
+  // Assessment Roll Legal Description (sometimes different format)
+  const rollLegalMatch = t.match(/Assessment Roll Legal Description:\s*(.+?)(?:\n\s*Property Address|\n\n)/is);
+  if (rollLegalMatch && !fields.legalDescription) {
+    fields.legalDescription = rollLegalMatch[1].replace(/\n/g, ' ').trim();
+  }
+
+  // Property Address from assessment section
+  const propAddrMatch = t.match(/Property Address:\s*\n?\s*(.+?)(?:\n\n|\nReport)/is);
+  if (propAddrMatch && !fields.address) {
+    fields.address = propAddrMatch[1].trim();
+  }
+
+  return fields;
+}
+
+// Parse old MLS listing PDF into structured fields
+function parseMLSListingText(text) {
+  const fields = { _source: 'mls_listing' };
+  const t = text.replace(/\r\n/g, '\n');
+
+  // Helper: extract value for a REALM-style "LABEL  Value" or "LABEL\nValue" field
+  const rv = (label) => {
+    // Try "LABEL   Value" on same line (REALM two-column format)
+    const re1 = new RegExp(label + '\\s{2,}([^\\n]+)', 'i');
+    const m1 = t.match(re1);
+    if (m1) return m1[1].trim();
+    // Try "LABEL\nValue" on next line
+    const re2 = new RegExp(label + '\\s*\\n\\s*([^\\n]+)', 'i');
+    const m2 = t.match(re2);
+    if (m2) return m2[1].trim();
+    return null;
+  };
+
+  // ─── ADDRESS (header line: "375 Champlain Rd, Penetanguishene") ───
+  const headerAddr = t.match(/(\d+\s+[A-Za-z][A-Za-z\s.]+(?:Rd|Road|St|Street|Ave|Avenue|Dr|Drive|Blvd|Cres|Ct|Court|Way|Lane|Ln|Pl|Place|Circle|Cir|Terr|Line|Hwy|Beach)[A-Za-z\s.]*),\s*([A-Za-z\s]+?)(?:\n|TERMINATED|ACTIVE|\$)/i);
+  if (headerAddr) {
+    fields.address = headerAddr[1].trim();
+    fields.city = headerAddr[2].trim();
+  }
+
+  // MLS Number — "S12344762" pattern in header area
+  const mlsMatch = t.match(/([A-Z]\d{7,10})/);
+  if (mlsMatch) fields.mlsNumber = mlsMatch[1];
+
+  // List price
+  const listMatch = t.match(/LIST\s+\$([\d,]+)/i) || t.match(/\$\s*([\d,]{6,})/);
+  if (listMatch) fields.listPrice = listMatch[1].replace(/,/g, '');
+
+  // Taxes
+  const taxMatch = t.match(/TAXES\s+\$([\d,]+)/i);
+  if (taxMatch) fields.taxes = taxMatch[1].replace(/,/g, '');
+  const taxYr = rv('TAX YEAR');
+  if (taxYr) fields.taxYear = taxYr;
+
+  // PIN
+  const pinMatch = t.match(/PIN#?\s+([\d]+)/i);
+  if (pinMatch) fields.pin = pinMatch[1];
+
+  // ARN
+  const arnVal = rv('ARN#?');
+  if (arnVal) fields.arn = arnVal;
+
+  // Legal Description
+  const legalMatch = t.match(/LEGAL DESCRIPTION\s+(.+?)(?:\n|PropTx)/is);
+  if (legalMatch) fields.legalDescription = legalMatch[1].replace(/\n/g, ' ').trim();
+
+  // Header stats: "3  BEDS  2  BATHS  6  ROOMS  ..."
+  const headerStats = t.match(/(\d+)\s+BEDS?\s+(\d+)\s+BATHS?\s+(\d+)\s+ROOMS?/i);
+  if (headerStats) {
+    fields.bedrooms = headerStats[1];
+    fields.bathrooms = headerStats[2];
+  }
+
+  // SQFT from header
+  const sqftHeader = t.match(/(\d{3,5})(?:\+?-?\d*)\s+SQFT/i);
+  if (sqftHeader) fields.sqftAboveGrade = sqftHeader[1];
+
+  // Seller/Landlord names — "SELLER/LANDLORD  ALLENDORF, CORINNE JOYCE;\nALLENDORF, DAVID JAMES"
+  const sellerMatch = t.match(/SELLER\/LANDLORD\s+(.+?)(?:\n\s*(?:NAME\s+(.+?))?\n|\n\s*SELLER PROPERTY)/is);
+  if (sellerMatch) {
+    const parseName = (n) => { const p = n.trim().split(',').map(s => s.trim()); return p.length >= 2 ? `${p[1]} ${p[0]}` : n.trim(); };
+    const names = (sellerMatch[1] + (sellerMatch[2] ? '\n' + sellerMatch[2] : '')).split(/[;\n]/).map(n => n.trim()).filter(Boolean);
+    if (names[0]) fields.sellerName = parseName(names[0]);
+    if (names[1]) fields.sellerName2 = parseName(names[1]);
+  }
+
+  // Occupancy
+  const occVal = rv('OCCUPANCY');
+  if (occVal) {
+    if (/owner/i.test(occVal)) fields.occupancy = 'Owner Occupied';
+    else if (/tenant|rent/i.test(occVal)) fields.occupancy = 'Tenant Occupied';
+    else if (/vacant/i.test(occVal)) fields.occupancy = 'Vacant';
+  }
+
+  // ─── PROPERTY INFORMATION section ───
+  // Year Built
+  const yearVal = rv('YEAR BUILT EXACT') || rv('YEAR BUILT');
+  if (yearVal && /\d{4}/.test(yearVal)) fields.yearBuilt = yearVal.match(/(\d{4})/)[1];
+
+  // Lot Size
+  const lotVal = rv('LOT SIZE');
+  if (lotVal) fields.lotSize = lotVal;
+
+  // Acreage
+  const acreVal = rv('ACREAGE');
+  if (acreVal) fields.lotDimensions = acreVal + ' acres';
+
+  // Bedrooms / Washrooms (from property info section if not in header)
+  const bedsVal = rv('BEDROOMS');
+  if (bedsVal && !fields.bedrooms) fields.bedrooms = bedsVal;
+  const washVal = rv('WASHROOMS');
+  if (washVal && !fields.bathrooms) fields.bathrooms = washVal;
+
+  // Square Feet / Above Grade
+  const sqftVal = rv('SQUARE FEET');
+  if (sqftVal) fields.sqftAboveGrade = sqftVal.replace(/[^0-9-]/g, '');
+  const aboveVal = rv('ABOVE GRADE');
+  if (aboveVal && /\d/.test(aboveVal)) {
+    const num = aboveVal.match(/(\d+)/);
+    if (num) fields.sqftAboveGrade = num[1];
+  }
+
+  // Exterior
+  const extVal = rv('EXTERIOR');
+  if (extVal) fields.exteriorMaterial = extVal;
+
+  // Roof
+  const roofVal = rv('ROOF');
+  if (roofVal) {
+    fields.roofType = /asphalt|shingle/i.test(roofVal) ? 'Asphalt Shingle' : /metal|steel/i.test(roofVal) ? 'Metal' : /cedar|shake/i.test(roofVal) ? 'Cedar Shake' : /slate/i.test(roofVal) ? 'Slate' : roofVal;
+  }
+
+  // Foundation
+  const foundVal = rv('FOUNDATION');
+  if (foundVal) {
+    fields.foundationType = /poured|concrete/i.test(foundVal) ? 'Poured Concrete' : /block/i.test(foundVal) ? 'Block' : /stone/i.test(foundVal) ? 'Stone' : /slab/i.test(foundVal) ? 'Slab' : foundVal;
+  }
+
+  // Garage
+  const garTypeVal = rv('GARAGE TYPE');
+  if (garTypeVal) {
+    if (/attach/i.test(garTypeVal)) fields.parkingType = 'Attached Garage';
+    else if (/detach/i.test(garTypeVal)) fields.parkingType = 'Detached Garage';
+    else if (/carport/i.test(garTypeVal)) fields.parkingType = 'Carport';
+  }
+  const garSpVal = rv('GARAGE PARKING\\s*\\n?\\s*SPACES') || rv('GARAGE PARKING SPACES');
+  if (garSpVal) fields.parkingSpaces = garSpVal.match(/(\d+)/)?.[1];
+  const totalPark = rv('TOTAL PARKING\\s*\\n?\\s*SPACES');
+  if (totalPark && !fields.parkingSpaces) fields.parkingSpaces = totalPark.match(/(\d+)/)?.[1];
+  const driveVal = rv('DRIVE');
+  if (driveVal) fields.drivewayMaterial = driveVal;
+
+  // A/C
+  const acVal = rv('A\\/C');
+  if (acVal) {
+    if (/central/i.test(acVal)) fields.acTypes = ['Central Air'];
+    else if (/ductless|mini/i.test(acVal)) fields.acTypes = ['Ductless Mini-Split'];
+    else if (/window/i.test(acVal)) fields.acTypes = ['Window Units'];
+    else if (/none/i.test(acVal)) fields.acTypes = ['None'];
+  }
+
+  // Heating
+  const heatTypeVal = rv('HEATING TYPE');
+  const heatSrcVal = rv('HEATING SOURCE');
+  if (heatTypeVal || heatSrcVal) {
+    const h = ((heatTypeVal || '') + ' ' + (heatSrcVal || '')).toLowerCase();
+    const types = [];
+    if (h.includes('forced air') && h.includes('gas')) types.push('Forced Air Gas');
+    else if (h.includes('forced air') && h.includes('propane')) types.push('Propane');
+    else if (h.includes('forced air') && h.includes('oil')) types.push('Oil Furnace');
+    else if (h.includes('forced air') && h.includes('electric')) types.push('Electric Baseboard');
+    else if (h.includes('forced air')) types.push('Forced Air Gas');
+    if (h.includes('baseboard')) types.push('Electric Baseboard');
+    if (h.includes('radiant') || h.includes('in-floor')) types.push('Radiant In-Floor');
+    if (h.includes('wood') && h.includes('stove')) types.push('Wood Stove');
+    if (h.includes('pellet')) types.push('Pellet Stove');
+    if (h.includes('mini-split') || h.includes('ductless')) types.push('Mini-Split');
+    if (h.includes('boiler') || h.includes('radiator')) types.push('Boiler / Radiator');
+    if (h.includes('geothermal')) types.push('Geothermal');
+    if (types.length > 0) fields.heatingTypes = types;
+  }
+
+  // Water
+  const waterVal = rv('WATER');
+  if (waterVal) {
+    const w = waterVal.toLowerCase();
+    if (w.includes('municipal') || w.includes('city')) fields.waterSource = 'Municipal';
+    else if (w.includes('drilled')) fields.waterSource = 'Drilled Well';
+    else if (w.includes('dug')) fields.waterSource = 'Dug Well';
+    else if (w.includes('well')) fields.waterSource = 'Drilled Well';
+    else if (w.includes('lake')) fields.waterSource = 'Lake';
+  }
+
+  // Sewers
+  const sewerVal = rv('SEWERS');
+  if (sewerVal) {
+    const s = sewerVal.toLowerCase();
+    if (s.includes('municipal') || s.includes('city')) fields.sewerType = 'Municipal Sewer';
+    else if (s.includes('septic')) fields.sewerType = 'Septic Tank';
+    else if (s.includes('holding')) fields.sewerType = 'Holding Tank';
+    else if (s.includes('none')) fields.sewerType = 'None';
+  }
+
+  // Basement
+  const bsmtVal = rv('BASEMENT');
+  if (bsmtVal) {
+    const b = bsmtVal.toLowerCase();
+    if (b.includes('full')) fields.basementType = 'Full';
+    else if (b.includes('partial')) fields.basementType = 'Partial';
+    else if (b.includes('crawl')) fields.basementType = 'Crawl Space';
+    else if (b.includes('none')) fields.basementType = 'None';
+    if (b.includes('finished') && !b.includes('un')) fields.basementFinish = 'Finished';
+    else if (b.includes('unfinished') || b.includes('crawl')) fields.basementFinish = 'Unfinished';
+    else if (b.includes('partial')) fields.basementFinish = 'Partially Finished';
+  }
+
+  // Fireplace
+  const fpVal = rv('FIREPLACE');
+  if (fpVal && !/n\/a|none/i.test(fpVal)) fields.fireplace = fpVal;
+
+  // ─── Property Type (from header: "Detached 2-Storey") ───
+  const styleMatch = t.match(/(Detached|Semi-Detached|Townhouse|Condo|Bungalow|Cottage)\s*([\w-]*)/i);
+  if (styleMatch) {
+    const s = styleMatch[1].toLowerCase();
+    if (s === 'detached') fields.propertyType = 'Detached';
+    else if (s.includes('semi')) fields.propertyType = 'Semi-Detached';
+    else if (s.includes('town')) fields.propertyType = 'Townhouse';
+    else if (s.includes('condo')) fields.propertyType = 'Condo';
+    else if (s.includes('bung')) fields.propertyType = 'Bungalow';
+    else if (s.includes('cottage')) fields.propertyType = 'Cottage / Waterfront';
+    if (styleMatch[2]) fields.style = `${styleMatch[1]} ${styleMatch[2]}`.trim();
+  }
+
+  // ─── WATERFRONT section ───
+  const wbName = rv('WATER BODY NAME');
+  if (wbName && !/n\/a|none/i.test(wbName)) {
+    fields.isWaterfront = true;
+    fields.waterBody = wbName;
+  }
+  // Also check features for waterfront
+  if (!fields.isWaterfront && /waterfront/i.test(t.match(/FEATURES[\s\S]*?(?=PROPERTY INFORMATION|SPECIAL|$)/i)?.[0] || '')) {
+    fields.isWaterfront = true;
+  }
+  const shoreVal = rv('SHORELINE');
+  if (shoreVal && fields.isWaterfront) fields.shoreline = shoreVal;
+  const dockVal = rv('DOCKING TYPE');
+  if (dockVal && fields.isWaterfront) fields.dock = dockVal;
+
+  // ─── ROOM INFO table ───
+  // Format: "Kitchen  Main  5.43 m x 4.57 m (17.81 ft x 14.99 ft)  Eat-In Kitchen, Hardwood Floor"
+  const roomSection = t.match(/ROOM INFO\s*\n\s*ROOM\s+LEVEL\s+DIMENSIONS\s+NOTES\s*\n([\s\S]*?)(?:\n\s*WASHROOM|\n\s*INCLUSIONS|\n\s*$)/i);
+  if (roomSection) {
+    const rooms = [];
+    const lines = roomSection[1].split('\n').map(l => l.trim()).filter(Boolean);
+    for (const line of lines) {
+      // Parse: "Kitchen  Main  5.43 m x 4.57 m (17.81 ft x 14.99 ft)  Notes"
+      const rm = line.match(/^(\S+(?:\s+\S+)?)\s+(Main|2nd|3rd|Bsmt|Lower|Upper|Basement)\s+([\d.]+\s*m?\s*x\s*[\d.]+\s*m?\s*(?:\([\d.\s]*ft\s*x\s*[\d.\s]*ft\))?)\s*(.*)/i);
+      if (rm) {
+        // Extract imperial dimensions from parenthetical
+        const ftMatch = rm[3].match(/([\d.]+)\s*ft\s*x\s*([\d.]+)\s*ft/);
+        const dims = ftMatch ? `${ftMatch[1]} x ${ftMatch[2]}` : rm[3].trim();
+        // Extract flooring from notes
+        const notes = rm[4].trim();
+        let flooring = '';
+        if (/hardwood/i.test(notes)) flooring = 'Hardwood';
+        else if (/laminate/i.test(notes)) flooring = 'Laminate';
+        else if (/tile|ceramic/i.test(notes)) flooring = 'Tile';
+        else if (/carpet/i.test(notes)) flooring = 'Carpet';
+        else if (/vinyl/i.test(notes)) flooring = 'Vinyl Plank';
+
+        const level = rm[2] === '2nd' ? 'Upper' : rm[2] === 'Bsmt' ? 'Basement' : rm[2] === '3rd' ? 'Upper' : rm[2];
+
+        rooms.push({ name: rm[1].trim(), level, dimensions: dims, flooring, features: notes });
+      }
+    }
+    if (rooms.length > 0) fields.rooms = rooms;
+  }
+
+  // ─── INCLUSIONS ───
+  const inclMatch = t.match(/INCLUSIONS\s*\n\s*(.+?)(?:\n\s*EXCLUSIONS|\n\s*RENTAL|\n\n)/is);
+  if (inclMatch) fields.inclusionsNotes = inclMatch[1].trim();
+
+  // ─── EXCLUSIONS ───
+  const exclMatch = t.match(/EXCLUSIONS\s*\n\s*(.+?)(?:\n\s*RENTAL|\n\s*SPECIAL|\n\n)/is);
+  if (exclMatch) fields.exclusions = exclMatch[1].trim();
+
+  // ─── RENTAL ITEMS ───
+  const rentalMatch = t.match(/RENTAL ITEMS\s*\n\s*(.+?)(?:\n\n|\n\s*PropTx)/is);
+  if (rentalMatch && !/none/i.test(rentalMatch[1])) fields.rentalItems = rentalMatch[1].trim();
+
+  // Municipality
+  const munVal = rv('MUNICIPALITY');
+  if (munVal && !fields.city) fields.city = munVal;
+
+  return fields;
+}
+
+app.post('/api/listing-form/import-pdf', upload.single('pdf'), async (req, res) => {
+  if (!req.file) return res.json({ success: false, error: 'No file uploaded' });
+
+  const importType = req.body.type || 'auto'; // 'geowarehouse', 'listing', or 'auto'
+
+  try {
+    const pdfData = await pdfParse(req.file.buffer);
+    const text = pdfData.text || '';
+
+    if (!text || text.length < 50) {
+      return res.json({ success: false, error: 'Could not extract text from PDF. The file may be image-only or corrupted.' });
+    }
+
+    // Auto-detect type
+    let detectedType = importType;
+    if (importType === 'auto') {
+      detectedType = /geowarehouse|teranet|property report|PIN\s+\d{9}/i.test(text) ? 'geowarehouse' : 'listing';
+    }
+
+    let fields;
+    if (detectedType === 'geowarehouse') {
+      fields = parseGeoWarehouseText(text);
+    } else {
+      fields = parseMLSListingText(text);
+    }
+
+    // Count how many fields we actually extracted
+    const fieldCount = Object.keys(fields).filter(k => k !== '_source' && fields[k] && (typeof fields[k] !== 'object' || (Array.isArray(fields[k]) && fields[k].length > 0))).length;
+
+    console.log(`[ListingForm] PDF import (${detectedType}): extracted ${fieldCount} fields from ${req.file.originalname}`);
+
+    res.json({
+      success: true,
+      type: detectedType,
+      fields,
+      fieldCount,
+      textLength: text.length,
+    });
+
+  } catch (err) {
+    console.error('[ListingForm] PDF parse error:', err.message);
+    res.json({ success: false, error: `Failed to parse PDF: ${err.message}` });
   }
 });
 

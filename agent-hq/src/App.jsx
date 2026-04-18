@@ -5444,6 +5444,10 @@ function ListingForm() {
   const [expanded, setExpanded] = useState({ property: true, seller: true });
   const [dirty, setDirty] = useState(false);
   const [lastSaved, setLastSaved] = useState(null);
+  const [importing, setImporting] = useState(false);
+  const [importResult, setImportResult] = useState(null);
+  const geoFileRef = useRef(null);
+  const mlsFileRef = useRef(null);
   const saveTimerRef = useRef(null);
 
   const toggle = (key) => setExpanded(p => ({ ...p, [key]: !p[key] }));
@@ -5537,6 +5541,78 @@ function ListingForm() {
     updateField('rooms', rooms);
   };
 
+  // ─── PDF IMPORT ───
+  const handlePdfImport = async (file, type) => {
+    if (!file) return;
+    setImporting(true);
+    setImportResult(null);
+    try {
+      const formData = new FormData();
+      formData.append('pdf', file);
+      formData.append('type', type);
+      const res = await fetch('/api/listing-form/import-pdf', { method: 'POST', body: formData });
+      const data = await res.json();
+      if (data.success && data.fields) {
+        // Merge imported fields into form — only overwrite empty fields (unless GeoWarehouse which takes priority)
+        const isGeo = data.type === 'geowarehouse';
+        setForm(prev => {
+          const merged = { ...prev };
+          for (const [key, val] of Object.entries(data.fields)) {
+            if (key === '_source') continue;
+            if (val === null || val === undefined || val === '') continue;
+            // GeoWarehouse always overwrites. MLS only fills empty fields.
+            if (isGeo || !merged[key] || (typeof merged[key] === 'string' && !merged[key].trim()) || (Array.isArray(merged[key]) && merged[key].length === 0)) {
+              merged[key] = val;
+            }
+          }
+          return merged;
+        });
+        setDirty(true);
+        setImportResult({ success: true, type: data.type, count: data.fieldCount });
+        // Auto-expand relevant sections
+        if (isGeo) setExpanded(p => ({ ...p, property: true, seller: true }));
+        else setExpanded(p => ({ ...p, property: true, structure: true, heating: true, rooms: true }));
+        setTimeout(() => setImportResult(null), 5000);
+      } else {
+        setImportResult({ success: false, error: data.error || 'Import failed' });
+        setTimeout(() => setImportResult(null), 5000);
+      }
+    } catch (err) {
+      setImportResult({ success: false, error: err.message });
+      setTimeout(() => setImportResult(null), 5000);
+    }
+    setImporting(false);
+  };
+
+  // ─── SEND PRE-LISTING FORM TO SELLER VIA FUB ───
+  const sendToSellerViaFUB = () => {
+    // Build the pre-listing form URL with property details
+    const params = new URLSearchParams();
+    if (form.propertyId) params.set('id', form.propertyId);
+    if (form.address) params.set('address', form.address);
+    if (form.city) params.set('city', form.city);
+    if (form.postalCode) params.set('postal', form.postalCode);
+    if (form.sellerName) params.set('seller', form.sellerName);
+    const formLink = `https://jonathanwallace.ca/listing-form?${params.toString()}`;
+
+    // Search FUB for the seller by name or email
+    const sellerName = form.sellerName || 'the seller';
+    const firstName = sellerName.split(' ')[0] || 'there';
+
+    const emailBody = `Hi ${firstName},\n\nThank you for choosing to work with me on the sale of ${form.address || 'your home'}${form.city ? `, ${form.city}` : ''}.\n\nTo make sure I have all the details I need to effectively market your property, I've put together a quick pre-listing questionnaire for you. It covers the basics — things like heating, utilities, upgrades, and what's included in the sale.\n\nYou can fill it out at your convenience here:\n${formLink}\n\nYour answers help me build the most accurate and compelling listing possible. If you have any questions while filling it out, don't hesitate to reach out.\n\nLooking forward to getting started!\n\nJonathan Wallace\nFaris Team Real Estate Brokerage\n705-433-2525`;
+
+    const emailSubject = `Pre-Listing Questionnaire — ${form.address || 'Your Home'}${form.city ? `, ${form.city}` : ''}`;
+
+    // If we have a seller email, open FUB compose directly
+    if (form.sellerEmail) {
+      window.open(`https://app.followupboss.com/app/inbox/compose?to=${encodeURIComponent(form.sellerEmail)}&subject=${encodeURIComponent(emailSubject)}&body=${encodeURIComponent(emailBody)}`, '_blank');
+    } else {
+      // Fallback: open FUB with search for seller name
+      const mailto = `mailto:?subject=${encodeURIComponent(emailSubject)}&body=${encodeURIComponent(emailBody)}`;
+      window.open(mailto, '_blank');
+    }
+  };
+
   useEffect(() => { fetchProperties(); }, []);
 
   // Auto-generate propertyId when address changes
@@ -5600,6 +5676,44 @@ function ListingForm() {
           width: 34, height: 34, borderRadius: 8, border: '1px solid #fca5a5', background: '#fff',
           display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
         }}><Trash size={14} color="#ef4444" /></button>}
+      </div>
+
+      {/* IMPORT & ACTIONS TOOLBAR */}
+      <div style={{ background: '#fff', borderRadius: 10, border: '1px solid #e5e7eb', padding: '12px 16px', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+        <span style={{ fontSize: 11, fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', letterSpacing: 0.5, marginRight: 4 }}>Import:</span>
+
+        {/* Hidden file inputs */}
+        <input ref={geoFileRef} type="file" accept=".pdf" style={{ display: 'none' }} onChange={e => { if (e.target.files[0]) handlePdfImport(e.target.files[0], 'geowarehouse'); e.target.value = ''; }} />
+        <input ref={mlsFileRef} type="file" accept=".pdf" style={{ display: 'none' }} onChange={e => { if (e.target.files[0]) handlePdfImport(e.target.files[0], 'listing'); e.target.value = ''; }} />
+
+        <button onClick={() => geoFileRef.current?.click()} disabled={importing} style={{
+          display: 'flex', alignItems: 'center', gap: 5, padding: '6px 14px', borderRadius: 8,
+          border: '1px solid #059669', background: '#ecfdf5', color: '#059669',
+          fontSize: 11, fontWeight: 600, cursor: 'pointer',
+        }}><FileText size={13} /> GeoWarehouse PDF</button>
+
+        <button onClick={() => mlsFileRef.current?.click()} disabled={importing} style={{
+          display: 'flex', alignItems: 'center', gap: 5, padding: '6px 14px', borderRadius: 8,
+          border: '1px solid #2563eb', background: '#eff6ff', color: '#2563eb',
+          fontSize: 11, fontWeight: 600, cursor: 'pointer',
+        }}><FileText size={13} /> REALM / MLS Listing</button>
+
+        {importing && <span style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, color: '#6b7280' }}><Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> Parsing PDF...</span>}
+
+        {importResult && (
+          <span style={{ fontSize: 11, fontWeight: 600, color: importResult.success ? '#059669' : '#ef4444', background: importResult.success ? '#ecfdf5' : '#fef2f2', padding: '4px 10px', borderRadius: 6 }}>
+            {importResult.success ? `Imported ${importResult.count} fields from ${importResult.type === 'geowarehouse' ? 'GeoWarehouse' : 'MLS listing'}` : importResult.error}
+          </span>
+        )}
+
+        <div style={{ flex: 1 }} />
+
+        {/* Send pre-listing form to seller */}
+        <button onClick={sendToSellerViaFUB} title="Draft email to seller with pre-listing form link" style={{
+          display: 'flex', alignItems: 'center', gap: 5, padding: '6px 14px', borderRadius: 8,
+          border: '1px solid #c8a96e', background: '#fffbf0', color: '#92730a',
+          fontSize: 11, fontWeight: 600, cursor: 'pointer',
+        }}><Send size={13} /> Send Form to Seller</button>
       </div>
 
       {loading ? (
