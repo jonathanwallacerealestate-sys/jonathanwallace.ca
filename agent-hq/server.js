@@ -1927,6 +1927,7 @@ function loadTjState() {
     lastProcessedAt: null,
     stageId: null,        // FUB stage ID for "Old Team Jordan Leads"
     processedEmailIds: {}, // email ID → result ('created'|'existing'|'skipped'|'error')
+    approvedContacts: [], // emails/phones already imported — for cross-batch dedup
     recentActivity: [],   // last 20 actions for the dashboard
   };
 }
@@ -2292,7 +2293,9 @@ app.post('/api/tj/scan', async (req, res) => {
   // 2) Parse each email and categorize
   const candidates = []; // contacts ready for approval
   const skipped = [];    // auto-filtered out (with reason)
-  const seenEmails = new Set(); // deduplicate contacts by email within this batch
+  const seenEmails = new Set(); // deduplicate contacts by email/phone
+  // Seed with previously approved contacts so they don't appear in future batches
+  for (const key of (state.approvedContacts || [])) { seenEmails.add(key); }
   let scannedCount = 0;
 
   for (const msgId of batchIds) {
@@ -2397,9 +2400,21 @@ app.post('/api/tj/scan', async (req, res) => {
 
       // NOTE: FUB cross-reference moved to approve step to keep scan fast
       // --- BUILD CANDIDATE FOR REVIEW ---
-      const nameParts = (contactName || 'Unknown').split(/\s+/);
-      const firstName = nameParts[0] || 'Unknown';
+      const nameParts = (contactName || '').split(/\s+/).filter(Boolean);
+      const firstName = nameParts[0] || '';
       const lastName = nameParts.slice(1).join(' ') || '';
+
+      // Require a real first AND last name — skip junk names
+      const badNames = /^(unknown|docusign|admin|info|noreply|test|null|none|n\/a|na|notification|alert|system|automated|mailer)$/i;
+      const isRealName = (n) => n && n.length >= 2 && !badNames.test(n) && /[a-zA-Z]{2,}/.test(n);
+      if (!isRealName(firstName) || !isRealName(lastName)) {
+        skipped.push({ msgId, name: contactName || '(empty)', email: contactEmail, reason: `Missing real name (got: "${firstName} ${lastName}".trim())`, phone: parsed.phones[0] || null });
+        state.processedEmailIds[msgId] = 'skipped';
+        state.emailsSkipped++;
+        scannedCount++;
+        continue;
+      }
+
       const isRealtor = parsed.isRealtor;
       const isLawyer = parsed.isLawyer && !isRealtor;
 
@@ -2546,6 +2561,9 @@ app.post('/api/tj/approve', async (req, res) => {
           } catch {}
         }
         state.processedEmailIds[candidate.msgId] = 'existing';
+        // Track so they don't reappear in future batches
+        if (!state.approvedContacts) state.approvedContacts = [];
+        if (email) state.approvedContacts.push(email.toLowerCase());
         state.leadsSkippedExisting++;
         state.processedCount++;
         results.skippedExisting = (results.skippedExisting || 0) + 1;
@@ -2610,6 +2628,11 @@ app.post('/api/tj/approve', async (req, res) => {
         }
 
         state.processedEmailIds[candidate.msgId] = 'created';
+        // Track this contact so they don't appear in future batches
+        if (!state.approvedContacts) state.approvedContacts = [];
+        if (email) state.approvedContacts.push(email.toLowerCase());
+        if (phone) state.approvedContacts.push(phone.replace(/\D/g, ''));
+
         if (isRealtor) { state.realtorsCreated++; }
         else if (isLawyer) { state.lawyersCreated = (state.lawyersCreated || 0) + 1; }
         else { state.leadsCreated++; }
