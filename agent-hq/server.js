@@ -19,6 +19,7 @@ const REDIRECT_URI = process.env.GOOGLE_REDIRECT_URI || `http://localhost:${PORT
 const SCOPES = [
   'https://www.googleapis.com/auth/calendar.readonly',
   'https://www.googleapis.com/auth/gmail.readonly',
+  'https://www.googleapis.com/auth/gmail.labels',
 ];
 const TOKEN_PATH = path.join(__dirname, '.gcal-tokens.json');
 
@@ -2148,7 +2149,20 @@ app.get('/api/tj/setup', async (req, res) => {
   // 2) Find the Gmail label
   try {
     const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
-    const labelsResp = await gmail.users.labels.list({ userId: 'me' });
+    let labelsResp;
+    try {
+      labelsResp = await gmail.users.labels.list({ userId: 'me' });
+    } catch (labelErr) {
+      console.error('[TJ] Gmail labels API error:', labelErr.message, labelErr.code, labelErr.errors);
+      // If we get a 403/401, the token likely doesn't have Gmail scope
+      if (labelErr.code === 403 || labelErr.code === 401) {
+        return res.json({
+          error: `Gmail access denied (${labelErr.code}). Your Google token needs re-authorization with Gmail permissions. Go to Calendar section → Disconnect → Reconnect Google to fix this.`,
+          needsReauth: true,
+        });
+      }
+      return res.json({ error: `Gmail API error: ${labelErr.message}` });
+    }
     const labels = labelsResp.data.labels || [];
 
     // Log all labels for debugging
