@@ -424,7 +424,7 @@ function MorningBriefing() {
         </div>
         <div>
           <div style={{ fontSize: 16, fontWeight: 800, color: "#92400e" }}>Good morning, Jonathan</div>
-          <div style={{ fontSize: 12, color: "#b45309" }}>{new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })} — Here's your day at a glance.</div>
+          <div style={{ fontSize: 12, color: "#b45309" }}>Here's your day at a glance.</div>
         </div>
       </div>
 
@@ -4709,7 +4709,7 @@ export default function Dashboard() {
           {/* Center — Logo + Date */}
           <div style={{ position: "absolute", left: "50%", transform: "translateX(-50%)", display: "flex", flexDirection: "column", alignItems: "center" }}>
             <img src="/agent-hq-logo.png" alt="Agent HQ" style={{ height: 50, objectFit: "contain" }} />
-            <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 2 }}>{new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</div>
+            <div style={{ fontSize: 12, fontWeight: 700, color: "#111827", marginTop: 2 }}>{new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</div>
           </div>
           {/* Right — Search, Bell, Avatar */}
           <div style={{ display: "flex", alignItems: "center", gap: 14, marginLeft: "auto" }}>
