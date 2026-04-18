@@ -991,14 +991,21 @@ function TeamJordanImport() {
         setSetting(false);
         return;
       }
-      if (!data.state?.totalMessages && !data.labelFound) {
+      if (!data.ready && !data.labelFound) {
         setSetupError(data.availableLabels?.length > 0
           ? `Gmail label not found. Similar labels: ${data.availableLabels.join(', ')}`
           : 'Gmail label "jonathan@teamjordan.ca/All Mail" not found. Check that the label exists in Gmail.');
         setSetting(false);
         return;
       }
-      setStatus(prev => ({ ...prev, ...data.state, progress: data.state ? { processed: data.state.processedCount, total: data.state.totalMessages, percent: 0, leadsCreated: 0, realtorsCreated: 0, leadsSkippedExisting: 0, notesAdded: 0, emailsSkipped: 0, errors: 0 } : prev?.progress }));
+      setStatus(prev => ({
+        ...prev,
+        status: data.state?.status || 'ready',
+        progress: { processed: 0, total: 0, leadsCreated: 0, realtorsCreated: 0, leadsSkippedExisting: 0, notesAdded: 0, emailsSkipped: 0, errors: 0, ...data.state?.progress },
+        currentBatch: data.state?.currentBatch || 0,
+        hasMore: true,
+        labelName: data.labelName,
+      }));
       await fetchStatus();
     } catch (err) {
       setSetupError('Network error — could not reach the server.');
@@ -1006,14 +1013,23 @@ function TeamJordanImport() {
     setSetting(false);
   };
 
+  const [lastBatch, setLastBatch] = useState(null);
+
   const runBatch = async () => {
     setProcessing(true);
     try {
       const res = await fetch('/api/tj/process', { method: 'POST' });
       const data = await res.json();
-      if (data.progress) setStatus(prev => ({ ...prev, ...data.progress, progress: data.progress, recentActivity: prev?.recentActivity }));
+      if (data.error) {
+        setSetupError(data.error);
+        setProcessing(false);
+        return;
+      }
+      setLastBatch(data);
       await fetchStatus();
-    } catch {}
+    } catch (err) {
+      setSetupError('Network error during batch processing.');
+    }
     setProcessing(false);
   };
 
@@ -1023,8 +1039,9 @@ function TeamJordanImport() {
       try {
         const res = await fetch('/api/tj/process', { method: 'POST' });
         const data = await res.json();
+        setLastBatch(data);
         await fetchStatus();
-        if (data.progress && data.progress.status !== 'complete' && data.progress.processed < data.progress.total) {
+        if (data.hasMore && !data.complete && !data.error) {
           autoRef.current = setTimeout(runNext, 2000); // 2s gap between batches
         } else {
           setAutoRunning(false);
@@ -1056,7 +1073,7 @@ function TeamJordanImport() {
       </div>
 
       {/* Setup phase */}
-      {(!status || status.status === 'idle' || !status.progress?.total) && (
+      {(!status || status.status === 'idle') && (
         <div style={{ padding: "16px 0" }}>
           <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 12 }}>
             Scan the <strong>jonathan@teamjordan.ca / All Mail</strong> label in Gmail, cross-reference against Follow Up Boss, and import new leads under "Old Team Jordan Leads" stage.
@@ -1085,17 +1102,22 @@ function TeamJordanImport() {
       )}
 
       {/* Progress phase */}
-      {status?.progress?.total > 0 && (
+      {(status?.status === 'ready' || status?.status === 'paused' || status?.status === 'processing' || status?.status === 'complete') && (
         <>
-          {/* Progress bar */}
+          {/* Batch summary */}
           <div style={{ marginBottom: 16 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-              <span style={{ fontSize: 12, fontWeight: 600, color: "#374151" }}>{p.processed?.toLocaleString()} / {p.total?.toLocaleString()} emails processed</span>
-              <span style={{ fontSize: 12, fontWeight: 700, color: "#8b5cf6" }}>{pct}%</span>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+              <span style={{ fontSize: 13, fontWeight: 600, color: "#374151" }}>
+                {p.processed > 0 ? `${p.processed.toLocaleString()} emails processed across ${status?.currentBatch || 0} batch${(status?.currentBatch || 0) !== 1 ? 'es' : ''}` : 'Ready to start processing'}
+              </span>
+              {status?.status === 'complete' && <span style={{ fontSize: 10, fontWeight: 700, color: "#fff", background: "#10b981", padding: "2px 6px", borderRadius: 3 }}>ALL DONE</span>}
+              {status?.hasMore !== false && status?.status !== 'complete' && p.processed > 0 && <span style={{ fontSize: 10, fontWeight: 600, color: "#8b5cf6" }}>More batches available</span>}
             </div>
-            <div style={{ height: 8, background: "#f3f4f6", borderRadius: 4, overflow: "hidden" }}>
-              <div style={{ height: "100%", width: `${pct}%`, background: "linear-gradient(90deg, #8b5cf6, #6366f1)", borderRadius: 4, transition: "width 0.5s ease" }} />
-            </div>
+            {lastBatch?.batchResults && (
+              <div style={{ background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 8, padding: "8px 12px", marginBottom: 8, fontSize: 12, color: "#166534" }}>
+                <strong>Batch {lastBatch.batch} complete:</strong> {lastBatch.batchResults.created} created, {lastBatch.batchResults.skippedExisting} already in FUB, {lastBatch.batchResults.skippedNoContact} skipped, {lastBatch.batchResults.errors} errors
+              </div>
+            )}
           </div>
 
           {/* Stats grid */}
@@ -1120,9 +1142,9 @@ function TeamJordanImport() {
               <>
                 <button onClick={runBatch} disabled={processing || status?.status === 'complete'} style={{
                   display: "flex", alignItems: "center", gap: 4, background: "#8b5cf6", color: "#fff", border: "none", borderRadius: 6,
-                  padding: "7px 14px", fontSize: 12, fontWeight: 600, cursor: processing ? "wait" : "pointer",
+                  padding: "7px 14px", fontSize: 12, fontWeight: 600, cursor: processing ? "wait" : "pointer", opacity: status?.status === 'complete' ? 0.5 : 1,
                 }}>
-                  {processing ? <><RefreshCw size={12} style={{ animation: "spin 1s linear infinite" }} /> Processing batch...</> : <><Play size={12} /> Run Next Batch ({TJ_BATCH_SIZE})</>}
+                  {processing ? <><RefreshCw size={12} style={{ animation: "spin 1s linear infinite" }} /> Processing batch {(status?.currentBatch || 0) + 1}...</> : <><Play size={12} /> Run Batch {(status?.currentBatch || 0) + 1} ({TJ_BATCH_SIZE} emails)</>}
                 </button>
                 <button onClick={startAutoRun} disabled={status?.status === 'complete'} style={{
                   display: "flex", alignItems: "center", gap: 4, background: "#059669", color: "#fff", border: "none", borderRadius: 6,
@@ -1142,7 +1164,26 @@ function TeamJordanImport() {
             {status?.lastProcessedAt && (
               <span style={{ fontSize: 11, color: "#9ca3af", alignSelf: "center" }}>Last batch: {new Date(status.lastProcessedAt).toLocaleTimeString()}</span>
             )}
+            <button onClick={async () => {
+              if (confirm('Reset all import progress? This cannot be undone.')) {
+                await fetch('/api/tj/reset', { method: 'POST' });
+                setStatus(null);
+                setLastBatch(null);
+                setSetupError(null);
+                await fetchStatus();
+              }
+            }} style={{
+              display: "flex", alignItems: "center", gap: 4, background: "transparent", color: "#9ca3af", border: "1px solid #e5e7eb", borderRadius: 6,
+              padding: "7px 14px", fontSize: 12, fontWeight: 500, cursor: "pointer", marginLeft: "auto",
+            }}>
+              <RotateCcw size={11} /> Reset
+            </button>
           </div>
+          {setupError && (
+            <div style={{ background: "#fef2f2", border: "1px solid #fca5a5", borderRadius: 8, padding: "8px 12px", marginBottom: 12, fontSize: 12, color: "#991b1b" }}>
+              <AlertTriangle size={12} style={{ display: "inline", verticalAlign: "middle", marginRight: 4 }} /> {setupError}
+            </div>
+          )}
 
           {/* Recent activity */}
           {status?.recentActivity?.length > 0 && (

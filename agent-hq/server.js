@@ -1892,10 +1892,12 @@ function loadTjState() {
     if (fs.existsSync(TJ_STATE_PATH)) return JSON.parse(fs.readFileSync(TJ_STATE_PATH, 'utf8'));
   } catch {}
   return {
-    status: 'idle', // idle | scanning_ids | processing | paused | complete
+    status: 'idle', // idle | ready | processing | paused | complete
     labelId: null,
+    labelName: null,
     totalMessages: 0,
-    messageIds: [],       // all message IDs from the label
+    messageIds: [],       // legacy — no longer pre-scanned
+    nextPageToken: null,  // Gmail pagination token for next batch
     processedCount: 0,
     currentBatch: 0,
     leadsCreated: 0,
@@ -2094,25 +2096,29 @@ async function findPersonInFub(email, name) {
   return null;
 }
 
-// STEP 1: GET /api/tj/setup — Create the stage and scan the label for message IDs
+// STEP 1: GET /api/tj/setup — Create the stage + find the label (fast, no scanning)
 app.get('/api/tj/setup', async (req, res) => {
   if (!FUB_API_KEY) return res.json({ error: 'FUB_API_KEY not configured' });
   if (!tokens) return res.json({ error: 'Gmail not connected' });
 
   const state = loadTjState();
-  const results = { stageCreated: false, labelFound: false, messageCount: 0 };
+  const results = { stageCreated: false, labelFound: false };
+
+  // If already set up, just return current state
+  if (state.labelId && state.status !== 'idle') {
+    results.labelFound = true;
+    return res.json({ success: true, ready: true, state: { ...state, messageIds: undefined, processedEmailIds: undefined }, ...results });
+  }
 
   // 1) Create "Old Team Jordan Leads" stage in FUB if needed
   if (!state.stageId) {
     try {
-      // First check if it already exists
       const stagesResp = await fetch(`${FUB_BASE}/stages?limit=50`, { headers: fubHeaders() });
       if (stagesResp.ok) {
         const stagesData = await stagesResp.json();
         const existing = (stagesData.stages || []).find(s => s.name.toLowerCase().includes('old team jordan'));
         if (existing) {
           state.stageId = existing.id;
-          results.stageCreated = false;
           console.log(`[TJ] Found existing stage: ${existing.name} (ID: ${existing.id})`);
         }
       }
@@ -2131,7 +2137,6 @@ app.get('/api/tj/setup', async (req, res) => {
         } else {
           const errText = await createResp.text();
           console.error(`[TJ] Stage create failed: ${errText}`);
-          // If stage creation fails (maybe API doesn't support it), use a fallback
           results.stageError = errText;
         }
       }
@@ -2146,7 +2151,6 @@ app.get('/api/tj/setup', async (req, res) => {
     const labelsResp = await gmail.users.labels.list({ userId: 'me' });
     const labels = labelsResp.data.labels || [];
 
-    // The label from the URL is: jonathan@teamjordan.ca/All Mail
     const targetLabel = labels.find(l =>
       l.name.includes('jonathan@teamjordan.ca') && l.name.includes('All Mail')
     ) || labels.find(l =>
@@ -2157,44 +2161,11 @@ app.get('/api/tj/setup', async (req, res) => {
 
     if (targetLabel) {
       state.labelId = targetLabel.id;
+      state.labelName = targetLabel.name;
+      state.status = 'ready';
       results.labelFound = true;
       results.labelName = targetLabel.name;
       console.log(`[TJ] Found label: ${targetLabel.name} (ID: ${targetLabel.id})`);
-
-      // 3) Count messages (don't fetch all IDs yet — that's step 2)
-      if (state.status === 'idle' || state.messageIds.length === 0) {
-        state.status = 'scanning_ids';
-        saveTjState(state);
-
-        // Fetch all message IDs in pages
-        let allIds = [];
-        let pageToken = null;
-        let page = 0;
-
-        do {
-          const listParams = { userId: 'me', labelIds: [targetLabel.id], maxResults: 500 };
-          if (pageToken) listParams.pageToken = pageToken;
-
-          const listResp = await gmail.users.messages.list(listParams);
-          const messages = listResp.data.messages || [];
-          allIds.push(...messages.map(m => m.id));
-          pageToken = listResp.data.nextPageToken;
-          page++;
-
-          // Update progress
-          console.log(`[TJ] Scanned page ${page}: ${allIds.length} IDs so far...`);
-
-          // Safety: cap at 50K to avoid runaway
-          if (allIds.length >= 50000) break;
-        } while (pageToken);
-
-        state.messageIds = allIds;
-        state.totalMessages = allIds.length;
-        state.status = 'paused'; // Ready to start processing
-        results.messageCount = allIds.length;
-
-        console.log(`[TJ] Total messages found: ${allIds.length}`);
-      }
     } else {
       results.labelFound = false;
       results.availableLabels = labels.filter(l => l.name.includes('jordan') || l.name.includes('team')).map(l => l.name);
@@ -2205,30 +2176,57 @@ app.get('/api/tj/setup', async (req, res) => {
   }
 
   saveTjState(state);
-  res.json({ success: true, state: { ...state, messageIds: undefined, processedEmailIds: undefined }, ...results });
+  res.json({ success: true, ready: !!state.labelId, state: { ...state, messageIds: undefined, processedEmailIds: undefined }, ...results });
 });
 
-// STEP 2: POST /api/tj/process — Process next batch of emails
+// STEP 2: POST /api/tj/process — Fetch next 100 message IDs from Gmail, process them against FUB
 app.post('/api/tj/process', async (req, res) => {
   if (!FUB_API_KEY || !tokens) return res.json({ error: 'Not configured' });
 
   const state = loadTjState();
-  if (!state.labelId || state.messageIds.length === 0) {
-    return res.json({ error: 'Run /api/tj/setup first', success: false });
+  if (!state.labelId) {
+    return res.json({ error: 'Run setup first — no Gmail label found.', success: false });
   }
 
   state.status = 'processing';
   saveTjState(state);
 
   const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
-  const batchStart = state.processedCount;
-  const batchEnd = Math.min(batchStart + TJ_BATCH_SIZE, state.messageIds.length);
-  const batchIds = state.messageIds.slice(batchStart, batchEnd);
-
   const batchResults = { processed: 0, created: 0, skippedExisting: 0, skippedNoContact: 0, notesAdded: 0, errors: 0 };
 
+  // 1) Fetch next page of message IDs from Gmail (100 per batch)
+  const listParams = { userId: 'me', labelIds: [state.labelId], maxResults: TJ_BATCH_SIZE };
+  if (state.nextPageToken) listParams.pageToken = state.nextPageToken;
+
+  let batchIds = [];
+  let hasMore = false;
+
+  try {
+    const listResp = await gmail.users.messages.list(listParams);
+    batchIds = (listResp.data.messages || []).map(m => m.id);
+    state.nextPageToken = listResp.data.nextPageToken || null;
+    hasMore = !!state.nextPageToken;
+
+    // Update total estimate from Gmail's resultSizeEstimate
+    if (listResp.data.resultSizeEstimate && state.totalMessages === 0) {
+      state.totalMessages = listResp.data.resultSizeEstimate;
+    }
+    console.log(`[TJ] Batch ${state.currentBatch + 1}: fetched ${batchIds.length} message IDs (hasMore: ${hasMore})`);
+  } catch (err) {
+    console.error('[TJ] Gmail list error:', err.message);
+    state.status = 'paused';
+    saveTjState(state);
+    return res.json({ error: `Gmail error: ${err.message}`, success: false });
+  }
+
+  if (batchIds.length === 0) {
+    state.status = 'complete';
+    saveTjState(state);
+    return res.json({ success: true, batch: state.currentBatch, batchResults, complete: true, progress: buildTjProgress(state) });
+  }
+
+  // 2) Process each email in this batch
   for (const msgId of batchIds) {
-    // Skip if already processed
     if (state.processedEmailIds[msgId]) {
       batchResults.processed++;
       state.processedCount++;
@@ -2236,18 +2234,14 @@ app.post('/api/tj/process', async (req, res) => {
     }
 
     try {
-      // Fetch the email
       const full = await gmail.users.messages.get({ userId: 'me', id: msgId, format: 'full' });
       const headers = full.data.payload.headers;
       const body = getEmailBody(full.data.payload);
-
       const parsed = parseEmailForContact(headers, body);
 
-      // Determine the primary contact email (not teamjordan or system)
       const contactEmail = parsed.emails[0] || null;
       const contactName = parsed.fromName || (parsed.names.length > 0 ? parsed.names[0] : null);
 
-      // Skip if no usable contact info
       if (!contactEmail && !contactName) {
         state.processedEmailIds[msgId] = 'skipped';
         state.emailsSkipped++;
@@ -2261,36 +2255,24 @@ app.post('/api/tj/process', async (req, res) => {
       const existing = await findPersonInFub(contactEmail, contactName);
 
       if (existing) {
-        const existingStage = (existing.stage || '').toLowerCase();
-        const isActive = ['active client', 'a - hot 1-3 months', 'b - warm 3-6 months', 'firm', 'past client'].some(s => existingStage.includes(s.toLowerCase()));
-
-        if (isActive) {
-          // Already an active or past client — skip creation but add notes if valuable
-          state.processedEmailIds[msgId] = 'existing';
-          state.leadsSkippedExisting++;
-          batchResults.skippedExisting++;
-        } else {
-          // Exists but not active — add valuable notes if we have them
-          if (parsed.noteWorthy.length > 0) {
-            try {
-              await fetch(`${FUB_BASE}/notes`, {
-                method: 'POST',
-                headers: fubHeaders(),
-                body: JSON.stringify({
-                  personId: existing.id,
-                  body: `<p><strong>Team Jordan Archive:</strong></p><p>${parsed.noteWorthy.join(' | ')}</p><p><em>Email: ${parsed.subject} (${parsed.date})</em></p>`,
-                  isHtml: true,
-                }),
-              });
-              state.notesAdded++;
-              batchResults.notesAdded++;
-            } catch {}
-          }
-          state.processedEmailIds[msgId] = 'existing';
-          state.leadsSkippedExisting++;
-          batchResults.skippedExisting++;
+        if (parsed.noteWorthy.length > 0) {
+          try {
+            await fetch(`${FUB_BASE}/notes`, {
+              method: 'POST',
+              headers: fubHeaders(),
+              body: JSON.stringify({
+                personId: existing.id,
+                body: `<p><strong>Team Jordan Archive:</strong></p><p>${parsed.noteWorthy.join(' | ')}</p><p><em>Email: ${parsed.subject} (${parsed.date})</em></p>`,
+                isHtml: true,
+              }),
+            });
+            state.notesAdded++;
+            batchResults.notesAdded++;
+          } catch {}
         }
-
+        state.processedEmailIds[msgId] = 'existing';
+        state.leadsSkippedExisting++;
+        batchResults.skippedExisting++;
         batchResults.processed++;
         state.processedCount++;
         continue;
@@ -2300,12 +2282,10 @@ app.post('/api/tj/process', async (req, res) => {
       const nameParts = (contactName || 'Unknown').split(/\s+/);
       const firstName = nameParts[0] || 'Unknown';
       const lastName = nameParts.slice(1).join(' ') || '';
-
-      // Determine if this is a realtor or a lead
       const isRealtor = parsed.isRealtor;
+
       const newPerson = {
-        firstName,
-        lastName,
+        firstName, lastName,
         stage: isRealtor ? 'Real Estate Agent' : 'Old Team Jordan Leads',
         source: 'Team Jordan Email Archive',
         emails: contactEmail ? [{ value: contactEmail }] : [],
@@ -2314,10 +2294,7 @@ app.post('/api/tj/process', async (req, res) => {
           ? ['Realtor', 'Agent', 'Team Jordan Import', 'Agent HQ Import']
           : ['Team Jordan Import', 'Agent HQ Import'],
       };
-      // Add brokerage as company if realtor
-      if (isRealtor && parsed.brokerage) {
-        newPerson.company = parsed.brokerage;
-      }
+      if (isRealtor && parsed.brokerage) newPerson.company = parsed.brokerage;
 
       try {
         const createResp = await fetch(`${FUB_BASE}/people`, {
@@ -2329,7 +2306,6 @@ app.post('/api/tj/process', async (req, res) => {
         if (createResp.ok) {
           const created = await createResp.json();
 
-          // Add notes with all the valuable data
           const noteLines = [
             `<p><strong>Imported from Team Jordan Email Archive</strong></p>`,
             `<p>Original email: "${parsed.subject}" (${parsed.date})</p>`,
@@ -2341,38 +2317,22 @@ app.post('/api/tj/process', async (req, res) => {
 
           try {
             await fetch(`${FUB_BASE}/notes`, {
-              method: 'POST',
-              headers: fubHeaders(),
-              body: JSON.stringify({
-                personId: created.id,
-                body: noteLines.join(''),
-                subject: 'Team Jordan Import — Agent HQ',
-                isHtml: true,
-              }),
+              method: 'POST', headers: fubHeaders(),
+              body: JSON.stringify({ personId: created.id, body: noteLines.join(''), subject: 'Team Jordan Import — Agent HQ', isHtml: true }),
             });
             state.notesAdded++;
             batchResults.notesAdded++;
           } catch {}
 
           state.processedEmailIds[msgId] = 'created';
-          if (isRealtor) {
-            state.realtorsCreated++;
-          } else {
-            state.leadsCreated++;
-          }
+          if (isRealtor) { state.realtorsCreated++; } else { state.leadsCreated++; }
           batchResults.created++;
 
-          // Track recent activity
           state.recentActivity.unshift({
-            action: 'created',
-            type: isRealtor ? 'realtor' : 'lead',
-            isRealtor,
-            name: `${firstName} ${lastName}`.trim(),
-            email: contactEmail,
-            fubId: created.id,
-            brokerage: parsed.brokerage,
-            at: new Date().toISOString(),
-            noteWorthy: parsed.noteWorthy,
+            action: 'created', type: isRealtor ? 'realtor' : 'lead', isRealtor,
+            name: `${firstName} ${lastName}`.trim(), email: contactEmail,
+            fubId: created.id, brokerage: parsed.brokerage,
+            at: new Date().toISOString(), noteWorthy: parsed.noteWorthy,
           });
           if (state.recentActivity.length > 20) state.recentActivity = state.recentActivity.slice(0, 20);
         } else {
@@ -2390,7 +2350,7 @@ app.post('/api/tj/process', async (req, res) => {
       batchResults.processed++;
       state.processedCount++;
 
-      // Rate limit: small delay between creates to avoid hammering FUB
+      // Rate limit: 200ms delay between FUB creates
       await new Promise(r => setTimeout(r, 200));
 
     } catch (err) {
@@ -2404,10 +2364,13 @@ app.post('/api/tj/process', async (req, res) => {
 
   state.currentBatch++;
   state.lastProcessedAt = new Date().toISOString();
-  state.status = state.processedCount >= state.totalMessages ? 'complete' : 'paused';
+  state.status = hasMore ? 'paused' : 'complete';
 
-  // Keep errors list manageable
   if (state.errors.length > 100) state.errors = state.errors.slice(-100);
+  // Update total with running count if we haven't finished
+  if (hasMore && state.processedCount > state.totalMessages) {
+    state.totalMessages = state.processedCount; // floor estimate
+  }
 
   saveTjState(state);
 
@@ -2415,41 +2378,40 @@ app.post('/api/tj/process', async (req, res) => {
     success: true,
     batch: state.currentBatch,
     batchResults,
-    progress: {
-      processed: state.processedCount,
-      total: state.totalMessages,
-      percent: Math.round((state.processedCount / state.totalMessages) * 100),
-      leadsCreated: state.leadsCreated,
-      realtorsCreated: state.realtorsCreated || 0,
-      leadsSkippedExisting: state.leadsSkippedExisting,
-      notesAdded: state.notesAdded,
-      emailsSkipped: state.emailsSkipped,
-      errors: state.errors.length,
-      status: state.status,
-    },
+    hasMore,
+    complete: !hasMore && batchIds.length === 0,
+    progress: buildTjProgress(state),
   });
 });
+
+// Helper: build progress object from state
+function buildTjProgress(state) {
+  return {
+    processed: state.processedCount,
+    total: state.totalMessages || state.processedCount,
+    percent: state.totalMessages > 0 ? Math.min(Math.round((state.processedCount / state.totalMessages) * 100), 99) : 0,
+    leadsCreated: state.leadsCreated,
+    realtorsCreated: state.realtorsCreated || 0,
+    leadsSkippedExisting: state.leadsSkippedExisting,
+    notesAdded: state.notesAdded,
+    emailsSkipped: state.emailsSkipped,
+    errors: state.errors.length,
+    status: state.status,
+  };
+}
 
 // GET /api/tj/status — check import progress
 app.get('/api/tj/status', (req, res) => {
   const state = loadTjState();
   res.json({
     status: state.status,
-    progress: {
-      processed: state.processedCount,
-      total: state.totalMessages,
-      percent: state.totalMessages > 0 ? Math.round((state.processedCount / state.totalMessages) * 100) : 0,
-      leadsCreated: state.leadsCreated,
-      realtorsCreated: state.realtorsCreated || 0,
-      leadsSkippedExisting: state.leadsSkippedExisting,
-      notesAdded: state.notesAdded,
-      emailsSkipped: state.emailsSkipped,
-      errors: state.errors.length,
-    },
+    progress: buildTjProgress(state),
     recentActivity: state.recentActivity,
     lastProcessedAt: state.lastProcessedAt,
     currentBatch: state.currentBatch,
+    hasMore: !!state.nextPageToken,
     stageId: state.stageId,
+    labelName: state.labelName,
   });
 });
 
