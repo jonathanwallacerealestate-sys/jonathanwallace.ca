@@ -2012,6 +2012,12 @@ function EmailEASection() {
                   <div style={{ fontSize: 12, color: "#374151", fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{t.subject}</div>
                 </div>
                 <span style={{ fontSize: 10, color: "#9ca3af", whiteSpace: "nowrap", flexShrink: 0 }}>{t.lastDate ? new Date(t.lastDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : t.time || ''}</span>
+                {/* Quick Done button — visible without expanding */}
+                {t.state !== 'closed' && (
+                  <button onClick={(e) => { e.stopPropagation(); updateThreadState?.(tid, 'closed'); setSelectedThread(null); }} style={{ display: "flex", alignItems: "center", gap: 3, background: "#10b981", color: "#fff", border: "none", borderRadius: 6, padding: "4px 10px", fontSize: 10, fontWeight: 700, cursor: "pointer", flexShrink: 0, transition: "opacity 0.15s" }} onMouseEnter={e => e.currentTarget.style.opacity = '0.85'} onMouseLeave={e => e.currentTarget.style.opacity = '1'}>
+                    <CheckCircle2 size={11} /> Done
+                  </button>
+                )}
                 {isSelected ? <ChevronUp size={14} color="#9ca3af" /> : <ChevronDown size={14} color="#9ca3af" />}
               </div>
 
@@ -2027,7 +2033,7 @@ function EmailEASection() {
                       </>
                     )}
                     {t.state !== 'closed' && (
-                      <button onClick={() => updateThreadState?.(tid, 'closed')} style={{ display: "flex", alignItems: "center", gap: 4, background: "#ecfdf5", color: "#059669", border: "1px solid #bbf7d0", borderRadius: 6, padding: "6px 10px", fontSize: 11, fontWeight: 600, cursor: "pointer" }}><CheckCircle2 size={11} /> Close</button>
+                      <button onClick={() => { updateThreadState?.(tid, 'closed'); setSelectedThread(null); }} style={{ display: "flex", alignItems: "center", gap: 4, background: "#10b981", color: "#fff", border: "none", borderRadius: 6, padding: "6px 10px", fontSize: 11, fontWeight: 700, cursor: "pointer" }}><CheckCircle2 size={11} /> Done — No Action Needed</button>
                     )}
                     {t.state === 'closed' && (
                       <button onClick={() => updateThreadState?.(tid, 'awaiting_you')} style={{ display: "flex", alignItems: "center", gap: 4, background: "#fef2f2", color: "#ef4444", border: "1px solid #fecaca", borderRadius: 6, padding: "6px 10px", fontSize: 11, fontWeight: 600, cursor: "pointer" }}><Reply size={11} /> Reopen</button>
