@@ -5338,7 +5338,7 @@ function MetricCard({ card }) {
 const HEATING_OPTIONS = ['Forced Air Gas', 'Forced Air Propane', 'Electric Baseboard', 'Radiant In-Floor', 'Mini-Split', 'Wood Stove', 'Pellet Stove', 'Oil Furnace', 'Geothermal', 'Boiler / Radiator'];
 const AC_OPTIONS = ['Central Air', 'Ductless Mini-Split', 'Window Units', 'None'];
 const APPLIANCE_OPTIONS = ['Fridge', 'Stove', 'Dishwasher', 'Microwave', 'Washer', 'Dryer', 'Range Hood', 'Built-in Oven', 'Wine Fridge', 'Chest Freezer', 'Garburator', 'Water Softener', 'Central Vac'];
-const INCLUSION_OPTIONS = ['Window Coverings', 'Light Fixtures', 'Garage Door Opener', 'Hot Tub', 'Pool Equipment', 'Storage Shed', 'ELFs', 'Smart Home Devices', 'Security System', 'Water Treatment System', 'Satellite Dish', 'TV Wall Mount(s)'];
+const INCLUSION_OPTIONS = ['Window Coverings', 'Light Fixtures', 'Garage Door Opener', 'Hot Tub', 'Pool Equipment', 'Storage Shed', 'ELFs', 'Smart Home Devices', 'Security System', 'Water Treatment System', 'Satellite Dish', 'TV Wall Mount(s)', 'Sump Pump', 'Built-in Generator'];
 const FOUNDATION_TYPES = ['Poured Concrete', 'Block', 'Stone', 'Slab', 'Crawl Space', 'Pier / Post', 'Other'];
 const ROOF_TYPES = ['Asphalt Shingle', 'Metal', 'Cedar Shake', 'Slate', 'Flat / Torch-On', 'Tile', 'Other'];
 const PROPERTY_TYPES = ['Detached', 'Semi-Detached', 'Townhouse', 'Condo', 'Bungalow', 'Multi-Family', 'Vacant Land', 'Farm', 'Cottage / Waterfront', 'Commercial', 'Other'];
@@ -5347,7 +5347,16 @@ const WATER_SOURCES = ['Municipal', 'Drilled Well', 'Dug Well', 'Lake', 'Shared 
 const SEWER_TYPES = ['Municipal Sewer', 'Septic Tank', 'Holding Tank', 'Septic Bed'];
 const GARAGE_TYPES = ['Attached', 'Detached', 'Built-In', 'Carport', 'None'];
 const FLOORING_TYPES = ['Hardwood', 'Laminate', 'Vinyl Plank', 'Tile', 'Carpet', 'Concrete', 'Other'];
-const ROOM_DETAIL_OPTIONS = ['Large Window', 'Closet', 'Walk-in Closet', 'Upgraded Lighting', 'Crown Moulding', 'Pot Lights', 'Freshly Painted'];
+const ROOM_DETAIL_BASE = ['Large Window', 'Closet', 'Walk-in Closet', 'Upgraded Lighting', 'Crown Moulding', 'Pot Lights', 'Freshly Painted', 'Ceiling Fan'];
+function getRoomDetailOptions(roomName) {
+  const n = (roomName || '').toLowerCase();
+  const opts = [...ROOM_DETAIL_BASE];
+  if (n.includes('bath') || n.includes('washroom') || n.includes('powder')) opts.push('Upgraded Vanity');
+  if (n.includes('bed') || n.includes('primary') || n.includes('master')) opts.push('Feature Wall');
+  if (n.includes('kitchen')) opts.push('Under-Counter Lighting');
+  if (n.includes('mechanical') || n.includes('utility') || n.includes('furnace') || n.includes('laundry')) opts.push('Smart Thermostat');
+  return opts;
+}
 
 function defaultFormData() {
   return {
@@ -5975,7 +5984,7 @@ function ListingForm() {
                 <div style={{ marginTop: 8 }}>
                   <FormField label="Room Details">
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
-                      {ROOM_DETAIL_OPTIONS.map(opt => {
+                      {getRoomDetailOptions(room.name).map(opt => {
                         const active = (room.details || []).includes(opt);
                         return (
                           <button key={opt} type="button" onClick={() => toggleRoomDetail(idx, opt)} style={{
