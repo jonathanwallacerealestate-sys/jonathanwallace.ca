@@ -5341,6 +5341,7 @@ const APPLIANCE_OPTIONS = ['Fridge', 'Stove', 'Dishwasher', 'Microwave', 'Washer
 const INCLUSION_OPTIONS = ['Window Coverings', 'California Shutters', 'Light Fixtures', 'Garage Door Opener', 'Hot Tub', 'Pool Equipment', 'Storage Shed', 'ELFs', 'Smart Home Devices', 'Security System', 'Water Treatment System', 'Satellite Dish', 'TV Wall Mount(s)', 'Sump Pump', 'Built-in Generator', 'Bar Fridge / Beer Fridge', 'Pool Table'];
 const FOUNDATION_TYPES = ['Poured Concrete', 'Block', 'Stone', 'Slab', 'Crawl Space', 'Pier / Post', 'Other'];
 const ROOF_TYPES = ['Asphalt Shingle', 'Metal', 'Cedar Shake', 'Slate', 'Flat / Torch-On', 'Tile', 'Other'];
+const STYLE_OPTIONS = ['2-Storey', '3-Storey', 'Bungalow', 'Raised Bungalow', 'Bungalow-Raised', 'Bungaloft', 'Bi-Level', 'Tri-Level', 'Split Level', 'Sidesplit 3', 'Sidesplit 4', 'Sidesplit 5', 'Backsplit 3', 'Backsplit 4', 'Backsplit 5', '1.5 Storey', '1 1/2 Storey', '2.5 Storey', 'Multi-Level', 'A-Frame', 'Cape Cod', 'Cottage', 'Log', 'Mobile/Trailer', 'Modular', 'Other'];
 const PROPERTY_TYPES = ['Detached', 'Semi-Detached', 'Townhouse', 'Condo', 'Bungalow', 'Multi-Family', 'Vacant Land', 'Farm', 'Cottage / Waterfront', 'Commercial', 'Other'];
 const BASEMENT_TYPES = ['Full', 'Partial', 'Crawl Space', 'None'];
 const WATER_SOURCES = ['Municipal', 'Drilled Well', 'Dug Well', 'Lake', 'Shared Well', 'Cistern'];
@@ -5815,7 +5816,7 @@ function ListingForm() {
           {/* SECTION 4: STRUCTURE & FOUNDATION */}
           <FormSection title="Structure & Foundation" icon={Home} expanded={expanded.structure} onToggle={() => toggle('structure')}>
             <div style={gridStyle(3)}>
-              <FormField label="Style">{inp('style', 'e.g. 2-Storey, Bungalow, Split-Level')}</FormField>
+              <FormField label="Style">{sel('style', STYLE_OPTIONS, 'Select...')}</FormField>
               <FormField label="Foundation Type">{sel('foundationType', FOUNDATION_TYPES, 'Select...')}</FormField>
               <FormField label="Exterior Material">{inp('exteriorMaterial', 'e.g. Brick, Vinyl Siding, Stone')}</FormField>
               <FormField label="Roof Type">{sel('roofType', ROOF_TYPES, 'Select...')}</FormField>
