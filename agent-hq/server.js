@@ -3159,41 +3159,24 @@ function parseGeoWarehouseText(text) {
     if (desc.includes('on water') && !desc.includes('not on water')) fields.isWaterfront = true;
   }
 
-  // --- Zoning ---
-  const zoningMatch = t.match(/Zoning:\s*(.+)/i);
-  if (zoningMatch) fields.zoning = zoningMatch[1].trim();
-
-  // --- Garage / Parking ---
-  const garageMatch = t.match(/Garage Type:\s*(.+)/i);
-  if (garageMatch) {
-    const gt = garageMatch[1].trim().toLowerCase();
-    if (gt.includes('attached')) fields.parkingType = 'Attached Garage';
-    else if (gt.includes('detached')) fields.parkingType = 'Detached Garage';
-    else if (gt.includes('carport')) fields.parkingType = 'Carport';
-    else fields.parkingType = garageMatch[1].trim();
-  }
-  const garageSpacesMatch = t.match(/Garage Spaces:\s*(\d+)/i);
-  if (garageSpacesMatch) fields.parkingSpaces = garageSpacesMatch[1];
-
-  // --- Water & Sewers ---
+  // --- Water & Sewers (GeoWarehouse only knows well/septic vs municipal) ---
   const waterMatch = t.match(/Water Service Type:\s*(.+)/i);
   if (waterMatch) {
     const wt = waterMatch[1].trim().toLowerCase();
-    if (wt.includes('well')) fields.waterSource = 'Drilled Well';
+    if (wt.includes('well') || wt.includes('private')) fields.waterSource = 'Drilled Well';
     else if (wt.includes('municipal') || wt.includes('public')) fields.waterSource = 'Municipal';
-    else if (wt.includes('lake')) fields.waterSource = 'Lake';
-    else if (wt.includes('cistern')) fields.waterSource = 'Cistern';
-    else fields.waterSource = waterMatch[1].trim();
   }
   const sewerMatch = t.match(/Sanitation Type:\s*(.+)/i);
   if (sewerMatch) {
     const st = sewerMatch[1].trim().toLowerCase();
-    if (st.includes('septic bed')) fields.sewerType = 'Septic Bed';
-    else if (st.includes('septic')) fields.sewerType = 'Septic Tank';
+    if (st.includes('septic')) fields.sewerType = 'Septic Tank';
     else if (st.includes('municipal') || st.includes('public')) fields.sewerType = 'Municipal Sewer';
-    else if (st.includes('holding')) fields.sewerType = 'Holding Tank';
-    else fields.sewerType = sewerMatch[1].trim();
   }
+  // Note: garage, exterior, and mechanicals all come from REALM/MLS listing
+
+  // --- Zoning (GeoWarehouse is the authoritative source for zoning) ---
+  const zoningMatch = t.match(/Zoning:\s*(.+)/i);
+  if (zoningMatch) fields.zoning = zoningMatch[1].trim();
 
   // --- Site Area (acreage from Enhanced section) ---
   const siteAreaMatch = t.match(/Site Area:\s*(.+)/i);
