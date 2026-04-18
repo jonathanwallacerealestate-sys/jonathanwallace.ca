@@ -1206,27 +1206,34 @@ function fubHeaders() {
   };
 }
 
-// Stage → bucket mapping (user-configured stages)
+// Stage → bucket mapping (matched to actual FUB stage names)
 const STAGE_BUCKET_MAP = {
+  'a - hot 1-3 months': 'hot',
   'a - hot': 'hot',
   'a-hot': 'hot',
   'hot': 'hot',
+  'b - warm 3-6 months': 'warm',
   'b - warm': 'warm',
   'b-warm': 'warm',
   'warm': 'warm',
-  'active clients': 'active',
+  'c - cold 6+ months': 'cold',
   'active client': 'active',
+  'active clients': 'active',
   'under contract': 'active',
+  'firm': 'active',
   'listing appointment': 'active',
   'active buyer': 'active',
   'active seller': 'active',
-  'past clients': 'past',
   'past client': 'past',
+  'past clients': 'past',
+  'lead': 'cold',
   'all leads - uncategorized': 'cold',
   'uncategorized': 'cold',
   'sphere': 'sphere',
   'new lead': 'cold',
   'unqualified': 'cold',
+  'renter - future buyer': 'warm',
+  'real estate agent': 'sphere',
 };
 
 function classifyBucket(stage) {
@@ -1383,6 +1390,39 @@ function buildCallList(scoredContacts) {
     }
   }
 
+  // Backfill to 10 if we didn't get enough from the target buckets
+  if (deduped.length < 10) {
+    const allRemaining = scoredContacts
+      .filter(c => !seen.has(c.id) && c._score > 0)
+      .sort((a, b) => (b._score || 0) - (a._score || 0));
+    for (const c of allRemaining) {
+      if (deduped.length >= 10) break;
+      if (seen.has(c.id)) continue;
+      seen.add(c.id);
+      const bucket = classifyBucket(c.stage);
+      const style = BUCKET_STYLES[bucket] || BUCKET_STYLES.cold;
+      const phone = (c.phones && c.phones.length > 0) ? c.phones[0].value : '—';
+      deduped.push({
+        id: deduped.length + 1,
+        fubId: c.id,
+        name: [c.firstName, c.lastName].filter(Boolean).join(' ') || 'Unknown',
+        phone,
+        bucket,
+        tag: style.tag,
+        tagColor: style.tagColor,
+        tagBg: style.tagBg,
+        lastContact: formatLastActivity(c.lastActivity),
+        context: `Stage: ${c.stage || 'Unknown'}. Score: ${c._score || 0}.`,
+        fubStage: c.stage || 'Unknown',
+        priority: deduped.length + 1,
+        score: c._score || 0,
+        email: c.emails && c.emails[0] ? c.emails[0].value : null,
+        source: 'followupboss',
+        live: true,
+      });
+    }
+  }
+
   return deduped;
 }
 
@@ -1415,7 +1455,7 @@ app.get('/api/fub/calllist', async (req, res) => {
   try {
     // Fetch contacts from all relevant stages
     // FUB API uses stage name filter
-    const stages = ['Active Clients', 'A - Hot', 'B - Warm', 'Past Clients', 'All Leads - Uncategorized', 'Sphere'];
+    const stages = ['Active Client', 'A - Hot 1-3 Months', 'B - Warm 3-6 Months', 'C - Cold 6+ Months', 'Past Client', 'Lead', 'Sphere', 'Firm'];
     let allContacts = [];
 
     for (const stage of stages) {
