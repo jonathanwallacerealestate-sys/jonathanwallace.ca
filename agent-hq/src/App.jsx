@@ -192,11 +192,106 @@ const gcalConnectionStatus = { connected: false, reason: "Google Calendar integr
 // DATA: BROKERBAY SHOWINGS (LIVE — parsed from Gmail)
 // ─────────────────────────────────────────────
 // BrokerBay showings — populated from live Gmail parsing when connected
-const brokerBayShowings = [];
+// BrokerBay showings — loaded live from /api/gmail/brokerbay
+// Shared hook so multiple components can access the same data
+function useBrokerBayShowings() {
+  const [data, setData] = useState({ showings: [], syncStatus: { connected: false, lastSync: "Loading...", totalShowingsThisWeek: 0, confirmedCount: 0, completedCount: 0, cancelledCount: 0, pendingCount: 0 }, loading: true });
 
-const brokerBaySyncStatus = {
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      try {
+        const resp = await fetch('/api/gmail/brokerbay?days=30');
+        if (!resp.ok) throw new Error('Failed');
+        const json = await resp.json();
+        if (cancelled) return;
+
+        // Transform API confirmed/requested/cancelled into flat showings list
+        const allShowings = [];
+        let idCounter = 0;
+        for (const s of (json.showings?.confirmed || [])) {
+          allShowings.push({
+            id: `bb-c-${idCounter++}`,
+            property: s.address || s.subject || 'Unknown',
+            date: s.showingDate || new Date(s.date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }),
+            time: s.showingTime || '',
+            end: '',
+            status: 'confirmed',
+            buyerAgent: s.agentName || '',
+            brokerage: s.brokerage || '',
+            role: 'listing_agent',
+            lockboxCode: '',
+            requestedBy: s.agentName || '',
+            notes: s.showingType || '',
+            rawDate: s.date,
+          });
+        }
+        for (const s of (json.showings?.requested || [])) {
+          allShowings.push({
+            id: `bb-r-${idCounter++}`,
+            property: s.address || s.subject || 'Unknown',
+            date: s.showingDate || new Date(s.date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }),
+            time: s.showingTime || '',
+            end: '',
+            status: 'requested',
+            buyerAgent: s.agentName || '',
+            brokerage: s.brokerage || '',
+            role: 'listing_agent',
+            lockboxCode: '',
+            requestedBy: s.agentName || '',
+            notes: s.showingType || '',
+            rawDate: s.date,
+          });
+        }
+        for (const s of (json.showings?.cancelled || [])) {
+          allShowings.push({
+            id: `bb-x-${idCounter++}`,
+            property: s.address || s.subject || 'Unknown',
+            date: s.showingDate || new Date(s.date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }),
+            time: s.showingTime || '',
+            end: '',
+            status: 'cancelled',
+            buyerAgent: s.agentName || '',
+            brokerage: s.brokerage || '',
+            role: 'listing_agent',
+            lockboxCode: '',
+            requestedBy: s.agentName || '',
+            notes: s.showingType || '',
+            rawDate: s.date,
+          });
+        }
+
+        const summary = json.summary || {};
+        setData({
+          showings: allShowings,
+          syncStatus: {
+            connected: true,
+            lastSync: new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }),
+            totalShowingsThisWeek: allShowings.filter(s => s.status !== 'cancelled').length,
+            confirmedCount: summary.confirmedShowings || 0,
+            completedCount: 0,
+            cancelledCount: summary.cancelledShowings || 0,
+            pendingCount: summary.requestedShowings || 0,
+          },
+          loading: false,
+        });
+      } catch {
+        if (!cancelled) setData(prev => ({ ...prev, loading: false, syncStatus: { ...prev.syncStatus, connected: false, lastSync: "Failed to load — reconnect Google" } }));
+      }
+    }
+    load();
+    const interval = setInterval(load, 5 * 60 * 1000); // refresh every 5 min
+    return () => { cancelled = true; clearInterval(interval); };
+  }, []);
+
+  return data;
+}
+
+// Keep module-level references for components that still read these directly
+let brokerBayShowings = [];
+let brokerBaySyncStatus = {
   connected: false,
-  lastSync: "Not synced — reconnect Google to pull showings",
+  lastSync: "Loading...",
   calendarFeedUrl: "",
   googleCalendarLinked: false,
   totalShowingsThisWeek: 0,
@@ -2497,6 +2592,11 @@ function CalendarSection() {
 function ShowingsSection() {
   const [showTab, setShowTab] = useState("upcoming");
   const [expandedShowing, setExpandedShowing] = useState(null);
+  const { showings: liveShowings, syncStatus: liveSyncStatus, loading } = useBrokerBayShowings();
+
+  // Update module-level refs so other components (morning snapshot, calendar) can access
+  brokerBayShowings = liveShowings;
+  brokerBaySyncStatus = liveSyncStatus;
 
   const statusStyles = {
     confirmed: { color: "#059669", bg: "#ecfdf5", label: "Confirmed" },
@@ -2506,12 +2606,12 @@ function ShowingsSection() {
     cancelled: { color: "#dc2626", bg: "#fef2f2", label: "Cancelled" },
   };
 
-  const listingShowings = brokerBayShowings.filter(s => s.role === "listing_agent");
-  const buyerShowings = brokerBayShowings.filter(s => s.role === "buyer_agent");
+  const listingShowings = liveShowings.filter(s => s.role === "listing_agent");
+  const buyerShowings = liveShowings.filter(s => s.role === "buyer_agent");
 
   const showTabs = [
     { id: "upcoming", label: "Upcoming" },
-    { id: "all", label: `All (${brokerBaySyncStatus.totalShowingsThisWeek})` },
+    { id: "all", label: `All (${liveSyncStatus.totalShowingsThisWeek})` },
     { id: "sync", label: "Sync" },
   ];
 
@@ -2523,18 +2623,20 @@ function ShowingsSection() {
           <span style={{ fontSize: 9, fontWeight: 700, color: "#fff", background: "#10b981", padding: "1px 5px", borderRadius: 3 }}>LIVE</span>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <span style={{ width: 7, height: 7, borderRadius: "50%", background: brokerBaySyncStatus.connected ? "#10b981" : "#ef4444" }} />
-          <span style={{ fontSize: 10, color: "#6b7280" }}>BrokerBay {brokerBaySyncStatus.lastSync}</span>
+          <span style={{ width: 7, height: 7, borderRadius: "50%", background: liveSyncStatus.connected ? "#10b981" : "#ef4444" }} />
+          <span style={{ fontSize: 10, color: "#6b7280" }}>BrokerBay {liveSyncStatus.lastSync}</span>
         </div>
       </div>
+
+      {loading && <div style={{ textAlign: "center", padding: 20, fontSize: 12, color: "#9ca3af" }}>Loading showings from Gmail...</div>}
 
       {/* Quick stats */}
       <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
         {[
           { label: "Listings", val: listingShowings.filter(s => s.status !== "cancelled").length, color: "#8b5cf6", bg: "#f5f3ff" },
           { label: "Buyer", val: buyerShowings.filter(s => s.status !== "cancelled").length, color: "#059669", bg: "#ecfdf5" },
-          { label: "Confirmed", val: brokerBaySyncStatus.confirmedCount, color: "#2563eb", bg: "#eff6ff" },
-          { label: "Cancelled", val: brokerBaySyncStatus.cancelledCount || 0, color: "#dc2626", bg: "#fef2f2" },
+          { label: "Confirmed", val: liveSyncStatus.confirmedCount, color: "#2563eb", bg: "#eff6ff" },
+          { label: "Cancelled", val: liveSyncStatus.cancelledCount || 0, color: "#dc2626", bg: "#fef2f2" },
         ].map(s => (
           <div key={s.label} style={{ flex: 1, padding: "10px 12px", borderRadius: 10, background: s.bg, textAlign: "center" }}>
             <div style={{ fontSize: 20, fontWeight: 700, color: s.color }}>{s.val}</div>
@@ -2644,14 +2746,14 @@ function ShowingsSection() {
       {/* ── ALL SHOWINGS ── */}
       {showTab === "all" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-          {brokerBayShowings.map(s => {
+          {liveShowings.map(s => {
             const st = statusStyles[s.status] || { color: "#6b7280", bg: "#f3f4f6", label: s.status };
             return (
               <div key={s.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", borderRadius: 10, background: "#fff", border: "1px solid #f0f0f0" }}>
                 <div style={{ width: 4, height: 36, borderRadius: 2, background: "#e11d48", flexShrink: 0 }} />
                 <div style={{ flex: 1 }}>
                   <div style={{ fontSize: 12, fontWeight: 600, color: "#111827" }}>{s.property}</div>
-                  <div style={{ fontSize: 11, color: "#9ca3af" }}>{s.date} &middot; {s.time} — {s.end} &middot; {s.buyerAgent}</div>
+                  <div style={{ fontSize: 11, color: "#9ca3af" }}>{s.date} &middot; {s.time}{s.end ? ` — ${s.end}` : ''} &middot; {s.buyerAgent}{s.brokerage ? ` (${s.brokerage})` : ''}</div>
                 </div>
                 <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
                   <span style={{ fontSize: 10, fontWeight: 600, color: s.role === "listing_agent" ? "#8b5cf6" : "#6b7280", background: s.role === "listing_agent" ? "#f5f3ff" : "#f3f4f6", padding: "2px 6px", borderRadius: 3 }}>{s.role === "listing_agent" ? "Listing" : "Buyer"}</span>
@@ -2678,11 +2780,11 @@ function ShowingsSection() {
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, fontSize: 12 }}>
             <div style={{ padding: "10px 12px", background: "#f9fafb", borderRadius: 8, border: "1px solid #e5e7eb" }}>
               <div style={{ color: "#9ca3af", fontSize: 10, marginBottom: 2 }}>Last Sync</div>
-              <div style={{ fontWeight: 600, color: "#111827" }}>{brokerBaySyncStatus.lastSync}</div>
+              <div style={{ fontWeight: 600, color: "#111827" }}>{liveSyncStatus.lastSync}</div>
             </div>
             <div style={{ padding: "10px 12px", background: "#f9fafb", borderRadius: 8, border: "1px solid #e5e7eb" }}>
-              <div style={{ color: "#9ca3af", fontSize: 10, marginBottom: 2 }}>This Week</div>
-              <div style={{ fontWeight: 600, color: "#111827" }}>{brokerBaySyncStatus.totalShowingsThisWeek} showings</div>
+              <div style={{ color: "#9ca3af", fontSize: 10, marginBottom: 2 }}>Total Active</div>
+              <div style={{ fontWeight: 600, color: "#111827" }}>{liveSyncStatus.totalShowingsThisWeek} showings</div>
             </div>
           </div>
         </div>
