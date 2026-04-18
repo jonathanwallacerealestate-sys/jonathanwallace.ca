@@ -5360,7 +5360,7 @@ function getRoomDetailOptions(roomName) {
 
 function defaultFormData() {
   return {
-    propertyId: '', address: '', city: 'Midland', postalCode: '',
+    propertyId: '', address: '', city: '', postalCode: '',
     mlsNumber: '', listPrice: '', propertyType: '', lotSize: '', lotDimensions: '',
     lotFrontage: '', lotDepth: '',
     taxes: '', taxYear: '', assessedValue: '',
