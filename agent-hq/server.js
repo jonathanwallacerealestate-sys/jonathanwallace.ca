@@ -3613,6 +3613,204 @@ app.post('/api/listing-form/import-pdf', upload.single('pdf'), async (req, res) 
 });
 
 // ─────────────────────────────────────────────
+// SISU EXPORT — Generate field mapping for Chrome automation
+// ─────────────────────────────────────────────
+app.get('/api/listing-form/:id/sisu-export', async (req, res) => {
+  try {
+    const filePath = path.join(DATA_DIR, 'listing-forms', `${req.params.id}.json`);
+    if (!fs.existsSync(filePath)) return res.json({ success: false, error: 'Property not found' });
+    const form = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+
+    // Build Sisu field mapping: { sisuLabel: value }
+    // These map to the exact label text on the Sisu Draft 100a form
+    const fields = {};
+    const set = (label, val) => { if (val && val.toString().trim()) fields[label] = val.toString().trim(); };
+
+    // ─── Basic Info ───
+    set('Address Line 1', form.address);
+    set('City', form.city);
+    set('Province', 'Ontario');
+    set('Postal Code', form.postalCode);
+    set('Year Built', form.yearBuilt);
+    set('Zoning', form.zoning);
+    set('PIN #', form.pin);
+    set('Assessment Roll Number (ARN)', form.arn);
+    set('Legal Description', form.legalDescription);
+    set('Property Tax', form.taxes);
+    set('Tax Year', form.taxYear);
+    set('MPAC Assessment', form.assessedValue);
+
+    // ─── Lot ───
+    set('Lot Front in Feet', form.lotFrontage);
+    set('Lot Depth in Feet', form.lotDepth);
+    set('Acreage', form.lotSize ? form.lotSize.replace(/\s*acres?\s*/i, '').trim() : '');
+    set('Square Footage Above Grade', form.sqftAboveGrade);
+    set('Total Finished Sq Ft', form.totalFinishedSqFt);
+
+    // ─── Beds & Baths ───
+    set('Number of Total Bedrooms', form.bedrooms);
+    set('Number of Full Bathrooms', form.bathrooms);
+    set('Number of Above Grade Bedrooms', form.bedrooms);
+
+    // ─── Structure ───
+    set('Style', form.style);
+    set('Foundation Detail', form.foundationType);
+    set('Exterior Finish', form.exteriorMaterial);
+    set('Roof Type', form.roofType);
+    set('Age of Roof', form.roofAge);
+
+    // ─── Plumbing & Electrical ───
+    set('Plumbing', form.plumbing);
+    set('AMP Service', form.electricalAmps);
+
+    // ─── Garage & Parking ───
+    if (form.garageType && form.garageType !== 'None') {
+      set('Garage (Yes or No)', 'Yes');
+      set('Garage Type', form.garageType);
+    } else {
+      set('Garage (Yes or No)', 'No');
+    }
+    set('Number of Garage Parking Spaces', form.garageSpaces);
+    set('Driveway/Parking', form.drivewaySize);
+    set('Driveway Type', form.drivewayMaterial);
+    set('Number of Driveway Parking Spaces', form.drivewaySpaces);
+
+    // ─── Water & Sewer ───
+    set('Water Type', form.waterSource);
+    set('Sewer', form.sewerType);
+
+    // ─── Basement ───
+    set('Basement Finish', form.basementFinish);
+    set('Basement Size', form.basementType);
+
+    // ─── Heating ───
+    if (form.heatingTypes && form.heatingTypes.length > 0) {
+      const ht = form.heatingTypes[0] || '';
+      if (ht.includes('Forced Air')) set('Heat Type', 'Forced Air');
+      else if (ht.includes('Baseboard')) set('Heat Type', 'Baseboard');
+      else if (ht.includes('Radiant')) set('Heat Type', 'Radiant');
+      else if (ht.includes('Boiler')) set('Heat Type', 'Boiler');
+      else set('Heat Type', ht);
+
+      if (ht.includes('Gas')) set('Heat Source', 'Gas');
+      else if (ht.includes('Propane')) set('Heat Source', 'Propane');
+      else if (ht.includes('Electric')) set('Heat Source', 'Electric');
+      else if (ht.includes('Oil')) set('Heat Source', 'Oil');
+      else if (ht.includes('Wood')) set('Heat Source', 'Wood');
+    }
+    set('Age of Furnace', form.furnaceAge);
+    if (form.furnaceAge || (form.heatingTypes && form.heatingTypes.length > 0)) set('Furnace?', 'Yes');
+
+    // ─── Air Conditioning ───
+    if (form.acTypes && form.acTypes.length > 0 && !form.acTypes.includes('None')) {
+      set('Air Conditioning?', form.acTypes.join(', '));
+    }
+
+    // ─── Fireplace ───
+    if (form.hasFireplace) {
+      set('Fireplace', 'Yes');
+      set('Number of Fireplaces', form.numberOfFireplaces);
+      if (form.fireplaceType === 'Wood') set('Number of Wood F/P', form.numberOfFireplaces || '1');
+      else if (form.fireplaceType === 'Gas' || form.fireplaceType === 'Propane') set('Number of Gas FP', form.numberOfFireplaces || '1');
+      if (form.fireplaceType === 'Electric') set('Electric Fireplace Included?', 'Yes');
+    }
+
+    // ─── Hot Water ───
+    set('Water Heater', form.hotWaterType);
+
+    // ─── Inclusions / Exclusions ───
+    const inclParts = [];
+    if (form.appliancesIncluded && form.appliancesIncluded.length > 0) inclParts.push(form.appliancesIncluded.join(', '));
+    if (form.otherInclusions && form.otherInclusions.length > 0) inclParts.push(form.otherInclusions.join(', '));
+    if (form.hasPool) inclParts.push(`Pool (${form.poolType || 'Chlorine'})`);
+    if (form.hasHotTub) inclParts.push('Hot Tub');
+    if (form.inclusionsNotes) inclParts.push(form.inclusionsNotes);
+    set('Inclusions', inclParts.join(', '));
+    set('Exclusions', form.exclusions);
+    set('Rental Items or Under Contract', form.rentalItems);
+
+    // ─── Occupancy ───
+    set('Occupancy', form.occupancy);
+
+    // ─── Pool ───
+    if (form.hasPool) {
+      set('Pool', form.poolType === 'Saltwater' ? 'In Ground - Salt' : 'In Ground');
+    }
+
+    // ─── Hot Tub ───
+    if (form.hasHotTub) set('Hot Tub', 'Yes');
+
+    // ─── Waterfront ───
+    if (form.isWaterfront) {
+      set('Waterfront (Yes or No)', 'Yes');
+      set('Waterfront Type', form.waterfrontType);
+      set('Water Body Type', form.waterBodyType);
+      set('Body of Water Name', form.waterBody);
+      set('Waterfront Footage (ft)', form.waterfrontFootage);
+      set('Shoreline', form.shoreline);
+      set('Shoreline Exposure', form.shorelineExposure);
+      set('Docking Type', form.dock);
+    }
+
+    // ─── Showing ───
+    set('Lockbox Code', form.lockboxCode);
+    set('Special Showing Instructions', [form.accessNotes, form.showingRestrictions, form.showingInstructions].filter(Boolean).join('. '));
+
+    // ─── Staging & Photography ───
+    set('Notes for Staging', form.stagingNotes);
+    set('Notes for Photography', form.photographyNotes);
+
+    // ─── Marketing ───
+    set('Top 5 Reasons Someone Would Want to Buy', form.top5Reasons);
+    set('TRREB Extras', form.mlsDescription);
+
+    // ─── Rooms (up to 24 in Sisu) ───
+    const roomExport = [];
+    const rooms = form.rooms || [];
+    rooms.forEach((room, idx) => {
+      const num = idx + 1;
+      if (num > 24) return;
+      const roomData = {};
+      roomData[`Room ${num} Type`] = room.name || '';
+
+      // Map level
+      let level = room.level || 'Main';
+      if (level === 'Upper') level = '2nd';
+      else if (level === 'Basement') level = 'Bsmt';
+      roomData[`Room ${num} Level`] = level;
+
+      // Build details string from chips + flooring + notes
+      const detailParts = [];
+      if (room.flooring) detailParts.push(room.flooring);
+      if (room.details && room.details.length > 0) detailParts.push(...room.details);
+      roomData[`Room ${num} Details`] = detailParts.join(', ');
+
+      if (room.features) roomData[`Additional Notes for Room ${num}`] = room.features;
+
+      roomExport.push(roomData);
+      // Merge into main fields
+      Object.assign(fields, roomData);
+    });
+
+    const fieldCount = Object.keys(fields).length;
+    console.log(`[Sisu Export] Property ${req.params.id}: ${fieldCount} fields mapped, ${rooms.length} rooms`);
+
+    res.json({
+      success: true,
+      fieldCount,
+      roomCount: rooms.length,
+      sisuUrl: form.sisuTransactionUrl || '',
+      fields,
+      rooms: roomExport,
+    });
+
+  } catch (err) {
+    console.error('[Sisu Export] Error:', err.message);
+    res.json({ success: false, error: err.message });
+  }
+});
+
+// ─────────────────────────────────────────────
 // SPA Fallback — serve index.html for all other routes
 // ─────────────────────────────────────────────
 app.get('*', (req, res) => {

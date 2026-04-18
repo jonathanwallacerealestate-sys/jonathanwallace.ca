@@ -5392,6 +5392,7 @@ function defaultFormData() {
     top5Reasons: '', mlsDescription: '',
     fintracId1Type: '', fintracId1Number: '', fintracId1Expiry: '',
     fintracEmployer: '', fintracOccupation: '',
+    sisuTransactionUrl: '',
     status: 'draft', createdAt: '', updatedAt: '',
   };
 }
@@ -5462,6 +5463,7 @@ function ListingForm() {
   const [lastSaved, setLastSaved] = useState(null);
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState(null);
+  const [sisuExport, setSisuExport] = useState(null);
   const geoFileRef = useRef(null);
   const mlsFileRef = useRef(null);
   const saveTimerRef = useRef(null);
@@ -6108,6 +6110,44 @@ function ListingForm() {
                 }}><Sparkles size={13} /> Generate MLS Description</button>
               </div>
               <p style={{ fontSize: 11, color: '#9ca3af', margin: 0 }}>AI generation will use all filled-in property details above to create marketing content.</p>
+            </div>
+          </FormSection>
+
+          {/* SECTION: SISU EXPORT */}
+          <FormSection title="Export to Sisu" icon={ExternalLink} expanded={expanded.sisu} onToggle={() => toggle('sisu')}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <FormField label="Sisu Transaction URL">
+                <input style={inputStyle} value={form.sisuTransactionUrl || ''} onChange={e => updateField('sisuTransactionUrl', e.target.value)} placeholder="https://app.sisu.co/app/transactions/123456/edit/draft-100a-..." />
+              </FormField>
+              <p style={{ fontSize: 11, color: '#6b7280', margin: 0 }}>
+                Paste the full Sisu transaction form URL above, then click "Generate Sisu Export" to prepare the data. Ask Claude to fill the Sisu form using Chrome automation.
+              </p>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button type="button" onClick={async () => {
+                  if (!activePropertyId) return;
+                  await saveForm();
+                  try {
+                    const res = await fetch(`/api/listing-form/${activePropertyId}/sisu-export`);
+                    const data = await res.json();
+                    if (data.success) {
+                      setSisuExport(data);
+                      alert(`Sisu export ready! ${data.fieldCount} fields mapped. Ask Claude to "export this listing to Sisu" and it will fill the form automatically.`);
+                    } else {
+                      alert('Export failed: ' + (data.error || 'Unknown error'));
+                    }
+                  } catch (err) { alert('Export failed: ' + err.message); }
+                }} style={{
+                  padding: '10px 20px', borderRadius: 8, background: 'linear-gradient(135deg, #2563eb, #3b82f6)',
+                  color: '#fff', border: 'none', fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                  display: 'flex', alignItems: 'center', gap: 6,
+                }}><ExternalLink size={13} /> Generate Sisu Export</button>
+              </div>
+              {sisuExport && (
+                <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, padding: 12 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: '#166534', marginBottom: 4 }}>Export Ready</div>
+                  <div style={{ fontSize: 11, color: '#15803d' }}>{sisuExport.fieldCount} fields mapped to Sisu. {sisuExport.roomCount || 0} rooms with details. Ask Claude: "Fill my Sisu form for this listing."</div>
+                </div>
+              )}
             </div>
           </FormSection>
 
