@@ -539,7 +539,16 @@ function formatFeedbackSandwich(raw) {
 // OUTSTANDING FEEDBACK BAR (compact, with inline dictation)
 // ─────────────────────────────────────────────
 function OutstandingFeedbackBar() {
-  const [dismissed, setDismissed] = useState({});
+  const [dismissed, setDismissed] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('agenthq-feedback-dismissed') || '{}'); } catch { return {}; }
+  });
+  const persistDismiss = (updater) => {
+    setDismissed(prev => {
+      const next = typeof updater === 'function' ? updater(prev) : updater;
+      try { localStorage.setItem('agenthq-feedback-dismissed', JSON.stringify(next)); } catch {}
+      return next;
+    });
+  };
   const [submitted, setSubmitted] = useState(getSubmittedFeedback());
   const [expandedId, setExpandedId] = useState(null);
   const [rawInput, setRawInput] = useState('');
@@ -626,7 +635,7 @@ function OutstandingFeedbackBar() {
                 <button onClick={() => handleMarkDone(fb)} title="Already submitted on BrokerBay" style={{ padding: "6px 10px", borderRadius: 8, border: "1px solid #e5e7eb", background: "#fff", color: "#9ca3af", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>
                   Done
                 </button>
-                <button onClick={() => setDismissed(prev => ({ ...prev, [fb.id]: true }))} style={{ padding: "6px 10px", borderRadius: 8, border: "1px solid #e5e7eb", background: "#fff", color: "#d1d5db", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>
+                <button onClick={() => persistDismiss(prev => ({ ...prev, [fb.id]: true }))} style={{ padding: "6px 10px", borderRadius: 8, border: "1px solid #e5e7eb", background: "#fff", color: "#d1d5db", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>
                   ✕
                 </button>
               </div>
