@@ -5347,7 +5347,7 @@ const WATER_SOURCES = ['Municipal', 'Drilled Well', 'Dug Well', 'Lake', 'Shared 
 const SEWER_TYPES = ['Municipal Sewer', 'Septic Tank', 'Holding Tank', 'Septic Bed'];
 const GARAGE_TYPES = ['Attached', 'Detached', 'Built-In', 'Carport', 'None'];
 const FLOORING_TYPES = ['Hardwood', 'Laminate', 'Vinyl Plank', 'Tile', 'Carpet', 'Concrete', 'Other'];
-const ROOM_DETAIL_OPTIONS = ['Large Window', 'Closet', 'Walk-in Closet', 'Upgraded Lighting', 'Crown Moulding', 'Pot Lights'];
+const ROOM_DETAIL_OPTIONS = ['Large Window', 'Closet', 'Walk-in Closet', 'Upgraded Lighting', 'Crown Moulding', 'Pot Lights', 'Freshly Painted'];
 
 function defaultFormData() {
   return {
