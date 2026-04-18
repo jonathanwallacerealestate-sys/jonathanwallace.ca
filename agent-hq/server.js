@@ -1901,7 +1901,7 @@ app.get('/api/fub/leads/processed', (req, res) => {
 // ─────────────────────────────────────────────
 
 const TJ_STATE_PATH = path.join(__dirname, '.tj-import-state.json');
-const TJ_BATCH_SIZE = 100;
+const TJ_BATCH_SIZE = 2000;
 
 // Load/save import state
 function loadTjState() {
@@ -2261,21 +2261,26 @@ app.post('/api/tj/scan', async (req, res) => {
 
   const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
 
-  // 1) Fetch next page of message IDs from Gmail
-  const listParams = { userId: 'me', labelIds: [state.labelId], maxResults: TJ_BATCH_SIZE };
-  if (state.nextPageToken) listParams.pageToken = state.nextPageToken;
-
+  // 1) Fetch message IDs from Gmail — paginate up to TJ_BATCH_SIZE (Gmail caps at 500 per request)
   let batchIds = [];
   let hasMore = false;
+  let pageToken = state.nextPageToken || null;
 
   try {
-    const listResp = await gmail.users.messages.list(listParams);
-    batchIds = (listResp.data.messages || []).map(m => m.id);
-    state.nextPageToken = listResp.data.nextPageToken || null;
-    hasMore = !!state.nextPageToken;
-    if (listResp.data.resultSizeEstimate && state.totalMessages === 0) {
-      state.totalMessages = listResp.data.resultSizeEstimate;
+    while (batchIds.length < TJ_BATCH_SIZE) {
+      const listParams = { userId: 'me', labelIds: [state.labelId], maxResults: Math.min(500, TJ_BATCH_SIZE - batchIds.length) };
+      if (pageToken) listParams.pageToken = pageToken;
+      const listResp = await gmail.users.messages.list(listParams);
+      const ids = (listResp.data.messages || []).map(m => m.id);
+      batchIds = batchIds.concat(ids);
+      pageToken = listResp.data.nextPageToken || null;
+      if (listResp.data.resultSizeEstimate && state.totalMessages === 0) {
+        state.totalMessages = listResp.data.resultSizeEstimate;
+      }
+      if (!pageToken || ids.length === 0) break; // no more pages
     }
+    state.nextPageToken = pageToken;
+    hasMore = !!pageToken;
     console.log(`[TJ] Scan batch ${state.currentBatch + 1}: fetched ${batchIds.length} message IDs (hasMore: ${hasMore})`);
   } catch (err) {
     console.error('[TJ] Gmail list error:', err.message);
