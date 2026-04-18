@@ -2900,6 +2900,100 @@ app.post('/api/fub/log-call', async (req, res) => {
 });
 
 // ─────────────────────────────────────────────
+// LISTING FORM — Pre-Listing Data Management
+// ─────────────────────────────────────────────
+
+const LISTING_FORMS_DIR = path.join(__dirname, '.listing-forms');
+if (!fs.existsSync(LISTING_FORMS_DIR)) fs.mkdirSync(LISTING_FORMS_DIR, { recursive: true });
+
+function slugify(str) {
+  return str.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 80);
+}
+
+// List all saved listing forms
+app.get('/api/listing-form/list', (req, res) => {
+  try {
+    const files = fs.readdirSync(LISTING_FORMS_DIR).filter(f => f.endsWith('.json'));
+    const listings = files.map(f => {
+      try {
+        const data = JSON.parse(fs.readFileSync(path.join(LISTING_FORMS_DIR, f), 'utf8'));
+        return {
+          propertyId: data.propertyId,
+          address: data.address || '',
+          city: data.city || '',
+          sellerName: data.sellerName || '',
+          listPrice: data.listPrice || '',
+          status: data.status || 'draft',
+          updatedAt: data.updatedAt || data.createdAt || '',
+          createdAt: data.createdAt || '',
+        };
+      } catch { return null; }
+    }).filter(Boolean).sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
+    res.json({ success: true, listings });
+  } catch (err) {
+    console.error('[ListingForm] List error:', err.message);
+    res.json({ success: false, error: err.message, listings: [] });
+  }
+});
+
+// Load a specific listing form
+app.get('/api/listing-form/load/:propertyId', (req, res) => {
+  const filePath = path.join(LISTING_FORMS_DIR, `${req.params.propertyId}.json`);
+  if (!fs.existsSync(filePath)) {
+    return res.json({ success: false, error: 'Not found' });
+  }
+  try {
+    const data = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    res.json({ success: true, data });
+  } catch (err) {
+    res.json({ success: false, error: err.message });
+  }
+});
+
+// Save listing form
+app.post('/api/listing-form/save', (req, res) => {
+  try {
+    const data = req.body;
+    if (!data.propertyId) {
+      // Auto-generate propertyId from address + city
+      if (!data.address) return res.json({ success: false, error: 'Address or propertyId required' });
+      data.propertyId = slugify(`${data.address} ${data.city || 'midland'}`);
+    }
+    if (!data.createdAt) data.createdAt = new Date().toISOString();
+    data.updatedAt = new Date().toISOString();
+
+    const filePath = path.join(LISTING_FORMS_DIR, `${data.propertyId}.json`);
+    fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
+
+    // Also forward to Make.com webhook if configured (async, non-blocking)
+    const MAKE_SAVE_WEBHOOK = 'https://hook.us2.make.com/95nk30o9mrpff5rfrz31l1tnxgf3ydf7';
+    fetch(MAKE_SAVE_WEBHOOK, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain' },
+      body: JSON.stringify(data),
+    }).catch(err => console.log('[ListingForm] Make.com sync (non-critical):', err.message));
+
+    console.log(`[ListingForm] Saved: ${data.propertyId} (${data.address})`);
+    res.json({ success: true, propertyId: data.propertyId });
+  } catch (err) {
+    console.error('[ListingForm] Save error:', err.message);
+    res.json({ success: false, error: err.message });
+  }
+});
+
+// Delete a listing form
+app.delete('/api/listing-form/:propertyId', (req, res) => {
+  const filePath = path.join(LISTING_FORMS_DIR, `${req.params.propertyId}.json`);
+  if (!fs.existsSync(filePath)) return res.json({ success: false, error: 'Not found' });
+  try {
+    fs.unlinkSync(filePath);
+    res.json({ success: true });
+  } catch (err) {
+    res.json({ success: false, error: err.message });
+  }
+});
+
+// ─────────────────────────────────────────────
 // SPA Fallback — serve index.html for all other routes
 // ─────────────────────────────────────────────
 app.get('*', (req, res) => {

@@ -8,7 +8,7 @@ import {
   Send, Archive, Reply, AlertTriangle, Coffee, Sun, Flame, Snowflake,
   UserPlus, RotateCcw, Eye, EyeOff, ChevronUp, MoreHorizontal, Inbox,
   Flag, Trash2, PenLine, Check, ExternalLink, RefreshCw,
-  GripVertical,
+  GripVertical, ClipboardList, Home, Plus, Save, Loader2, Trash,
 } from "lucide-react";
 
 // ─────────────────────────────────────────────
@@ -174,6 +174,7 @@ const sidebarItems = [
   { id: "meals", label: "Meals", icon: UtensilsCrossed, badge: null },
   { id: "marketing", label: "Marketing", icon: Megaphone, badge: null },
   { id: "learning", label: "Learning", icon: BookOpen, badge: null },
+  { id: "listing-form", label: "Listing Form", icon: ClipboardList, badge: null },
   { id: "sellers", label: "Sellers", icon: Briefcase, badge: 3 },
   { id: "loo", label: "LOO", icon: FileText, badge: null },
 ];
@@ -5331,6 +5332,572 @@ function MetricCard({ card }) {
 }
 
 // ─────────────────────────────────────────────
+// LISTING FORM — Pre-Listing Questionnaire & Checklist
+// ─────────────────────────────────────────────
+
+const HEATING_OPTIONS = ['Forced Air Gas', 'Propane', 'Electric Baseboard', 'Radiant In-Floor', 'Mini-Split', 'Wood Stove', 'Pellet Stove', 'Oil Furnace', 'Geothermal', 'Boiler / Radiator'];
+const AC_OPTIONS = ['Central Air', 'Ductless Mini-Split', 'Window Units', 'None'];
+const APPLIANCE_OPTIONS = ['Fridge', 'Stove', 'Dishwasher', 'Microwave', 'Washer', 'Dryer', 'Range Hood', 'Built-in Oven', 'Wine Fridge', 'Chest Freezer', 'Garburator', 'Water Softener', 'Central Vac'];
+const INCLUSION_OPTIONS = ['Window Coverings', 'Light Fixtures', 'Garage Door Opener', 'Hot Tub', 'Pool Equipment', 'Storage Shed', 'ELFs', 'Smart Home Devices', 'Security System', 'Water Treatment System', 'Satellite Dish', 'TV Wall Mount(s)'];
+const FOUNDATION_TYPES = ['Poured Concrete', 'Block', 'Stone', 'Slab', 'Crawl Space', 'Pier / Post', 'Other'];
+const ROOF_TYPES = ['Asphalt Shingle', 'Metal', 'Cedar Shake', 'Slate', 'Flat / Torch-On', 'Tile', 'Other'];
+const PROPERTY_TYPES = ['Detached', 'Semi-Detached', 'Townhouse', 'Condo', 'Bungalow', 'Multi-Family', 'Vacant Land', 'Farm', 'Cottage / Waterfront', 'Commercial', 'Other'];
+const BASEMENT_TYPES = ['Full', 'Partial', 'Crawl Space', 'None'];
+const WATER_SOURCES = ['Municipal', 'Drilled Well', 'Dug Well', 'Lake', 'Shared Well', 'Cistern'];
+const SEWER_TYPES = ['Municipal Sewer', 'Septic Tank', 'Holding Tank', 'Septic Bed'];
+const PARKING_TYPES = ['Attached Garage', 'Detached Garage', 'Carport', 'Driveway Only', 'None'];
+const FLOORING_TYPES = ['Hardwood', 'Laminate', 'Vinyl Plank', 'Tile', 'Carpet', 'Concrete', 'Other'];
+
+function defaultFormData() {
+  return {
+    propertyId: '', address: '', city: 'Midland', postalCode: '',
+    mlsNumber: '', listPrice: '', propertyType: '', lotSize: '', lotDimensions: '',
+    taxes: '', taxYear: '', assessedValue: '',
+    sellerName: '', sellerPhone: '', sellerEmail: '',
+    sellerName2: '', sellerPhone2: '', sellerEmail2: '', occupancy: '',
+    bedrooms: '', bathrooms: '',
+    style: '', foundationType: '', roofType: '', roofAge: '', exteriorMaterial: '',
+    sqftAboveGrade: '', sqftBelowGrade: '',
+    electricalAmps: '', electricalType: '',
+    heatingTypes: [], furnaceAge: '', furnaceOwnedRented: '', acTypes: [],
+    hotWaterType: '', hotWaterAge: '', hotWaterOwnedRented: '', rentalItems: '',
+    hydroProvider: '', propaneProvider: '', gasProvider: '', internetProvider: '', internetType: '',
+    basementType: '', basementFinish: '', basementWalkout: '', basementCeilingHeight: '', basementNotes: '',
+    waterSource: '', sewerType: '', wellDetails: '', septicDetails: '',
+    parkingType: '', parkingSpaces: '', drivewayMaterial: '', garageType: '', garageSpaces: '',
+    appliancesIncluded: [],
+    otherInclusions: [], inclusionsNotes: '', exclusions: '',
+    visibleUpgrades: '', hiddenUpgrades: '', floorPlanChanges: '',
+    rooms: [],
+    isWaterfront: false, waterfrontType: '', waterBody: '', shoreline: '', dock: '', waterDepth: '',
+    lockboxCode: '', accessNotes: '', showingRestrictions: '',
+    signType: '', signLocation: '', riderInfo: '',
+    additionalNotes: '',
+    top5Reasons: '', mlsDescription: '',
+    fintracId1Type: '', fintracId1Number: '', fintracId1Expiry: '',
+    fintracEmployer: '', fintracOccupation: '',
+    status: 'draft', createdAt: '', updatedAt: '',
+  };
+}
+
+function ChipSelect({ options, selected, onChange, color = '#c8a96e' }) {
+  const toggle = (opt) => {
+    const next = selected.includes(opt) ? selected.filter(o => o !== opt) : [...selected, opt];
+    onChange(next);
+  };
+  return (
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+      {options.map(opt => {
+        const active = selected.includes(opt);
+        return (
+          <button key={opt} type="button" onClick={() => toggle(opt)} style={{
+            padding: '6px 14px', borderRadius: 20, fontSize: 12, fontWeight: active ? 600 : 400,
+            border: `1.5px solid ${active ? color : '#d1d5db'}`,
+            background: active ? color : '#fff', color: active ? '#fff' : '#374151',
+            cursor: 'pointer', transition: 'all 0.15s',
+          }}>{opt}</button>
+        );
+      })}
+    </div>
+  );
+}
+
+function FormField({ label, children, span = 1 }) {
+  return (
+    <div style={{ gridColumn: span > 1 ? `span ${span}` : undefined }}>
+      <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: '#6b7280', marginBottom: 4, textTransform: 'uppercase', letterSpacing: 0.5 }}>{label}</label>
+      {children}
+    </div>
+  );
+}
+
+function FormSection({ title, icon: Icon, expanded, onToggle, children, badge }) {
+  return (
+    <div style={{ background: '#fff', borderRadius: 10, border: '1px solid #e5e7eb', marginBottom: 10, overflow: 'hidden' }}>
+      <div onClick={onToggle} style={{
+        display: 'flex', alignItems: 'center', gap: 10, padding: '14px 18px', cursor: 'pointer',
+        background: expanded ? '#fafafa' : '#fff', borderBottom: expanded ? '1px solid #e5e7eb' : 'none',
+        transition: 'background 0.15s',
+      }}>
+        {Icon && <Icon size={16} color="#c8a96e" />}
+        <span style={{ fontSize: 14, fontWeight: 600, color: '#111827', flex: 1 }}>{title}</span>
+        {badge && <span style={{ fontSize: 10, fontWeight: 600, color: '#fff', background: '#c8a96e', padding: '2px 8px', borderRadius: 10 }}>{badge}</span>}
+        {expanded ? <ChevronUp size={16} color="#9ca3af" /> : <ChevronDown size={16} color="#9ca3af" />}
+      </div>
+      {expanded && <div style={{ padding: '16px 18px' }}>{children}</div>}
+    </div>
+  );
+}
+
+const inputStyle = { width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #d1d5db', fontSize: 13, color: '#111827', background: '#fafafa', outline: 'none', boxSizing: 'border-box' };
+const selectStyle = { ...inputStyle, appearance: 'auto' };
+const textareaStyle = { ...inputStyle, minHeight: 70, resize: 'vertical', fontFamily: 'inherit' };
+const gridStyle = (cols = 3) => ({ display: 'grid', gridTemplateColumns: `repeat(${cols}, 1fr)`, gap: '12px 16px' });
+
+function ListingForm() {
+  const [properties, setProperties] = useState([]);
+  const [activePropertyId, setActivePropertyId] = useState(null);
+  const [form, setForm] = useState(defaultFormData());
+  const [saving, setSaving] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [loadingList, setLoadingList] = useState(true);
+  const [expanded, setExpanded] = useState({ property: true, seller: true });
+  const [dirty, setDirty] = useState(false);
+  const [lastSaved, setLastSaved] = useState(null);
+  const saveTimerRef = useRef(null);
+
+  const toggle = (key) => setExpanded(p => ({ ...p, [key]: !p[key] }));
+
+  const updateField = (field, value) => {
+    setForm(p => ({ ...p, [field]: value }));
+    setDirty(true);
+    // Auto-save after 3 seconds of inactivity
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(() => { saveForm({ ...form, [field]: value }); }, 3000);
+  };
+
+  const fetchProperties = async () => {
+    setLoadingList(true);
+    try {
+      const res = await fetch('/api/listing-form/list');
+      const data = await res.json();
+      if (data.success) setProperties(data.listings || []);
+    } catch (err) { console.error('Failed to load listings:', err); }
+    setLoadingList(false);
+  };
+
+  const loadProperty = async (propertyId) => {
+    if (!propertyId) return;
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/listing-form/load/${propertyId}`);
+      const data = await res.json();
+      if (data.success && data.data) {
+        // Merge with defaults to ensure all fields exist
+        setForm({ ...defaultFormData(), ...data.data });
+        setActivePropertyId(propertyId);
+        setDirty(false);
+        setLastSaved(data.data.updatedAt || null);
+      }
+    } catch (err) { console.error('Failed to load listing:', err); }
+    setLoading(false);
+  };
+
+  const saveForm = async (formData) => {
+    const data = formData || form;
+    if (!data.address && !data.propertyId) return;
+    setSaving(true);
+    try {
+      const res = await fetch('/api/listing-form/save', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      });
+      const result = await res.json();
+      if (result.success) {
+        if (result.propertyId && !activePropertyId) setActivePropertyId(result.propertyId);
+        if (result.propertyId) setForm(p => ({ ...p, propertyId: result.propertyId }));
+        setDirty(false);
+        setLastSaved(new Date().toISOString());
+        fetchProperties(); // refresh list
+      }
+    } catch (err) { console.error('Failed to save:', err); }
+    setSaving(false);
+  };
+
+  const createNew = () => {
+    setForm(defaultFormData());
+    setActivePropertyId(null);
+    setDirty(false);
+    setLastSaved(null);
+    setExpanded({ property: true, seller: true });
+  };
+
+  const deleteProperty = async (propertyId) => {
+    if (!confirm(`Delete listing ${propertyId}?`)) return;
+    try {
+      await fetch(`/api/listing-form/${propertyId}`, { method: 'DELETE' });
+      if (activePropertyId === propertyId) createNew();
+      fetchProperties();
+    } catch {}
+  };
+
+  const addRoom = () => {
+    const rooms = [...(form.rooms || []), { name: '', level: 'Main', dimensions: '', flooring: '', features: '' }];
+    updateField('rooms', rooms);
+  };
+
+  const updateRoom = (idx, field, value) => {
+    const rooms = [...(form.rooms || [])];
+    rooms[idx] = { ...rooms[idx], [field]: value };
+    updateField('rooms', rooms);
+  };
+
+  const removeRoom = (idx) => {
+    const rooms = (form.rooms || []).filter((_, i) => i !== idx);
+    updateField('rooms', rooms);
+  };
+
+  useEffect(() => { fetchProperties(); }, []);
+
+  // Auto-generate propertyId when address changes
+  useEffect(() => {
+    if (!activePropertyId && form.address && form.address.length > 3) {
+      const slug = form.address.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+      const city = (form.city || 'midland').toLowerCase().replace(/[^a-z0-9]+/g, '-');
+      setForm(p => ({ ...p, propertyId: `${slug}-${city}`.slice(0, 80) }));
+    }
+  }, [form.address, form.city, activePropertyId]);
+
+  const inp = (field, placeholder) => (
+    <input style={inputStyle} value={form[field] || ''} onChange={e => updateField(field, e.target.value)} placeholder={placeholder} />
+  );
+  const sel = (field, options, placeholder) => (
+    <select style={selectStyle} value={form[field] || ''} onChange={e => updateField(field, e.target.value)}>
+      <option value="">{placeholder || 'Select...'}</option>
+      {options.map(o => <option key={o} value={o}>{o}</option>)}
+    </select>
+  );
+  const ta = (field, placeholder) => (
+    <textarea style={textareaStyle} value={form[field] || ''} onChange={e => updateField(field, e.target.value)} placeholder={placeholder} />
+  );
+
+  return (
+    <div style={{ maxWidth: 960, margin: '0 auto' }}>
+      {/* HEADER BAR */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+        <ClipboardList size={22} color="#c8a96e" />
+        <div style={{ flex: 1 }}>
+          <h2 style={{ margin: 0, fontSize: 20, fontWeight: 700, color: '#111827' }}>Listing Form</h2>
+          <p style={{ margin: 0, fontSize: 12, color: '#6b7280' }}>Pre-listing questionnaire & appointment checklist</p>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {lastSaved && <span style={{ fontSize: 10, color: '#9ca3af' }}>Saved {new Date(lastSaved).toLocaleTimeString()}</span>}
+          {saving && <Loader2 size={14} color="#c8a96e" style={{ animation: 'spin 1s linear infinite' }} />}
+          {dirty && <span style={{ fontSize: 10, color: '#f59e0b', fontWeight: 600 }}>Unsaved</span>}
+          <button onClick={() => saveForm()} style={{
+            display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderRadius: 8,
+            background: '#c8a96e', color: '#fff', border: 'none', fontSize: 12, fontWeight: 600, cursor: 'pointer',
+          }}><Save size={13} /> Save</button>
+        </div>
+      </div>
+
+      {/* PROPERTY SELECTOR */}
+      <div style={{ background: '#fff', borderRadius: 10, border: '1px solid #e5e7eb', padding: 16, marginBottom: 12, display: 'flex', alignItems: 'center', gap: 12 }}>
+        <Home size={16} color="#6b7280" />
+        <select style={{ ...selectStyle, flex: 1 }} value={activePropertyId || ''} onChange={e => e.target.value ? loadProperty(e.target.value) : createNew()}>
+          <option value="">+ New Listing</option>
+          {properties.map(p => (
+            <option key={p.propertyId} value={p.propertyId}>
+              {p.address || p.propertyId}{p.city ? `, ${p.city}` : ''}{p.listPrice ? ` — $${Number(p.listPrice).toLocaleString()}` : ''}{p.status === 'active' ? ' ✓' : ''}
+            </option>
+          ))}
+        </select>
+        <button onClick={createNew} title="New listing" style={{
+          width: 34, height: 34, borderRadius: 8, border: '1px solid #d1d5db', background: '#fff',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
+        }}><Plus size={16} color="#6b7280" /></button>
+        {activePropertyId && <button onClick={() => deleteProperty(activePropertyId)} title="Delete listing" style={{
+          width: 34, height: 34, borderRadius: 8, border: '1px solid #fca5a5', background: '#fff',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
+        }}><Trash size={14} color="#ef4444" /></button>}
+      </div>
+
+      {loading ? (
+        <div style={{ textAlign: 'center', padding: 40, color: '#9ca3af' }}>
+          <Loader2 size={24} style={{ animation: 'spin 1s linear infinite' }} />
+          <p style={{ marginTop: 8, fontSize: 13 }}>Loading listing...</p>
+        </div>
+      ) : (
+        <>
+          {/* SECTION 1: PROPERTY INFORMATION */}
+          <FormSection title="Property Information" icon={Home} expanded={expanded.property} onToggle={() => toggle('property')}>
+            <div style={gridStyle(3)}>
+              <FormField label="Street Address" span={2}>{inp('address', '123 Main Street')}</FormField>
+              <FormField label="City / Town">{inp('city', 'Midland')}</FormField>
+              <FormField label="Postal Code">{inp('postalCode', 'L4R 1A1')}</FormField>
+              <FormField label="MLS #">{inp('mlsNumber', '')}</FormField>
+              <FormField label="List Price">{inp('listPrice', '499,000')}</FormField>
+              <FormField label="Property Type">{sel('propertyType', PROPERTY_TYPES, 'Select type...')}</FormField>
+              <FormField label="Lot Size">{inp('lotSize', '50 x 120 ft')}</FormField>
+              <FormField label="Lot Dimensions">{inp('lotDimensions', '0.14 acres')}</FormField>
+              <FormField label="Taxes (Annual)">{inp('taxes', '3,200')}</FormField>
+              <FormField label="Tax Year">{inp('taxYear', '2025')}</FormField>
+              <FormField label="Assessed Value">{inp('assessedValue', '')}</FormField>
+            </div>
+          </FormSection>
+
+          {/* SECTION 2: SELLER INFORMATION */}
+          <FormSection title="Seller Information" icon={Users} expanded={expanded.seller} onToggle={() => toggle('seller')}>
+            <div style={gridStyle(3)}>
+              <FormField label="Seller 1 — Full Name">{inp('sellerName', 'John Smith')}</FormField>
+              <FormField label="Phone">{inp('sellerPhone', '705-555-0123')}</FormField>
+              <FormField label="Email">{inp('sellerEmail', 'john@email.com')}</FormField>
+              <FormField label="Seller 2 — Full Name">{inp('sellerName2', '')}</FormField>
+              <FormField label="Phone">{inp('sellerPhone2', '')}</FormField>
+              <FormField label="Email">{inp('sellerEmail2', '')}</FormField>
+              <FormField label="Occupancy Status">{sel('occupancy', ['Owner Occupied', 'Tenant Occupied', 'Vacant', 'Seasonal'], 'Select...')}</FormField>
+            </div>
+          </FormSection>
+
+          {/* SECTION 3: BEDROOMS & BATHROOMS */}
+          <FormSection title="Bedrooms & Bathrooms" icon={Home} expanded={expanded.beds} onToggle={() => toggle('beds')}>
+            <div style={gridStyle(4)}>
+              <FormField label="Bedrooms">{sel('bedrooms', ['1','2','3','4','5','6+'], 'Select...')}</FormField>
+              <FormField label="Bathrooms">{sel('bathrooms', ['1','1.5','2','2.5','3','3.5','4','4.5','5+'], 'Select...')}</FormField>
+            </div>
+          </FormSection>
+
+          {/* SECTION 4: STRUCTURE & FOUNDATION */}
+          <FormSection title="Structure & Foundation" icon={Home} expanded={expanded.structure} onToggle={() => toggle('structure')}>
+            <div style={gridStyle(3)}>
+              <FormField label="Style">{inp('style', 'e.g. 2-Storey, Bungalow, Split-Level')}</FormField>
+              <FormField label="Foundation Type">{sel('foundationType', FOUNDATION_TYPES, 'Select...')}</FormField>
+              <FormField label="Exterior Material">{inp('exteriorMaterial', 'e.g. Brick, Vinyl Siding, Stone')}</FormField>
+              <FormField label="Roof Type">{sel('roofType', ROOF_TYPES, 'Select...')}</FormField>
+              <FormField label="Roof Age (years)">{inp('roofAge', '')}</FormField>
+              <FormField label="Sq Ft — Above Grade">{inp('sqftAboveGrade', '')}</FormField>
+              <FormField label="Sq Ft — Below Grade">{inp('sqftBelowGrade', '')}</FormField>
+            </div>
+          </FormSection>
+
+          {/* SECTION 5: ELECTRICAL */}
+          <FormSection title="Electrical" icon={Zap} expanded={expanded.electrical} onToggle={() => toggle('electrical')}>
+            <div style={gridStyle(3)}>
+              <FormField label="Panel Amps">{sel('electricalAmps', ['60', '100', '200', '400'], 'Select...')}</FormField>
+              <FormField label="Breakers or Fuses">{sel('electricalType', ['Breakers', 'Fuses', 'Mixed'], 'Select...')}</FormField>
+            </div>
+          </FormSection>
+
+          {/* SECTION 6: HEATING & AIR CONDITIONING */}
+          <FormSection title="Heating & Air Conditioning" icon={Flame} expanded={expanded.heating} onToggle={() => toggle('heating')} badge={form.heatingTypes.length > 0 ? form.heatingTypes.length : null}>
+            <FormField label="Heating Type(s)">
+              <ChipSelect options={HEATING_OPTIONS} selected={form.heatingTypes || []} onChange={v => updateField('heatingTypes', v)} />
+            </FormField>
+            <div style={{ ...gridStyle(3), marginTop: 14 }}>
+              <FormField label="Furnace Age (years)">{inp('furnaceAge', '')}</FormField>
+              <FormField label="Furnace Owned / Rented">{sel('furnaceOwnedRented', ['Owned', 'Rented'], 'Select...')}</FormField>
+            </div>
+            <div style={{ marginTop: 14 }}>
+              <FormField label="Air Conditioning">
+                <ChipSelect options={AC_OPTIONS} selected={form.acTypes || []} onChange={v => updateField('acTypes', v)} />
+              </FormField>
+            </div>
+          </FormSection>
+
+          {/* SECTION 7: HOT WATER */}
+          <FormSection title="Hot Water Tank" icon={Snowflake} expanded={expanded.hotwater} onToggle={() => toggle('hotwater')}>
+            <div style={gridStyle(3)}>
+              <FormField label="Type">{sel('hotWaterType', ['Tank — Gas', 'Tank — Electric', 'Tank — Propane', 'Tankless — Gas', 'Tankless — Electric', 'On-Demand'], 'Select...')}</FormField>
+              <FormField label="Age (years)">{inp('hotWaterAge', '')}</FormField>
+              <FormField label="Owned / Rented">{sel('hotWaterOwnedRented', ['Owned', 'Rented'], 'Select...')}</FormField>
+              <FormField label="Other Rental Items" span={3}>{inp('rentalItems', 'e.g. Water softener, HVAC, propane tank')}</FormField>
+            </div>
+          </FormSection>
+
+          {/* SECTION 8: UTILITIES */}
+          <FormSection title="Utility & Service Providers" icon={Zap} expanded={expanded.utilities} onToggle={() => toggle('utilities')}>
+            <div style={gridStyle(3)}>
+              <FormField label="Hydro Provider">{inp('hydroProvider', 'e.g. Midland Power')}</FormField>
+              <FormField label="Propane Provider">{inp('propaneProvider', '')}</FormField>
+              <FormField label="Gas Provider">{inp('gasProvider', 'e.g. Enbridge')}</FormField>
+              <FormField label="Internet Provider">{inp('internetProvider', 'e.g. Bell, Rogers')}</FormField>
+              <FormField label="Internet Type">{sel('internetType', ['Fibre', 'Cable', 'DSL', 'Fixed Wireless', 'Satellite', 'Starlink'], 'Select...')}</FormField>
+            </div>
+          </FormSection>
+
+          {/* SECTION 9: WATER & SEWER */}
+          <FormSection title="Water & Sewer" icon={Snowflake} expanded={expanded.water} onToggle={() => toggle('water')}>
+            <div style={gridStyle(3)}>
+              <FormField label="Water Source">{sel('waterSource', WATER_SOURCES, 'Select...')}</FormField>
+              <FormField label="Sewer Type">{sel('sewerType', SEWER_TYPES, 'Select...')}</FormField>
+              <FormField label="Well Details">{inp('wellDetails', 'Depth, GPM, last test')}</FormField>
+              <FormField label="Septic Details" span={2}>{inp('septicDetails', 'Age, last pump, size')}</FormField>
+            </div>
+          </FormSection>
+
+          {/* SECTION 10: BASEMENT */}
+          <FormSection title="Basement" icon={Home} expanded={expanded.basement} onToggle={() => toggle('basement')}>
+            <div style={gridStyle(3)}>
+              <FormField label="Basement Type">{sel('basementType', BASEMENT_TYPES, 'Select...')}</FormField>
+              <FormField label="Finish Level">{sel('basementFinish', ['Finished', 'Partially Finished', 'Unfinished'], 'Select...')}</FormField>
+              <FormField label="Walkout">{sel('basementWalkout', ['Yes', 'No'], 'Select...')}</FormField>
+              <FormField label="Ceiling Height">{inp('basementCeilingHeight', "e.g. 7'6\"")}</FormField>
+              <FormField label="Basement Notes" span={2}>{inp('basementNotes', 'Key features, separate entrance, etc.')}</FormField>
+            </div>
+          </FormSection>
+
+          {/* SECTION 11: PARKING & GARAGE */}
+          <FormSection title="Parking & Garage" icon={Home} expanded={expanded.parking} onToggle={() => toggle('parking')}>
+            <div style={gridStyle(3)}>
+              <FormField label="Parking Type">{sel('parkingType', PARKING_TYPES, 'Select...')}</FormField>
+              <FormField label="Parking Spaces">{sel('parkingSpaces', ['1','2','3','4','5','6+'], 'Select...')}</FormField>
+              <FormField label="Driveway Material">{inp('drivewayMaterial', 'e.g. Paved, Gravel, Interlocking')}</FormField>
+            </div>
+          </FormSection>
+
+          {/* SECTION 12: APPLIANCES */}
+          <FormSection title="Appliances Included" icon={CheckCircle2} expanded={expanded.appliances} onToggle={() => toggle('appliances')} badge={form.appliancesIncluded.length > 0 ? form.appliancesIncluded.length : null}>
+            <ChipSelect options={APPLIANCE_OPTIONS} selected={form.appliancesIncluded || []} onChange={v => updateField('appliancesIncluded', v)} />
+          </FormSection>
+
+          {/* SECTION 13: OTHER INCLUSIONS */}
+          <FormSection title="Other Inclusions" icon={CheckCircle2} expanded={expanded.inclusions} onToggle={() => toggle('inclusions')} badge={form.otherInclusions.length > 0 ? form.otherInclusions.length : null}>
+            <ChipSelect options={INCLUSION_OPTIONS} selected={form.otherInclusions || []} onChange={v => updateField('otherInclusions', v)} />
+            <div style={{ marginTop: 12 }}>
+              <FormField label="Additional Inclusions Notes">{ta('inclusionsNotes', 'Any other items included in the sale...')}</FormField>
+            </div>
+          </FormSection>
+
+          {/* SECTION 14: EXCLUSIONS */}
+          <FormSection title="Exclusions" icon={X} expanded={expanded.exclusions} onToggle={() => toggle('exclusions')}>
+            <FormField label="Items Excluded from Sale">{ta('exclusions', 'List any items the seller is taking with them...')}</FormField>
+          </FormSection>
+
+          {/* SECTION 15: ROOM-BY-ROOM */}
+          <FormSection title="Room-by-Room Details" icon={Home} expanded={expanded.rooms} onToggle={() => toggle('rooms')} badge={form.rooms && form.rooms.length > 0 ? form.rooms.length : null}>
+            {(form.rooms || []).map((room, idx) => (
+              <div key={idx} style={{ background: '#f9fafb', borderRadius: 8, padding: 12, marginBottom: 8, border: '1px solid #e5e7eb' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: '#6b7280' }}>ROOM {idx + 1}</span>
+                  <div style={{ flex: 1 }} />
+                  <button type="button" onClick={() => removeRoom(idx)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2 }}>
+                    <X size={14} color="#ef4444" />
+                  </button>
+                </div>
+                <div style={gridStyle(4)}>
+                  <FormField label="Room Name">
+                    <input style={inputStyle} value={room.name} onChange={e => updateRoom(idx, 'name', e.target.value)} placeholder="e.g. Primary Bedroom" />
+                  </FormField>
+                  <FormField label="Level">
+                    <select style={selectStyle} value={room.level} onChange={e => updateRoom(idx, 'level', e.target.value)}>
+                      {['Main', 'Upper', 'Lower', 'Basement'].map(l => <option key={l}>{l}</option>)}
+                    </select>
+                  </FormField>
+                  <FormField label="Dimensions">
+                    <input style={inputStyle} value={room.dimensions} onChange={e => updateRoom(idx, 'dimensions', e.target.value)} placeholder="12 x 14" />
+                  </FormField>
+                  <FormField label="Flooring">
+                    <select style={selectStyle} value={room.flooring || ''} onChange={e => updateRoom(idx, 'flooring', e.target.value)}>
+                      <option value="">Select...</option>
+                      {FLOORING_TYPES.map(f => <option key={f}>{f}</option>)}
+                    </select>
+                  </FormField>
+                </div>
+                <div style={{ marginTop: 8 }}>
+                  <FormField label="Features / Notes">
+                    <input style={inputStyle} value={room.features} onChange={e => updateRoom(idx, 'features', e.target.value)} placeholder="Walk-in closet, ensuite, bay window..." />
+                  </FormField>
+                </div>
+              </div>
+            ))}
+            <button type="button" onClick={addRoom} style={{
+              display: 'flex', alignItems: 'center', gap: 6, padding: '10px 18px', borderRadius: 8,
+              border: '1.5px dashed #d1d5db', background: '#fff', fontSize: 12, fontWeight: 600,
+              color: '#6b7280', cursor: 'pointer', width: '100%', justifyContent: 'center',
+            }}><Plus size={14} /> Add Room</button>
+          </FormSection>
+
+          {/* SECTION 16: UPGRADES & RENOVATIONS */}
+          <FormSection title="Recent Upgrades & Renovations" icon={Star} expanded={expanded.upgrades} onToggle={() => toggle('upgrades')}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <FormField label="Visible Upgrades (kitchen, bathrooms, flooring, windows, etc.)">{ta('visibleUpgrades', 'List upgrades that buyers will notice...')}</FormField>
+              <FormField label="Hidden Upgrades (plumbing, electrical, insulation, foundation, etc.)">{ta('hiddenUpgrades', 'List upgrades behind the walls...')}</FormField>
+              <FormField label="Floor Plan Changes">{ta('floorPlanChanges', 'Were any walls removed, rooms added, or layout changes made?')}</FormField>
+            </div>
+          </FormSection>
+
+          {/* SECTION 17: WATERFRONT */}
+          <FormSection title="Waterfront Details" icon={Snowflake} expanded={expanded.waterfront} onToggle={() => toggle('waterfront')} badge={form.isWaterfront ? 'YES' : null}>
+            <div style={{ marginBottom: 12 }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+                <input type="checkbox" checked={form.isWaterfront || false} onChange={e => updateField('isWaterfront', e.target.checked)} />
+                <span style={{ fontSize: 13, fontWeight: 500 }}>This is a waterfront property</span>
+              </label>
+            </div>
+            {form.isWaterfront && (
+              <div style={gridStyle(3)}>
+                <FormField label="Waterfront Type">{sel('waterfrontType', ['Lake', 'River', 'Bay', 'Ocean', 'Pond', 'Creek'], 'Select...')}</FormField>
+                <FormField label="Water Body Name">{inp('waterBody', 'e.g. Georgian Bay, Lake Simcoe')}</FormField>
+                <FormField label="Shoreline Type">{inp('shoreline', 'e.g. Sandy, Rocky, Gradual')}</FormField>
+                <FormField label="Dock">{inp('dock', 'e.g. Floating dock, permanent, none')}</FormField>
+                <FormField label="Water Depth">{inp('waterDepth', 'e.g. Shallow, Deep, Gradual entry')}</FormField>
+              </div>
+            )}
+          </FormSection>
+
+          {/* SECTION 18: FINTRAC */}
+          <FormSection title="FINTRAC — Identity Verification" icon={FileText} expanded={expanded.fintrac} onToggle={() => toggle('fintrac')}>
+            <div style={gridStyle(3)}>
+              <FormField label="ID Type">{sel('fintracId1Type', ["Driver's License", 'Passport', 'Health Card', 'Other Government ID'], 'Select...')}</FormField>
+              <FormField label="ID Number">{inp('fintracId1Number', '')}</FormField>
+              <FormField label="Expiry Date">{inp('fintracId1Expiry', 'YYYY-MM-DD')}</FormField>
+              <FormField label="Occupation">{inp('fintracOccupation', '')}</FormField>
+              <FormField label="Employer">{inp('fintracEmployer', '')}</FormField>
+            </div>
+          </FormSection>
+
+          {/* SECTION 19: SHOWING INSTRUCTIONS */}
+          <FormSection title="Showing Instructions" icon={MapPin} expanded={expanded.showing} onToggle={() => toggle('showing')}>
+            <div style={gridStyle(3)}>
+              <FormField label="Lockbox Code">{inp('lockboxCode', '')}</FormField>
+              <FormField label="Access Notes">{inp('accessNotes', 'e.g. Key under mat, ring doorbell')}</FormField>
+              <FormField label="Restrictions">{inp('showingRestrictions', 'e.g. 24hr notice, no Sundays')}</FormField>
+            </div>
+          </FormSection>
+
+          {/* SECTION 20: SIGNAGE */}
+          <FormSection title="Signage" icon={Flag} expanded={expanded.signage} onToggle={() => toggle('signage')}>
+            <div style={gridStyle(3)}>
+              <FormField label="Sign Type">{sel('signType', ['Post Sign', 'A-Frame', 'Both', 'None'], 'Select...')}</FormField>
+              <FormField label="Sign Location">{inp('signLocation', 'e.g. Front lawn, corner lot')}</FormField>
+              <FormField label="Rider Info">{inp('riderInfo', 'e.g. SOLD, OPEN HOUSE, NEW PRICE')}</FormField>
+            </div>
+          </FormSection>
+
+          {/* SECTION 21: ADDITIONAL NOTES */}
+          <FormSection title="Additional Notes" icon={PenLine} expanded={expanded.notes} onToggle={() => toggle('notes')}>
+            <FormField label="Anything else to note about this property">{ta('additionalNotes', 'Additional details, special circumstances, seller preferences...')}</FormField>
+          </FormSection>
+
+          {/* SECTION 22: AI-GENERATED CONTENT */}
+          <FormSection title="AI-Generated Marketing" icon={Sparkles} expanded={expanded.ai} onToggle={() => toggle('ai')}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <FormField label="Top 5 Reasons to Love This Home">{ta('top5Reasons', 'Click "Generate" to auto-create from property details...')}</FormField>
+              <FormField label="MLS Description">{ta('mlsDescription', 'Click "Generate" to auto-create from property details...')}</FormField>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button type="button" style={{
+                  padding: '8px 16px', borderRadius: 8, background: 'linear-gradient(135deg, #c8a96e, #d4b878)',
+                  color: '#fff', border: 'none', fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                  display: 'flex', alignItems: 'center', gap: 6,
+                }}><Sparkles size={13} /> Generate Top 5</button>
+                <button type="button" style={{
+                  padding: '8px 16px', borderRadius: 8, background: 'linear-gradient(135deg, #c8a96e, #d4b878)',
+                  color: '#fff', border: 'none', fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                  display: 'flex', alignItems: 'center', gap: 6,
+                }}><Sparkles size={13} /> Generate MLS Description</button>
+              </div>
+              <p style={{ fontSize: 11, color: '#9ca3af', margin: 0 }}>AI generation will use all filled-in property details above to create marketing content.</p>
+            </div>
+          </FormSection>
+
+          {/* BOTTOM SAVE BAR */}
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, padding: '16px 0', marginTop: 8 }}>
+            {dirty && <span style={{ fontSize: 11, color: '#f59e0b', alignSelf: 'center' }}>Unsaved changes</span>}
+            <button onClick={() => saveForm()} disabled={saving} style={{
+              display: 'flex', alignItems: 'center', gap: 6, padding: '10px 24px', borderRadius: 8,
+              background: saving ? '#9ca3af' : '#c8a96e', color: '#fff', border: 'none',
+              fontSize: 13, fontWeight: 600, cursor: saving ? 'default' : 'pointer',
+            }}>{saving ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <Save size={14} />} {saving ? 'Saving...' : 'Save Listing'}</button>
+          </div>
+        </>
+      )}
+
+      <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
 // SECTION ROUTER
 // ─────────────────────────────────────────────
 function SectionContent({ section }) {
@@ -5368,6 +5935,7 @@ function SectionContent({ section }) {
     case "meals": return <PlaceholderSection title="Meals" icon={UtensilsCrossed} />;
     case "marketing": return <MarketingSection />;
     case "learning": return <PlaceholderSection title="Learning" icon={BookOpen} />;
+    case "listing-form": return <ListingForm />;
     case "sellers": return <SellersSection />;
     case "loo": return <PlaceholderSection title="LOO" icon={FileText} />;
     default: return <PlaceholderSection title={section} icon={FileText} />;
