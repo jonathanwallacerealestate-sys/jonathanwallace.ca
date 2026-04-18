@@ -3750,58 +3750,130 @@ app.post('/api/fub/listing-appointments/import/:fubId', async (req, res) => {
   }
 });
 
-// GET /api/ea/fub-sent-diagnostic — Raw dump of FUB email events to verify Outlook tracking
+// GET /api/ea/fub-sent-diagnostic — Comprehensive check of all FUB email tracking paths
 app.get('/api/ea/fub-sent-diagnostic', async (req, res) => {
   if (!FUB_API_KEY) {
-    return res.json({ success: false, error: 'FUB_API_KEY not configured', events: [] });
+    return res.json({ success: false, error: 'FUB_API_KEY not configured' });
   }
+
+  const results = { success: true, checks: {} };
+
+  // Helper
+  const fubGet = async (path) => {
+    const resp = await fetch(`${FUB_BASE}${path}`, { headers: fubHeaders() });
+    return { status: resp.status, ok: resp.ok, data: resp.ok ? await resp.json() : null };
+  };
+
   try {
-    const limit = Math.min(parseInt(req.query.limit) || 50, 200);
-    const fubResp = await fetch(`${FUB_BASE}/events?type=email&limit=${limit}&sort=created&order=desc`, {
-      headers: fubHeaders(),
-    });
-    if (!fubResp.ok) {
-      return res.json({ success: false, error: `FUB API returned ${fubResp.status}`, events: [] });
-    }
-    const fubData = await fubResp.json();
-    const allEmailEvents = fubData.events || [];
-
-    // Separate inbound vs outbound
-    const outbound = allEmailEvents.filter(e => e.isIncoming === false);
-    const inbound = allEmailEvents.filter(e => e.isIncoming === true);
-    const unknown = allEmailEvents.filter(e => e.isIncoming === undefined || e.isIncoming === null);
-
-    // Extract useful fields for diagnosis
-    const formatEvent = (e) => ({
-      id: e.id,
-      type: e.type,
-      isIncoming: e.isIncoming,
-      description: e.description || '',
-      person: e.person ? { name: [e.person.firstName, e.person.lastName].filter(Boolean).join(' '), email: e.person.emails?.[0]?.value || '' } : null,
-      created: e.created,
-      source: e.source || null,
-      metadata: e.metadata || null,
-    });
-
-    res.json({
-      success: true,
-      summary: {
-        totalEmailEvents: allEmailEvents.length,
+    // 1) Events API — type=email
+    try {
+      const r = await fubGet('/events?type=email&limit=20&sort=created&order=desc');
+      const events = r.data?.events || [];
+      const outbound = events.filter(e => e.isIncoming === false);
+      const inbound = events.filter(e => e.isIncoming === true);
+      results.checks.eventsEmailType = {
+        httpStatus: r.status,
+        total: events.length,
         outbound: outbound.length,
         inbound: inbound.length,
-        directionUnknown: unknown.length,
-        outlookTrackingActive: outbound.length > 0,
-        oldestOutbound: outbound.length > 0 ? outbound[outbound.length - 1].created : null,
-        newestOutbound: outbound.length > 0 ? outbound[0].created : null,
-      },
-      outboundEmails: outbound.slice(0, 20).map(formatEvent),
-      inboundEmails: inbound.slice(0, 10).map(formatEvent),
-      unknownDirection: unknown.slice(0, 5).map(formatEvent),
-      rawSampleEvent: allEmailEvents[0] || null,
-    });
+        sample: events[0] || null,
+      };
+    } catch (e) { results.checks.eventsEmailType = { error: e.message }; }
+
+    // 2) Events API — no type filter (all events)
+    try {
+      const r = await fubGet('/events?limit=30&sort=created&order=desc');
+      const events = r.data?.events || [];
+      const types = {};
+      events.forEach(e => { types[e.type || 'unknown'] = (types[e.type || 'unknown'] || 0) + 1; });
+      const emailEvents = events.filter(e => e.type === 'email' || (e.description || '').toLowerCase().includes('email'));
+      results.checks.eventsAllTypes = {
+        httpStatus: r.status,
+        total: events.length,
+        typeBreakdown: types,
+        emailRelated: emailEvents.length,
+        sampleTypes: events.slice(0, 5).map(e => ({ type: e.type, desc: (e.description || '').slice(0, 80), created: e.created })),
+      };
+    } catch (e) { results.checks.eventsAllTypes = { error: e.message }; }
+
+    // 3) Email Messages API (FUB's dedicated email endpoint)
+    try {
+      const r = await fubGet('/emailMessages?limit=10&sort=created&order=desc');
+      const msgs = r.data?.emailMessages || r.data?.messages || [];
+      results.checks.emailMessages = {
+        httpStatus: r.status,
+        total: msgs.length,
+        available: r.ok,
+        sample: msgs[0] ? {
+          id: msgs[0].id,
+          subject: msgs[0].subject,
+          from: msgs[0].from,
+          to: msgs[0].to,
+          direction: msgs[0].direction || msgs[0].isIncoming,
+          created: msgs[0].created || msgs[0].createdAt,
+        } : null,
+        rawKeys: msgs[0] ? Object.keys(msgs[0]) : [],
+      };
+    } catch (e) { results.checks.emailMessages = { error: e.message }; }
+
+    // 4) Textual Messages / Notes (sometimes email shows here)
+    try {
+      const r = await fubGet('/textMessages?limit=5&sort=created&order=desc');
+      results.checks.textMessages = {
+        httpStatus: r.status,
+        available: r.ok,
+        total: (r.data?.textMessages || []).length,
+      };
+    } catch (e) { results.checks.textMessages = { error: e.message }; }
+
+    // 5) Grab a recent contact and check their timeline for email activity
+    try {
+      const r = await fubGet('/people?sort=lastActivity&limit=3');
+      const people = r.data?.people || [];
+      if (people.length > 0) {
+        const personId = people[0].id;
+        const name = [people[0].firstName, people[0].lastName].filter(Boolean).join(' ');
+
+        // Check this person's notes/activity
+        const notesR = await fubGet(`/notes?personId=${personId}&limit=10&sort=created&order=desc`);
+        const notes = notesR.data?.notes || [];
+        const emailNotes = notes.filter(n =>
+          (n.subject || '').toLowerCase().includes('email') ||
+          (n.body || '').toLowerCase().includes('from:') ||
+          (n.body || '').toLowerCase().includes('sent') ||
+          (n.isEmailMessage)
+        );
+
+        // Check this person's events
+        const eventsR = await fubGet(`/events?personId=${personId}&limit=10&sort=created&order=desc`);
+        const personEvents = eventsR.data?.events || [];
+
+        results.checks.recentContactTimeline = {
+          person: { id: personId, name },
+          totalNotes: notes.length,
+          emailRelatedNotes: emailNotes.length,
+          totalEvents: personEvents.length,
+          eventTypes: personEvents.map(e => e.type),
+          sampleNote: notes[0] ? { subject: notes[0].subject, bodyPreview: (notes[0].body || '').slice(0, 120), isEmail: notes[0].isEmailMessage || false, created: notes[0].created } : null,
+          sampleEvent: personEvents[0] || null,
+        };
+      }
+    } catch (e) { results.checks.recentContactTimeline = { error: e.message }; }
+
+    // 6) Check available API endpoints
+    results.checks.apiInfo = {
+      note: 'FUB email sync via Office 365 OAuth stores emails on contact timelines. The Events API (type=email) may not capture synced emails. Check emailMessages and notes endpoints for synced data.',
+      outlookConnected: true,
+      outlookEmail: 'jonathan@faristeam.ca',
+      syncType: 'Office 365 OAuth',
+    };
+
   } catch (err) {
-    res.json({ success: false, error: err.message, events: [] });
+    results.success = false;
+    results.error = err.message;
   }
+
+  res.json(results);
 });
 
 // ─────────────────────────────────────────────
