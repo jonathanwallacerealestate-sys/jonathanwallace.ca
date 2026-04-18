@@ -491,6 +491,134 @@ function CallListPreview() {
   );
 }
 
+// ─── MISSED EMAILS RECOVERY BANNER ───
+// Shows up after Gmail reconnects from downtime, with all emails that came in while offline
+function MissedEmailsBanner() {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [expanded, setExpanded] = useState(false);
+  const [dismissing, setDismissing] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch('/api/gmail/missed');
+        const json = await res.json();
+        if (json.hasMissed) setData(json);
+      } catch {}
+      setLoading(false);
+    })();
+  }, []);
+
+  const handleDismiss = async () => {
+    setDismissing(true);
+    try {
+      await fetch('/api/gmail/missed/dismiss', { method: 'POST' });
+      setData(null);
+    } catch {}
+    setDismissing(false);
+  };
+
+  if (loading || !data) return null;
+
+  const priorityColor = { high: '#ef4444', medium: '#f59e0b', low: '#6b7280' };
+  const priorityBg = { high: '#fef2f2', medium: '#fffbeb', low: '#f3f4f6' };
+  const categoryLabel = {
+    brokerbay: 'BrokerBay', crm_lead: 'FUB Lead', deal_tracker: 'Sisu', listing_alert: 'REALM',
+    automation: 'Make.com', team: 'Faris Team', transaction: 'Transaction', showing: 'Showing',
+    listing: 'Listing', important: 'Important', general: 'General',
+  };
+
+  return (
+    <Card style={{ background: 'linear-gradient(135deg, #fef2f2 0%, #fff1f2 50%, #fffbeb 100%)', border: '1px solid #fca5a5', marginBottom: 16, position: 'relative' }}>
+      <button onClick={handleDismiss} disabled={dismissing} style={{ position: 'absolute', top: 12, right: 12, background: 'none', border: 'none', color: '#dc2626', cursor: 'pointer', fontSize: 11, fontWeight: 600 }}>
+        {dismissing ? 'Clearing...' : <X size={14} />}
+      </button>
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+        <div style={{ width: 36, height: 36, borderRadius: 10, background: 'linear-gradient(135deg, #ef4444, #f59e0b)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <AlertTriangle size={18} color="#fff" />
+        </div>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 15, fontWeight: 800, color: '#991b1b' }}>
+            {data.totalCount} emails arrived while Gmail was offline
+          </div>
+          <div style={{ fontSize: 11, color: '#b91c1c' }}>
+            Offline for ~{data.offlineHours < 1 ? 'under 1 hour' : `${Math.round(data.offlineHours)} hours`} ({new Date(data.fromDate).toLocaleDateString()} — {new Date(data.toDate).toLocaleDateString()})
+          </div>
+        </div>
+      </div>
+
+      {/* Priority summary chips */}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
+        {data.highPriority > 0 && (
+          <span style={{ fontSize: 11, fontWeight: 700, color: '#ef4444', background: '#fef2f2', padding: '4px 10px', borderRadius: 6, border: '1px solid #fecaca' }}>
+            {data.highPriority} high priority
+          </span>
+        )}
+        {data.mediumPriority > 0 && (
+          <span style={{ fontSize: 11, fontWeight: 700, color: '#f59e0b', background: '#fffbeb', padding: '4px 10px', borderRadius: 6, border: '1px solid #fde68a' }}>
+            {data.mediumPriority} medium priority
+          </span>
+        )}
+        <span style={{ fontSize: 11, fontWeight: 600, color: '#6b7280', background: '#f3f4f6', padding: '4px 10px', borderRadius: 6 }}>
+          {data.totalCount - (data.highPriority || 0) - (data.mediumPriority || 0)} low / FYI
+        </span>
+      </div>
+
+      {/* Expandable email list */}
+      <button onClick={() => setExpanded(!expanded)} style={{
+        display: 'flex', alignItems: 'center', gap: 6, padding: '6px 14px', borderRadius: 8,
+        border: '1px solid #fca5a5', background: '#fff', color: '#991b1b',
+        fontSize: 11, fontWeight: 600, cursor: 'pointer', marginBottom: expanded ? 10 : 0,
+      }}>
+        {expanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+        {expanded ? 'Collapse' : `Review all ${data.totalCount} emails`}
+      </button>
+
+      {expanded && (
+        <div style={{ maxHeight: 400, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 4 }}>
+          {data.emails.map((em, i) => (
+            <div key={em.id || i} style={{
+              display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px',
+              background: '#fff', borderRadius: 8, border: `1px solid ${em.priority === 'high' ? '#fecaca' : em.priority === 'medium' ? '#fde68a' : '#e5e7eb'}`,
+            }}>
+              <div style={{
+                width: 6, height: 6, borderRadius: '50%', flexShrink: 0,
+                background: priorityColor[em.priority] || '#6b7280',
+              }} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span style={{ fontSize: 12, fontWeight: 600, color: '#111827' }}>{em.from}</span>
+                  <span style={{
+                    fontSize: 9, fontWeight: 600, padding: '1px 6px', borderRadius: 4,
+                    color: priorityColor[em.priority], background: priorityBg[em.priority],
+                  }}>{categoryLabel[em.category] || em.category}</span>
+                  {!em.isRead && <span style={{ fontSize: 8, fontWeight: 700, color: '#fff', background: '#2563eb', padding: '1px 5px', borderRadius: 3 }}>NEW</span>}
+                </div>
+                <div style={{ fontSize: 11, color: '#374151', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{em.subject}</div>
+                <div style={{ fontSize: 10, color: '#9ca3af', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginTop: 1 }}>{em.snippet}</div>
+              </div>
+              <span style={{ fontSize: 10, color: '#9ca3af', whiteSpace: 'nowrap', flexShrink: 0 }}>{em.date}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: expanded ? 10 : 8 }}>
+        <button onClick={handleDismiss} disabled={dismissing} style={{
+          display: 'flex', alignItems: 'center', gap: 5, padding: '6px 14px', borderRadius: 8,
+          border: '1px solid #d1d5db', background: '#fff', color: '#374151',
+          fontSize: 11, fontWeight: 600, cursor: 'pointer',
+        }}>
+          <Check size={12} /> Mark all reviewed
+        </button>
+        <span style={{ fontSize: 10, color: '#9ca3af' }}>Backfilled at {new Date(data.backfillTimestamp).toLocaleTimeString()}</span>
+      </div>
+    </Card>
+  );
+}
+
 function MorningBriefing() {
   const urgentEmails = emailInbox.filter(e => e.category === "response_needed");
   const todayKey = new Date().toISOString().slice(0, 10); // resets daily
@@ -6414,6 +6542,9 @@ export default function Dashboard() {
         <div style={{ flex: 1, overflowY: "auto", padding: 22 }}>
           {/* Hour of Power — always visible */}
           <HourOfPowerBar />
+
+          {/* Missed emails recovery — shows after Gmail reconnects from downtime */}
+          <MissedEmailsBanner />
 
           {/* Morning briefing (only on briefing tab) */}
           {section === "briefing" && <MorningBriefing />}

@@ -40,6 +40,55 @@ let statusCache = { result: null, timestamp: 0 };
 const STATUS_CACHE_TTL = 3 * 60 * 1000; // 3 minutes
 let consecutiveFailures = 0;
 
+// ─── Gmail Connection State Tracking ───
+// Tracks when Gmail was last connected/disconnected so we can backfill missed emails on reconnect
+const GMAIL_STATE_PATH = path.join(__dirname, '.gmail-connection-state.json');
+let gmailConnectionState = { lastConnected: null, lastDisconnected: null, wasConnected: false };
+
+function loadGmailState() {
+  try {
+    if (fs.existsSync(GMAIL_STATE_PATH)) {
+      gmailConnectionState = JSON.parse(fs.readFileSync(GMAIL_STATE_PATH, 'utf8'));
+      console.log('[Gmail] Connection state loaded — last connected:', gmailConnectionState.lastConnected, ', last disconnected:', gmailConnectionState.lastDisconnected);
+    }
+  } catch (err) {
+    console.error('[Gmail] Failed to load connection state:', err.message);
+  }
+}
+
+function saveGmailState() {
+  try {
+    fs.writeFileSync(GMAIL_STATE_PATH, JSON.stringify(gmailConnectionState, null, 2));
+  } catch (err) {
+    console.error('[Gmail] Failed to save connection state:', err.message);
+  }
+}
+
+function markGmailConnected() {
+  const now = new Date().toISOString();
+  const wasDisconnected = gmailConnectionState.lastDisconnected && !gmailConnectionState.wasConnected;
+  gmailConnectionState.lastConnected = now;
+  gmailConnectionState.wasConnected = true;
+  saveGmailState();
+  if (wasDisconnected) {
+    console.log(`[Gmail] Reconnected after downtime. Was offline since: ${gmailConnectionState.lastDisconnected}. Triggering backfill...`);
+    // Auto-trigger backfill in background
+    triggerMissedEmailBackfill().catch(err => console.error('[Gmail] Auto-backfill error:', err.message));
+  }
+}
+
+function markGmailDisconnected() {
+  const now = new Date().toISOString();
+  if (gmailConnectionState.wasConnected) {
+    gmailConnectionState.lastDisconnected = now;
+    gmailConnectionState.wasConnected = false;
+    saveGmailState();
+    console.log(`[Gmail] Marked as disconnected at ${now}`);
+  }
+}
+
+loadGmailState();
+
 function loadTokens() {
   // Priority 1: Load from disk (survives restarts within same deploy)
   try {
@@ -195,6 +244,9 @@ app.get('/api/auth/callback', async (req, res) => {
     statusCache = { result: null, timestamp: 0 }; // Clear cache on fresh auth
     console.log('[GCal] OAuth completed successfully — tokens stored');
 
+    // Track Gmail reconnection — triggers missed email backfill if there was downtime
+    markGmailConnected();
+
     // Redirect back to dashboard with success flag
     res.redirect('/?gcal=connected');
   } catch (err) {
@@ -206,6 +258,7 @@ app.get('/api/auth/callback', async (req, res) => {
 
 // POST /api/auth/disconnect — Clear stored tokens
 app.post('/api/auth/disconnect', (req, res) => {
+  markGmailDisconnected(); // Track the disconnect timestamp for backfill
   tokens = null;
   tokenError = null;
   try {
@@ -261,10 +314,14 @@ app.get('/api/calendar/status', async (req, res) => {
     const calendar = google.calendar({ version: 'v3', auth: oauth2Client });
     await calendar.calendarList.list({ maxResults: 1 });
     consecutiveFailures = 0;
+    // Track successful connection (triggers backfill if was disconnected)
+    if (!gmailConnectionState.wasConnected) markGmailConnected();
     const result = {
       connected: true,
       configured: true,
       lastRefresh: tokens.expiry_date ? new Date(tokens.expiry_date).toISOString() : null,
+      hasMissedEmails: missedEmailsCache.emails?.length > 0 && !missedEmailsCache.dismissed,
+      missedEmailCount: missedEmailsCache.totalCount || 0,
       reason: null
     };
     statusCache = { result, timestamp: now };
@@ -299,6 +356,7 @@ app.get('/api/calendar/status', async (req, res) => {
     }
 
     // Actually disconnected
+    markGmailDisconnected(); // Track for missed email backfill
     const result = {
       connected: false,
       configured: true,
@@ -1211,6 +1269,211 @@ function parseBrokerBayShowingEmail(body, subject) {
 
   return info;
 }
+
+// ─────────────────────────────────────────────
+// GMAIL RECONNECTION BACKFILL — Missed Emails Recovery
+// When Gmail disconnects and reconnects, this scans for
+// everything that came in while offline so nothing slips through.
+// ─────────────────────────────────────────────
+
+const MISSED_EMAILS_PATH = path.join(__dirname, '.gmail-missed-emails.json');
+let missedEmailsCache = { emails: [], backfillTimestamp: null, fromDate: null, toDate: null, dismissed: false };
+
+function loadMissedEmails() {
+  try {
+    if (fs.existsSync(MISSED_EMAILS_PATH)) {
+      missedEmailsCache = JSON.parse(fs.readFileSync(MISSED_EMAILS_PATH, 'utf8'));
+    }
+  } catch {}
+}
+loadMissedEmails();
+
+function saveMissedEmails() {
+  try {
+    fs.writeFileSync(MISSED_EMAILS_PATH, JSON.stringify(missedEmailsCache, null, 2));
+  } catch (err) {
+    console.error('[Gmail] Failed to save missed emails:', err.message);
+  }
+}
+
+// Core backfill function — scans Gmail for emails received during the offline window
+async function triggerMissedEmailBackfill() {
+  if (!tokens || !tokens.access_token) {
+    console.log('[Gmail Backfill] No tokens — skipping backfill');
+    return { success: false, reason: 'No tokens' };
+  }
+
+  const disconnectedAt = gmailConnectionState.lastDisconnected;
+  const reconnectedAt = gmailConnectionState.lastConnected;
+
+  if (!disconnectedAt) {
+    console.log('[Gmail Backfill] No disconnect timestamp — nothing to backfill');
+    return { success: false, reason: 'No disconnect timestamp recorded' };
+  }
+
+  // Calculate the offline window
+  const offlineStart = new Date(disconnectedAt);
+  const offlineEnd = reconnectedAt ? new Date(reconnectedAt) : new Date();
+
+  // Safety cap: don't backfill more than 30 days
+  const maxBackfillMs = 30 * 24 * 60 * 60 * 1000;
+  if (offlineEnd - offlineStart > maxBackfillMs) {
+    offlineStart.setTime(offlineEnd.getTime() - maxBackfillMs);
+    console.log('[Gmail Backfill] Capping backfill to 30 days');
+  }
+
+  // Convert to Gmail search format (epoch seconds)
+  const afterEpoch = Math.floor(offlineStart.getTime() / 1000);
+  const beforeEpoch = Math.floor(offlineEnd.getTime() / 1000);
+
+  console.log(`[Gmail Backfill] Scanning emails from ${offlineStart.toISOString()} to ${offlineEnd.toISOString()}`);
+
+  try {
+    const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
+
+    // Search for all inbox emails in the offline window
+    const query = `in:inbox after:${afterEpoch} before:${beforeEpoch}`;
+    let allMessages = [];
+    let pageToken = null;
+
+    do {
+      const listRes = await gmail.users.messages.list({
+        userId: 'me',
+        q: query,
+        maxResults: 100,
+        pageToken: pageToken || undefined,
+      });
+      const messages = listRes.data.messages || [];
+      allMessages = allMessages.concat(messages);
+      pageToken = listRes.data.nextPageToken;
+      if (allMessages.length > 500) break; // Safety cap
+    } while (pageToken);
+
+    console.log(`[Gmail Backfill] Found ${allMessages.length} messages in offline window`);
+
+    // Fetch metadata for each message
+    const emails = [];
+    for (const msg of allMessages) {
+      try {
+        const detail = await gmail.users.messages.get({
+          userId: 'me',
+          id: msg.id,
+          format: 'metadata',
+          metadataHeaders: ['From', 'To', 'Subject', 'Date', 'Reply-To'],
+        });
+        const headers = detail.data.payload.headers || [];
+        const from = headers.find(h => h.name === 'From')?.value || '';
+        const to = headers.find(h => h.name === 'To')?.value || '';
+        const subject = headers.find(h => h.name === 'Subject')?.value || '';
+        const date = headers.find(h => h.name === 'Date')?.value || '';
+        const snippet = detail.data.snippet || '';
+        const labelIds = detail.data.labelIds || [];
+
+        const category = categorizeEmail(from, subject, snippet, labelIds);
+
+        // Determine priority based on category
+        let priority = 'low';
+        if (category === 'transaction' || category === 'showing') priority = 'high';
+        else if (category === 'crm_lead' || category === 'important' || category === 'brokerbay') priority = 'medium';
+        else if (category === 'team' || category === 'automation') priority = 'low';
+
+        emails.push({
+          id: msg.id,
+          threadId: detail.data.threadId,
+          from: parseEmailSender(from),
+          fromEmail: extractEmail(from),
+          to,
+          subject,
+          snippet,
+          date,
+          timestamp: parseInt(detail.data.internalDate),
+          labels: labelIds,
+          category,
+          priority,
+          isRead: !labelIds.includes('UNREAD'),
+          isStarred: labelIds.includes('STARRED'),
+          missedDuring: 'offline',
+        });
+      } catch (e) {
+        console.error(`[Gmail Backfill] Error fetching message ${msg.id}:`, e.message);
+      }
+    }
+
+    // Sort by priority (high first) then by timestamp (newest first)
+    const priorityOrder = { high: 0, medium: 1, low: 2 };
+    emails.sort((a, b) => {
+      const pd = (priorityOrder[a.priority] || 2) - (priorityOrder[b.priority] || 2);
+      if (pd !== 0) return pd;
+      return (b.timestamp || 0) - (a.timestamp || 0);
+    });
+
+    // Store the missed emails
+    missedEmailsCache = {
+      emails,
+      backfillTimestamp: new Date().toISOString(),
+      fromDate: offlineStart.toISOString(),
+      toDate: offlineEnd.toISOString(),
+      offlineHours: Math.round((offlineEnd - offlineStart) / (1000 * 60 * 60) * 10) / 10,
+      totalCount: emails.length,
+      highPriority: emails.filter(e => e.priority === 'high').length,
+      mediumPriority: emails.filter(e => e.priority === 'medium').length,
+      dismissed: false,
+    };
+    saveMissedEmails();
+
+    console.log(`[Gmail Backfill] Complete — ${emails.length} emails recovered (${missedEmailsCache.highPriority} high priority, ${missedEmailsCache.mediumPriority} medium)`);
+
+    return { success: true, count: emails.length, highPriority: missedEmailsCache.highPriority };
+  } catch (err) {
+    console.error('[Gmail Backfill] Error:', err.message);
+    return { success: false, reason: err.message };
+  }
+}
+
+// GET /api/gmail/missed — Get missed emails from the last offline period
+app.get('/api/gmail/missed', (req, res) => {
+  if (!missedEmailsCache.emails || missedEmailsCache.emails.length === 0 || missedEmailsCache.dismissed) {
+    return res.json({ hasMissed: false, emails: [], dismissed: missedEmailsCache.dismissed });
+  }
+  res.json({
+    hasMissed: true,
+    emails: missedEmailsCache.emails,
+    fromDate: missedEmailsCache.fromDate,
+    toDate: missedEmailsCache.toDate,
+    offlineHours: missedEmailsCache.offlineHours,
+    totalCount: missedEmailsCache.totalCount,
+    highPriority: missedEmailsCache.highPriority,
+    mediumPriority: missedEmailsCache.mediumPriority,
+    backfillTimestamp: missedEmailsCache.backfillTimestamp,
+  });
+});
+
+// POST /api/gmail/missed/dismiss — Mark missed emails as reviewed / dismiss the banner
+app.post('/api/gmail/missed/dismiss', (req, res) => {
+  missedEmailsCache.dismissed = true;
+  saveMissedEmails();
+  res.json({ success: true });
+});
+
+// POST /api/gmail/missed/backfill — Manually trigger a backfill (e.g. if auto didn't run)
+app.post('/api/gmail/missed/backfill', async (req, res) => {
+  if (!tokens) return res.json({ error: 'Gmail not connected', success: false });
+  try {
+    const result = await triggerMissedEmailBackfill();
+    res.json(result);
+  } catch (err) {
+    res.json({ error: err.message, success: false });
+  }
+});
+
+// GET /api/gmail/connection-state — Expose connection tracking state for debugging
+app.get('/api/gmail/connection-state', (req, res) => {
+  res.json({
+    ...gmailConnectionState,
+    hasMissedEmails: missedEmailsCache.emails?.length > 0 && !missedEmailsCache.dismissed,
+    missedCount: missedEmailsCache.totalCount || 0,
+  });
+});
 
 // ─────────────────────────────────────────────
 // FOLLOW UP BOSS INTEGRATION
