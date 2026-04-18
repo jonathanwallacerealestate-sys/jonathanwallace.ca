@@ -73,22 +73,115 @@ const FubContext = createContext({ callList: [], loading: true, connected: false
 function useFubContext() { return useContext(FubContext); }
 
 // ─────────────────────────────────────────────
-// DATA: EMAIL TRIAGE (LIVE — pulled from Gmail)
+// DATA: EMAIL TRIAGE (LIVE — EA Engine from Gmail + FUB)
 // ─────────────────────────────────────────────
-const emailInbox = [
-  { id: 1, from: "Dan Landry", email: "dlandry0214@gmail.com", subject: "Re: 308 Christine", snippet: "Thank you for the update! However, I did want to revisit the strategy as what you are suggesting is slightly different from our recollection...", time: "8:40 PM (Apr 15)", category: "response_needed", priority: "high", suggestedAction: "Dan is questioning the listing strategy — revisit Plan A vs your recommendation. Reply today.", drafted: false, live: true },
-  { id: 2, from: "BrokerBay", email: "info@mg.brokerbay.com", subject: "Showing Confirmed - 282 Robins Point Road", snippet: "Showing for 282 Robins Point Road has been CONFIRMED. Nick Cuong Chuong (LPT Realty) — Apr 22, 9:30 AM – 10:30 AM. Home Inspection.", time: "3:12 PM", category: "fyi", priority: "low", suggestedAction: "Showing confirmed. No action needed — notify sellers about upcoming home inspection.", drafted: false, live: true, resolved: true },
-  { id: 3, from: "Vanessa Playtis", email: "vanessa@playtiscameronlaw.com", subject: "RE: 11 Joliet - Possible Holdback Required", snippet: "Update — we are still waiting on funds from the buyers to complete the sale. They have informed us that they are still waiting on their mortgage funds.", time: "1:46 PM", category: "response_needed", priority: "high", suggestedAction: "Closing delayed — buyer mortgage funds pending. Monitor and update Dani Thompson.", drafted: false, live: true },
-  { id: 4, from: "Follow Up Boss", email: "leads@followupboss.com", subject: "Lead assigned - Vittorio Destefano", snippet: "New lead from Team: Brokerage Call-In. (647) 207-8660 — vdestefano@rogers.com", time: "3:40 PM (Apr 14)", category: "response_needed", priority: "medium", suggestedAction: "New inbound lead — call Vittorio at (647) 207-8660. Add to FUB pipeline.", drafted: false, live: true },
-  { id: 5, from: "Lino D'Angicco", email: "ldangicco@rogers.com", subject: "Re: Listing(s) for your review", snippet: "well that's not great.", time: "5:40 PM (Apr 14)", category: "response_needed", priority: "medium", suggestedAction: "Lino seems disappointed — follow up to understand his concern and address it.", drafted: false, live: true },
-  { id: 6, from: "Clare @ Faris Team", email: "Clare@faristeam.ca", subject: "Client Appreciation: Morning At the Movies Sign-up!", snippet: "Our Cineplex Client Appreciation event is fast approaching and we need YOUR HELP!", time: "12:11 PM", category: "fyi", priority: "low", suggestedAction: "Sign up for Cineplex client appreciation event if attending.", drafted: false, live: true },
-  { id: 7, from: "Jeff @ Faris Team", email: "Jeff@faristeam.ca", subject: "📊 FARIS TEAM LISTINGS – WEEKLY UPDATE", snippet: "Week of April 6 to April 12 — listing activity improved. Sales, showings, and active listings all moving higher.", time: "12:56 PM (Apr 15)", category: "fyi", priority: "low", suggestedAction: "Review weekly listing stats. Buyer traffic picked up meaningfully.", drafted: false, live: true },
-  { id: 8, from: "Jeff @ Faris Team", email: "Jeff@faristeam.ca", subject: "📊 SIMCOE COUNTY – WEEKLY MARKET UPDATE", snippet: "Week of April 6 to April 12 — Simcoe County market continued to build momentum through early spring.", time: "12:49 PM (Apr 15)", category: "fyi", priority: "low", suggestedAction: "Review Simcoe County market trends for client conversations.", drafted: false, live: true },
-  { id: 9, from: "Jo (VA Hub)", email: "jo.thevahub@gmail.com", subject: "Jonathan Wallace EOD Report April 16, 2026", snippet: "I have organized the majority of your Outlook inbox emails up to April 12. Emails between April 12-19 remaining.", time: "1:22 PM", category: "fyi", priority: "low", suggestedAction: "VA progress update — Outlook inbox organized to April 12. No action needed.", drafted: false, live: true },
-  { id: 10, from: "REALM", email: "notifications@em.realmmlp.ca", subject: "[REALM] Your clients' saved searches have found listings", snippet: "Edward Kariuki's search — Homes in Midland and Area $350-$500k found two listings on Apr 15.", time: "2:07 AM", category: "followup_others", priority: "medium", suggestedAction: "Forward Midland listings to Edward Kariuki. 819 Birchwood Dr matched his search.", drafted: false, live: true },
-  { id: 11, from: "SISU", email: "noreply@sisu.co", subject: "Amendment to Deal Received — 62 O'Shaughnessy", snippet: "An amendment has been received for this deal. Sales Partner: Jonathan Wallace. Shane Steenhoek.", time: "5:13 PM (Apr 15)", category: "fyi", priority: "low", suggestedAction: "Amendment logged in SISU for 62 O'Shaughnessy. Kim already sent accepted amendment.", drafted: false, live: true },
-  { id: 12, from: "Make.com", email: "noreply@us2.make.com", subject: "🛑 Encountered errors in Agent Gmail Gateway scenario", snippet: "Your scenario Agent Gmail Gateway has encountered multiple errors.", time: "3:12 PM (Apr 14)", category: "auto_file", priority: "none", suggestedAction: "Make.com automation errors — check Agent Gmail Gateway scenario when you have time.", drafted: false, live: true },
+// Fallback data shown when Gmail is disconnected
+const emailInboxFallback = [
+  { id: 1, from: "Dan Landry", email: "dlandry0214@gmail.com", subject: "Re: 308 Christine", snippet: "Thank you for the update! However, I did want to revisit the strategy...", time: "8:40 PM (Apr 15)", category: "response_needed", priority: "high", state: "awaiting_you" },
+  { id: 3, from: "Vanessa Playtis", email: "vanessa@playtiscameronlaw.com", subject: "RE: 11 Joliet - Possible Holdback Required", snippet: "Update — we are still waiting on funds from the buyers.", time: "1:46 PM", category: "response_needed", priority: "high", state: "awaiting_you" },
+  { id: 4, from: "Follow Up Boss", email: "leads@followupboss.com", subject: "Lead assigned - Vittorio Destefano", snippet: "New lead from Team: Brokerage Call-In. (647) 207-8660", time: "3:40 PM (Apr 14)", category: "response_needed", priority: "medium", state: "awaiting_you" },
 ];
+
+// Hook to fetch live EA email triage
+function useEaEmailTriage() {
+  const [threads, setThreads] = useState([]);
+  const [counts, setCounts] = useState({ awaiting_you: 0, draft_ready: 0, awaiting_them: 0, closed: 0, snoozed: 0 });
+  const [status, setStatus] = useState('loading');
+  const [lastSweep, setLastSweep] = useState(null);
+  const [fubSentTracked, setFubSentTracked] = useState(0);
+
+  const fetchTriage = async () => {
+    try {
+      const res = await fetch('/api/ea/triage');
+      const data = await res.json();
+      if (data.threads && data.threads.length > 0) {
+        setThreads(data.threads);
+        setCounts(data.counts || { awaiting_you: 0, draft_ready: 0, awaiting_them: 0, closed: 0, snoozed: 0 });
+        setLastSweep(data.lastSweep);
+        setFubSentTracked(data.fubSentTracked || 0);
+        setStatus(data.status || 'ok');
+      } else if (data.status === 'disconnected') {
+        setStatus('disconnected');
+      } else {
+        setStatus(data.status || 'ok');
+      }
+    } catch (err) {
+      console.error('[EA] Triage fetch error:', err);
+      setStatus('error');
+    }
+  };
+
+  const updateThreadState = async (threadId, newState, snoozeUntil) => {
+    try {
+      await fetch(`/api/ea/thread/${threadId}/state`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ state: newState, snoozeUntil }),
+      });
+      setThreads(prev => prev.map(t =>
+        t.threadId === threadId ? { ...t, state: newState } : t
+      ));
+      setCounts(prev => {
+        const next = { ...prev };
+        // Decrement old state, increment new
+        const oldThread = threads.find(t => t.threadId === threadId);
+        if (oldThread && next[oldThread.state] !== undefined) next[oldThread.state]--;
+        if (next[newState] !== undefined) next[newState]++;
+        return next;
+      });
+    } catch {}
+  };
+
+  useEffect(() => {
+    fetchTriage();
+    const interval = setInterval(fetchTriage, 5 * 60 * 1000); // Sweep every 5 min
+    return () => clearInterval(interval);
+  }, []);
+
+  return { threads, counts, status, lastSweep, fubSentTracked, refresh: fetchTriage, updateThreadState };
+}
+
+// Hook for Claude Stuck ticker
+function useEaStuckTicker() {
+  const [questions, setQuestions] = useState([]);
+
+  const fetchStuck = async () => {
+    try {
+      const res = await fetch('/api/ea/stuck');
+      const data = await res.json();
+      setQuestions(data.questions || []);
+    } catch {}
+  };
+
+  const resolveQuestion = async (id, answer) => {
+    try {
+      await fetch(`/api/ea/stuck/${id}/resolve`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ answer }),
+      });
+      setQuestions(prev => prev.filter(q => q.id !== id));
+    } catch {}
+  };
+
+  const dismissQuestion = async (id) => {
+    try {
+      await fetch(`/api/ea/stuck/${id}/dismiss`, { method: 'POST' });
+      setQuestions(prev => prev.filter(q => q.id !== id));
+    } catch {}
+  };
+
+  useEffect(() => {
+    fetchStuck();
+    const interval = setInterval(fetchStuck, 30 * 1000); // Check every 30s
+    return () => clearInterval(interval);
+  }, []);
+
+  return { questions, refresh: fetchStuck, resolveQuestion, dismissQuestion };
+}
+
+// Shared context for EA data
+const EaContext = createContext(null);
 
 // ─────────────────────────────────────────────
 // DATA: CALENDAR (Google Calendar — connection needs refresh)
@@ -620,7 +713,9 @@ function MissedEmailsBanner() {
 }
 
 function MorningBriefing() {
-  const urgentEmails = emailInbox.filter(e => e.category === "response_needed");
+  const eaData = useContext(EaContext);
+  const awaitingYou = eaData?.threads?.filter(t => t.state === 'awaiting_you') || [];
+  const urgentEmails = awaitingYou.length > 0 ? awaitingYou.slice(0, 5) : emailInboxFallback;
   const todayKey = new Date().toISOString().slice(0, 10); // resets daily
   const [dismissed, setDismissed] = useState(() => {
     try { return localStorage.getItem('agenthq-brief-dismissed') === todayKey; } catch { return false; }
@@ -1809,107 +1904,149 @@ function CallListSection() {
 }
 
 // ─────────────────────────────────────────────
-// EMAIL EA SECTION
+// EMAIL EA SECTION — Live Thread State Dashboard
+// Per Framework §3.5: Awaiting You / Draft Ready / Awaiting Them / Closed / Snoozed
 // ─────────────────────────────────────────────
 function EmailEASection() {
-  const [selectedEmail, setSelectedEmail] = useState(null);
-  const [actions, setActions] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('agenthq-email-actions') || '{}'); } catch { return {}; }
-  });
-  const persistActions = (updater) => {
-    setActions(prev => {
-      const next = typeof updater === 'function' ? updater(prev) : updater;
-      try { localStorage.setItem('agenthq-email-actions', JSON.stringify(next)); } catch {}
-      return next;
-    });
+  const eaData = useContext(EaContext);
+  const { threads: allThreads, counts, status, lastSweep, fubSentTracked, refresh, updateThreadState } = eaData || {};
+  const [selectedThread, setSelectedThread] = useState(null);
+  const [viewFilter, setViewFilter] = useState('awaiting_you');
+  const [refreshing, setRefreshing] = useState(false);
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    if (refresh) await refresh();
+    setRefreshing(false);
   };
-  const categories = [
-    { key: "response_needed", label: "Needs Your Response", color: "#ef4444", bg: "#fef2f2", icon: Reply, count: emailInbox.filter(e => e.category === "response_needed").length },
-    { key: "followup_others", label: "Waiting on Others", color: "#f59e0b", bg: "#fffbeb", icon: Clock, count: emailInbox.filter(e => e.category === "followup_others").length },
-    { key: "fyi", label: "FYI Only", color: "#6b7280", bg: "#f3f4f6", icon: Eye, count: emailInbox.filter(e => e.category === "fyi").length },
-    { key: "auto_file", label: "Auto-Filed", color: "#10b981", bg: "#ecfdf5", icon: Archive, count: emailInbox.filter(e => e.category === "auto_file").length },
-  ];
+
+  // Use live threads if available, otherwise fallback
+  const isLive = status === 'ok' && allThreads && allThreads.length > 0;
+  const threads = isLive
+    ? allThreads.filter(t => viewFilter === 'all' || t.state === viewFilter)
+    : emailInboxFallback;
+
+  const stateConfig = {
+    awaiting_you: { label: 'Awaiting You', color: '#ef4444', bg: '#fef2f2', icon: Reply },
+    draft_ready: { label: 'Draft Ready', color: '#2563eb', bg: '#eff6ff', icon: FileText },
+    awaiting_them: { label: 'Awaiting Them', color: '#7c3aed', bg: '#f5f3ff', icon: Clock },
+    closed: { label: 'Closed', color: '#10b981', bg: '#ecfdf5', icon: CheckCircle2 },
+    snoozed: { label: 'Snoozed', color: '#f59e0b', bg: '#fffbeb', icon: Timer },
+  };
+
+  const priorityBadge = { p0: { label: 'P0', color: '#ef4444', bg: '#fef2f2' }, p1: { label: 'P1', color: '#f59e0b', bg: '#fffbeb' }, p2: null };
+  const categoryLabel = { brokerbay: 'BrokerBay', crm_lead: 'FUB Lead', deal_tracker: 'Sisu', listing_alert: 'REALM', automation: 'Automation', team: 'Faris Team', transaction: 'Transaction', showing: 'Showing', listing: 'Listing', important: 'Important', general: '' };
 
   return (
     <Card>
-      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-        <SectionHeader title="Email Assistant" count={emailInbox.length} action="Open Gmail →" />
-        <span style={{ fontSize: 9, fontWeight: 700, color: "#fff", background: "#10b981", padding: "2px 6px", borderRadius: 3, marginTop: -4 }}>LIVE</span>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}>
+        <Mail size={16} color="#c8a96e" />
+        <span style={{ fontSize: 15, fontWeight: 700, color: "#111827", flex: 1 }}>Email EA</span>
+        {isLive && <span style={{ fontSize: 9, fontWeight: 700, color: "#fff", background: "#10b981", padding: "2px 6px", borderRadius: 3 }}>LIVE</span>}
+        {!isLive && status !== 'loading' && <span style={{ fontSize: 9, fontWeight: 700, color: "#f59e0b", background: "#fffbeb", padding: "2px 6px", borderRadius: 3 }}>CACHED</span>}
+        {fubSentTracked > 0 && <span style={{ fontSize: 9, color: "#7c3aed", background: "#f5f3ff", padding: "2px 6px", borderRadius: 3, fontWeight: 600 }}>FUB: {fubSentTracked} sent tracked</span>}
+        <button onClick={handleRefresh} disabled={refreshing} style={{ fontSize: 10, color: "#6b7280", background: "none", border: "none", cursor: "pointer", textDecoration: "underline" }}>
+          {refreshing ? 'Sweeping...' : 'Sweep Now'}
+        </button>
       </div>
 
-      {/* Category tabs */}
-      <div style={{ display: "flex", gap: 6, marginBottom: 16, flexWrap: "wrap" }}>
-        {categories.map(cat => {
-          const CIcon = cat.icon;
+      {/* State filter tabs */}
+      <div style={{ display: "flex", gap: 6, marginBottom: 14, flexWrap: "wrap" }}>
+        {Object.entries(stateConfig).map(([key, cfg]) => {
+          const count = counts?.[key] || 0;
+          const active = viewFilter === key;
+          const CIcon = cfg.icon;
           return (
-            <div key={cat.key} style={{ display: "flex", alignItems: "center", gap: 5, background: cat.bg, borderRadius: 8, padding: "6px 12px", border: `1px solid ${cat.color}20` }}>
-              <CIcon size={12} color={cat.color} />
-              <span style={{ fontSize: 11, fontWeight: 700, color: cat.color }}>{cat.count}</span>
-              <span style={{ fontSize: 11, color: "#6b7280" }}>{cat.label}</span>
-            </div>
+            <button key={key} onClick={() => setViewFilter(key)} style={{
+              display: "flex", alignItems: "center", gap: 5, padding: "6px 12px", borderRadius: 8,
+              background: active ? cfg.color : cfg.bg, color: active ? "#fff" : cfg.color,
+              border: `1px solid ${cfg.color}${active ? '' : '30'}`, fontSize: 11, fontWeight: 600, cursor: "pointer",
+            }}>
+              <CIcon size={12} />
+              <span>{count}</span>
+              <span style={{ fontWeight: 400 }}>{cfg.label}</span>
+            </button>
           );
         })}
+        <button onClick={() => setViewFilter('all')} style={{
+          padding: "6px 12px", borderRadius: 8, fontSize: 11, fontWeight: 600, cursor: "pointer",
+          background: viewFilter === 'all' ? '#111827' : '#f3f4f6', color: viewFilter === 'all' ? '#fff' : '#6b7280',
+          border: viewFilter === 'all' ? '1px solid #111827' : '1px solid #e5e7eb',
+        }}>All</button>
       </div>
 
-      {/* Email list */}
-      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-        {emailInbox.map(em => {
-          const isSelected = selectedEmail === em.id;
-          const catColor = em.category === "response_needed" ? "#ef4444" : em.category === "followup_others" ? "#f59e0b" : em.category === "auto_file" ? "#10b981" : "#6b7280";
-          const acted = actions[em.id] || em.resolved;
+      {/* Thread list */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+        {threads.length === 0 && (
+          <div style={{ textAlign: "center", padding: 30, color: "#9ca3af", fontSize: 13 }}>
+            {viewFilter === 'awaiting_you' ? 'Inbox zero — nothing awaiting your reply.' : `No threads in "${stateConfig[viewFilter]?.label || viewFilter}".`}
+          </div>
+        )}
+        {threads.slice(0, 25).map(t => {
+          const tid = t.threadId || t.id;
+          const isSelected = selectedThread === tid;
+          const sc = stateConfig[t.state] || stateConfig.awaiting_you;
+          const pb = priorityBadge[t.priority];
 
           return (
-            <div key={em.id}>
-              <div onClick={() => setSelectedEmail(isSelected ? null : em.id)} style={{
+            <div key={tid}>
+              <div onClick={() => setSelectedThread(isSelected ? null : tid)} style={{
                 display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", borderRadius: 10, cursor: "pointer",
-                background: acted ? "#f0fdf4" : isSelected ? "#eff6ff" : em.category === "response_needed" ? "#fef2f2" : "#fafafa",
-                border: isSelected ? "1px solid #bfdbfe" : acted ? "1px solid #bbf7d0" : "1px solid transparent",
-                opacity: acted ? 0.6 : 1,
+                background: isSelected ? "#eff6ff" : t.state === 'closed' ? "#f0fdf4" : t.state === 'awaiting_you' ? "#fef2f2" : "#fafafa",
+                border: isSelected ? "1px solid #bfdbfe" : "1px solid transparent",
+                opacity: t.state === 'closed' ? 0.6 : 1,
               }}>
-                <div style={{ width: 4, height: 30, borderRadius: 2, background: acted ? "#10b981" : catColor, flexShrink: 0 }} />
-                <div style={{ width: 30, height: 30, borderRadius: "50%", background: (acted ? "#10b981" : catColor) + "18", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                  {acted ? <CheckCircle2 size={14} color="#10b981" /> : <span style={{ fontSize: 12, fontWeight: 800, color: catColor }}>{em.from.charAt(0)}</span>}
+                <div style={{ width: 4, height: 30, borderRadius: 2, background: sc.color, flexShrink: 0 }} />
+                <div style={{ width: 30, height: 30, borderRadius: "50%", background: sc.color + "18", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                  <span style={{ fontSize: 12, fontWeight: 800, color: sc.color }}>{(t.from || '?').charAt(0)}</span>
                 </div>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                    <span style={{ fontSize: 13, fontWeight: 700, color: acted ? "#6b7280" : "#111827" }}>{em.from}</span>
-                    {em.resolved && <span style={{ fontSize: 9, fontWeight: 700, color: "#10b981", background: "#ecfdf5", padding: "1px 5px", borderRadius: 3 }}>CONFIRMED</span>}
-                    {!em.resolved && em.priority === "high" && <span style={{ fontSize: 9, fontWeight: 700, color: "#ef4444", background: "#fef2f2", padding: "1px 5px", borderRadius: 3 }}>URGENT</span>}
+                  <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: "#111827" }}>{t.from || 'Unknown'}</span>
+                    {!t.isRead && <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#2563eb", flexShrink: 0 }} />}
+                    {pb && <span style={{ fontSize: 8, fontWeight: 700, color: pb.color, background: pb.bg, padding: "1px 5px", borderRadius: 3 }}>{pb.label}</span>}
+                    {t.category && categoryLabel[t.category] && <span style={{ fontSize: 9, color: "#6b7280", background: "#f3f4f6", padding: "1px 5px", borderRadius: 3 }}>{categoryLabel[t.category]}</span>}
+                    {t.fubSentMatch && <span style={{ fontSize: 8, fontWeight: 600, color: "#7c3aed", background: "#f5f3ff", padding: "1px 5px", borderRadius: 3 }}>via FUB</span>}
+                    {t.messageCount > 1 && <span style={{ fontSize: 9, color: "#9ca3af" }}>({t.messageCount})</span>}
                   </div>
-                  <div style={{ fontSize: 12, color: acted ? "#9ca3af" : "#374151", fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{em.subject}</div>
+                  <div style={{ fontSize: 12, color: "#374151", fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{t.subject}</div>
                 </div>
-                <span style={{ fontSize: 11, color: "#9ca3af", whiteSpace: "nowrap" }}>{em.time}</span>
+                <span style={{ fontSize: 10, color: "#9ca3af", whiteSpace: "nowrap", flexShrink: 0 }}>{t.lastDate ? new Date(t.lastDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : t.time || ''}</span>
                 {isSelected ? <ChevronUp size={14} color="#9ca3af" /> : <ChevronDown size={14} color="#9ca3af" />}
               </div>
 
-              {/* Expanded EA suggestion */}
-              {isSelected && !acted && (
-                <div style={{ marginLeft: 16, marginTop: 4, background: "#f0f9ff", borderRadius: 10, padding: 14, border: "1px solid #bae6fd" }}>
-                  <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 8 }}>{em.snippet}</div>
-                  <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 10 }}>
-                    <Sparkles size={12} color="#2563eb" />
-                    <span style={{ fontSize: 12, fontWeight: 600, color: "#1d4ed8" }}>EA Suggestion:</span>
-                    <span style={{ fontSize: 12, color: "#374151" }}>{em.suggestedAction}</span>
+              {/* Expanded thread actions */}
+              {isSelected && (
+                <div style={{ marginLeft: 16, marginTop: 4, background: "#f8fafc", borderRadius: 10, padding: 14, border: "1px solid #e2e8f0" }}>
+                  <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 10 }}>{t.snippet}</div>
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                    {t.state === 'awaiting_you' && (
+                      <>
+                        <button onClick={() => updateThreadState?.(tid, 'awaiting_them')} style={{ display: "flex", alignItems: "center", gap: 4, background: "#7c3aed", color: "#fff", border: "none", borderRadius: 6, padding: "6px 12px", fontSize: 11, fontWeight: 600, cursor: "pointer" }}><Reply size={11} /> Mark Replied</button>
+                        <button onClick={() => updateThreadState?.(tid, 'snoozed', new Date(Date.now() + 24*60*60*1000).toISOString())} style={{ display: "flex", alignItems: "center", gap: 4, background: "#f59e0b20", color: "#f59e0b", border: "1px solid #f59e0b40", borderRadius: 6, padding: "6px 10px", fontSize: 11, fontWeight: 600, cursor: "pointer" }}><Timer size={11} /> Snooze 24h</button>
+                      </>
+                    )}
+                    {t.state !== 'closed' && (
+                      <button onClick={() => updateThreadState?.(tid, 'closed')} style={{ display: "flex", alignItems: "center", gap: 4, background: "#ecfdf5", color: "#059669", border: "1px solid #bbf7d0", borderRadius: 6, padding: "6px 10px", fontSize: 11, fontWeight: 600, cursor: "pointer" }}><CheckCircle2 size={11} /> Close</button>
+                    )}
+                    {t.state === 'closed' && (
+                      <button onClick={() => updateThreadState?.(tid, 'awaiting_you')} style={{ display: "flex", alignItems: "center", gap: 4, background: "#fef2f2", color: "#ef4444", border: "1px solid #fecaca", borderRadius: 6, padding: "6px 10px", fontSize: 11, fontWeight: 600, cursor: "pointer" }}><Reply size={11} /> Reopen</button>
+                    )}
+                    <a href={`https://mail.google.com/mail/u/0/#inbox/${tid}`} target="_blank" rel="noopener noreferrer" style={{ display: "flex", alignItems: "center", gap: 4, background: "#f3f4f6", color: "#6b7280", border: "1px solid #e5e7eb", borderRadius: 6, padding: "6px 10px", fontSize: 11, fontWeight: 600, cursor: "pointer", textDecoration: "none" }}><ExternalLink size={11} /> Open in Gmail</a>
                   </div>
-                  <div style={{ display: "flex", gap: 6 }}>
-                    <button onClick={() => persistActions(a => ({ ...a, [em.id]: "replied" }))} style={{ display: "flex", alignItems: "center", gap: 4, background: "#2563eb", color: "#fff", border: "none", borderRadius: 6, padding: "6px 12px", fontSize: 11, fontWeight: 600, cursor: "pointer" }}><Reply size={11} /> Draft Reply</button>
-                    <button onClick={() => persistActions(a => ({ ...a, [em.id]: "flagged" }))} style={{ display: "flex", alignItems: "center", gap: 4, background: "#f59e0b20", color: "#f59e0b", border: "1px solid #f59e0b40", borderRadius: 6, padding: "6px 10px", fontSize: 11, fontWeight: 600, cursor: "pointer" }}><Flag size={11} /> Flag for Later</button>
-                    <button onClick={() => persistActions(a => ({ ...a, [em.id]: "filed" }))} style={{ display: "flex", alignItems: "center", gap: 4, background: "#f3f4f6", color: "#6b7280", border: "1px solid #e5e7eb", borderRadius: 6, padding: "6px 10px", fontSize: 11, fontWeight: 600, cursor: "pointer" }}><Archive size={11} /> File</button>
-                  </div>
-                </div>
-              )}
-              {isSelected && acted && (
-                <div style={{ marginLeft: 16, marginTop: 4, background: "#ecfdf5", borderRadius: 8, padding: "8px 12px", border: "1px solid #bbf7d0", display: "flex", alignItems: "center", gap: 6 }}>
-                  <CheckCircle2 size={13} color="#10b981" />
-                  <span style={{ fontSize: 12, color: "#065f46", fontWeight: 500 }}>
-                    {acted === "replied" ? "Draft saved. Review before sending." : acted === "flagged" ? "Flagged for follow-up." : "Filed away."}
-                  </span>
                 </div>
               )}
             </div>
           );
         })}
       </div>
+
+      {/* Sweep info */}
+      {lastSweep && (
+        <div style={{ marginTop: 10, fontSize: 10, color: "#9ca3af", textAlign: "center" }}>
+          Last sweep: {new Date(lastSweep).toLocaleTimeString()} · Auto-refreshes every 5 min
+        </div>
+      )}
     </Card>
   );
 }
@@ -6379,12 +6516,137 @@ function ListingForm() {
 }
 
 // ─────────────────────────────────────────────
+// CLAUDE STUCK TICKER
+// ─────────────────────────────────────────────
+function ClaudeStuckTicker() {
+  const eaData = useContext(EaContext);
+  const [expandedId, setExpandedId] = useState(null);
+  const [resolving, setResolving] = useState(null);
+
+  if (!eaData || !eaData.stuck) return null;
+  const { questions, resolveQuestion, dismissQuestion } = eaData.stuck;
+  if (!questions || questions.length === 0) return null;
+
+  const priorityColors = { p0: '#dc2626', p1: '#f59e0b', p2: '#6b7280' };
+  const priorityLabels = { p0: 'URGENT', p1: 'NEEDS INPUT', p2: 'QUESTION' };
+
+  const handleResolve = async (id, label) => {
+    setResolving(id);
+    await resolveQuestion(id, label);
+    setResolving(null);
+    setExpandedId(null);
+  };
+
+  return (
+    <div style={{
+      background: 'linear-gradient(135deg, #fef3c7, #fffbeb)',
+      border: '1px solid #f59e0b',
+      borderRadius: 12,
+      padding: '12px 16px',
+      marginBottom: 16,
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: questions.length > 0 ? 10 : 0 }}>
+        <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#f59e0b', animation: 'pulse 2s infinite' }} />
+        <span style={{ fontSize: 12, fontWeight: 700, color: '#92400e', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+          Claude needs your answer ({questions.length})
+        </span>
+      </div>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {questions.map((q) => {
+          const isExpanded = expandedId === q.id;
+          const pColor = priorityColors[q.priority] || '#6b7280';
+          const pLabel = priorityLabels[q.priority] || 'QUESTION';
+
+          return (
+            <div key={q.id} style={{
+              background: '#fff',
+              borderRadius: 8,
+              border: `1px solid ${isExpanded ? '#f59e0b' : '#e5e7eb'}`,
+              overflow: 'hidden',
+              transition: 'border-color 0.2s',
+            }}>
+              {/* Question header */}
+              <div
+                onClick={() => setExpandedId(isExpanded ? null : q.id)}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px',
+                  cursor: 'pointer', background: isExpanded ? '#fffbeb' : 'transparent',
+                }}
+              >
+                <span style={{
+                  fontSize: 9, fontWeight: 700, color: '#fff', background: pColor,
+                  borderRadius: 4, padding: '2px 6px', flexShrink: 0,
+                }}>{pLabel}</span>
+                <span style={{ fontSize: 13, fontWeight: 600, color: '#111827', flex: 1 }}>{q.summary}</span>
+                <span style={{ fontSize: 10, color: '#9ca3af', flexShrink: 0 }}>
+                  {q.workflow !== 'general' ? q.workflow : ''}
+                </span>
+                <ChevronDown size={14} color="#9ca3af" style={{
+                  transform: isExpanded ? 'rotate(180deg)' : 'rotate(0)',
+                  transition: 'transform 0.2s',
+                }} />
+              </div>
+
+              {/* Expanded options */}
+              {isExpanded && (
+                <div style={{ padding: '0 12px 12px', borderTop: '1px solid #f3f4f6' }}>
+                  {q.context && (
+                    <p style={{ fontSize: 12, color: '#6b7280', margin: '8px 0', lineHeight: 1.5 }}>{q.context}</p>
+                  )}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 8 }}>
+                    {(q.options || []).map((opt, i) => (
+                      <button
+                        key={i}
+                        disabled={resolving === q.id}
+                        onClick={() => handleResolve(q.id, opt.label)}
+                        style={{
+                          display: 'flex', flexDirection: 'column', alignItems: 'flex-start',
+                          padding: '8px 12px', borderRadius: 6,
+                          border: '1px solid #e5e7eb', background: '#f9fafb',
+                          cursor: resolving === q.id ? 'wait' : 'pointer',
+                          opacity: resolving === q.id ? 0.6 : 1,
+                          transition: 'all 0.15s',
+                          textAlign: 'left',
+                        }}
+                        onMouseEnter={e => { e.currentTarget.style.background = '#c8a96e22'; e.currentTarget.style.borderColor = '#c8a96e'; }}
+                        onMouseLeave={e => { e.currentTarget.style.background = '#f9fafb'; e.currentTarget.style.borderColor = '#e5e7eb'; }}
+                      >
+                        <span style={{ fontSize: 13, fontWeight: 600, color: '#111827' }}>{opt.label}</span>
+                        {opt.description && (
+                          <span style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>{opt.description}</span>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                  <button
+                    onClick={() => dismissQuestion(q.id)}
+                    style={{
+                      marginTop: 8, fontSize: 11, color: '#9ca3af', background: 'none',
+                      border: 'none', cursor: 'pointer', padding: '4px 0',
+                    }}
+                  >
+                    Skip / not relevant
+                  </button>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
 // SECTION ROUTER
 // ─────────────────────────────────────────────
 function SectionContent({ section }) {
   switch (section) {
     case "briefing": return (
       <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+        {/* Claude stuck ticker — needs Jonathan's input */}
+        <ClaudeStuckTicker />
         {/* Outstanding feedback bar */}
         <OutstandingFeedbackBar />
         {/* Big 3 + Calendar row */}
@@ -6444,6 +6706,11 @@ export default function Dashboard() {
   // FUB call list — shared via context
   const fubData = useFubCallList();
 
+  // EA email triage + stuck ticker — shared via context
+  const eaEmail = useEaEmailTriage();
+  const eaStuck = useEaStuckTicker();
+  const eaData = { ...eaEmail, stuck: eaStuck };
+
   const orderedSidebar = sidebarOrder.map(id => sidebarItems.find(i => i.id === id)).filter(Boolean);
 
   const handleDragStart = (e, idx) => { setDragIdx(idx); e.dataTransfer.effectAllowed = "move"; };
@@ -6463,6 +6730,7 @@ export default function Dashboard() {
 
   return (
     <FubContext.Provider value={fubData}>
+    <EaContext.Provider value={eaData}>
     <div style={{ display: "flex", height: "100vh", fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif', background: "#f3f4f6", overflow: "hidden" }}>
 
       {/* SIDEBAR */}
@@ -6559,6 +6827,7 @@ export default function Dashboard() {
         </div>
       </div>
     </div>
+    </EaContext.Provider>
     </FubContext.Provider>
   );
 }
