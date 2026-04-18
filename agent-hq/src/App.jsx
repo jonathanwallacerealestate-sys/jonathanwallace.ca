@@ -5338,7 +5338,7 @@ function MetricCard({ card }) {
 const HEATING_OPTIONS = ['Forced Air Gas', 'Forced Air Propane', 'Electric Baseboard', 'Radiant In-Floor', 'Mini-Split', 'Wood Stove', 'Pellet Stove', 'Oil Furnace', 'Geothermal', 'Boiler / Radiator'];
 const AC_OPTIONS = ['Central Air', 'Ductless Mini-Split', 'Window Units', 'None'];
 const APPLIANCE_OPTIONS = ['Fridge', 'Stove', 'Dishwasher', 'Microwave', 'Washer', 'Dryer', 'Range Hood', 'Built-in Oven', 'Wine Fridge', 'Chest Freezer', 'Garburator', 'Water Softener', 'Central Vac'];
-const INCLUSION_OPTIONS = ['Window Coverings', 'Light Fixtures', 'Garage Door Opener', 'Hot Tub', 'Pool Equipment', 'Storage Shed', 'ELFs', 'Smart Home Devices', 'Security System', 'Water Treatment System', 'Satellite Dish', 'TV Wall Mount(s)', 'Sump Pump', 'Built-in Generator'];
+const INCLUSION_OPTIONS = ['Window Coverings', 'California Shutters', 'Light Fixtures', 'Garage Door Opener', 'Hot Tub', 'Pool Equipment', 'Storage Shed', 'ELFs', 'Smart Home Devices', 'Security System', 'Water Treatment System', 'Satellite Dish', 'TV Wall Mount(s)', 'Sump Pump', 'Built-in Generator'];
 const FOUNDATION_TYPES = ['Poured Concrete', 'Block', 'Stone', 'Slab', 'Crawl Space', 'Pier / Post', 'Other'];
 const ROOF_TYPES = ['Asphalt Shingle', 'Metal', 'Cedar Shake', 'Slate', 'Flat / Torch-On', 'Tile', 'Other'];
 const PROPERTY_TYPES = ['Detached', 'Semi-Detached', 'Townhouse', 'Condo', 'Bungalow', 'Multi-Family', 'Vacant Land', 'Farm', 'Cottage / Waterfront', 'Commercial', 'Other'];
