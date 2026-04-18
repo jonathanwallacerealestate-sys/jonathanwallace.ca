@@ -6804,6 +6804,73 @@ function SyncsSection() {
         </div>
         <p style={{ fontSize: 12, color: "#6b7280", margin: 0 }}>When you CC <strong>jonathan@faristeam.ca</strong> on Outlook replies, the forwarding rule sends a copy to Gmail. The EA triage engine detects these automatically — no scraping needed. This is the primary tracking method.</p>
       </Card>
+
+      {/* Quick Links — All Agent HQ endpoints and diagnostic URLs */}
+      <Card>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}>
+          <ExternalLink size={16} color="#c8a96e" />
+          <span style={{ fontSize: 14, fontWeight: 700, color: "#111827" }}>Quick Links</span>
+        </div>
+
+        {[
+          { heading: 'Calendar', links: [
+            { label: 'All Calendars', url: '/api/calendar/list', desc: 'See every calendar being pulled (primary + Outlook)' },
+            { label: 'Today\'s Events', url: '/api/calendar/events', desc: 'All events from all calendars for today' },
+            { label: 'Upcoming 7 Days', url: '/api/calendar/upcoming', desc: 'Next week of events across all calendars' },
+            { label: 'Connection Status', url: '/api/calendar/status', desc: 'Google OAuth connection health check' },
+          ]},
+          { heading: 'Email EA', links: [
+            { label: 'EA Triage', url: '/api/ea/triage', desc: 'Full email thread state dashboard (live sweep)' },
+            { label: 'Sweep Status', url: '/api/ea/sweep-status', desc: 'Hourly auto-sweep schedule and recent logs' },
+            { label: 'Outlook Sent Data', url: '/api/ea/outlook-sent', desc: 'Scraped Outlook sent emails and corrections' },
+            { label: 'Stuck Queue', url: '/api/ea/stuck', desc: 'Pending "Claude stuck, needs answer" items' },
+            { label: 'FUB Sent Diagnostic', url: '/api/ea/fub-sent-diagnostic', desc: 'Tests all FUB email tracking API paths' },
+          ]},
+          { heading: 'Gmail', links: [
+            { label: 'Gmail Status', url: '/api/gmail/status', desc: 'Gmail connection and token status' },
+            { label: 'Inbox', url: '/api/gmail/inbox', desc: 'Recent inbox emails with AI categorization' },
+            { label: 'Sent', url: '/api/gmail/sent', desc: 'Recent sent emails for follow-up tracking' },
+            { label: 'BrokerBay Emails', url: '/api/gmail/brokerbay', desc: 'All BrokerBay emails: showings, feedback, confirmations' },
+            { label: 'Activity Timeline', url: '/api/gmail/activity', desc: 'Combined email activity timeline' },
+            { label: 'Labels', url: '/api/gmail/labels', desc: 'All Gmail labels (debug)' },
+          ]},
+          { heading: 'Follow Up Boss', links: [
+            { label: 'FUB Status', url: '/api/fub/status', desc: 'FUB API connection check' },
+            { label: 'Call List', url: '/api/fub/calllist', desc: 'Daily scored call list' },
+            { label: 'Stages', url: '/api/fub/stages', desc: 'All FUB pipeline stages' },
+            { label: 'Lead Scan', url: '/api/fub/leads/scan', desc: 'Scan Gmail for new FUB lead emails' },
+            { label: 'Processed Leads', url: '/api/fub/leads/processed', desc: 'Already-imported lead history' },
+            { label: 'Listing Appointments', url: '/api/fub/listing-appointments', desc: 'Contacts tagged "Listing Appointment"' },
+          ]},
+          { heading: 'Team Jordan Import', links: [
+            { label: 'TJ Setup', url: '/api/tj/setup', desc: 'Create stage + find Gmail label' },
+            { label: 'TJ Status', url: '/api/tj/status', desc: 'Import progress and stats' },
+          ]},
+          { heading: 'Listing Form', links: [
+            { label: 'All Listings', url: '/api/listing-form/list', desc: 'All saved listing forms' },
+          ]},
+          { heading: 'System', links: [
+            { label: 'Tasks State', url: '/api/tasks', desc: 'Saved priorities and backlog state' },
+            { label: 'Google Auth', url: '/api/auth/google', desc: 'Start Google OAuth flow (reconnect)' },
+          ]},
+        ].map(group => (
+          <div key={group.heading} style={{ marginBottom: 14 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: "#6b7280", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>{group.heading}</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+              {group.links.map(link => (
+                <a key={link.url} href={`https://hq.jonathanwallace.ca${link.url}`} target="_blank" rel="noopener noreferrer"
+                  style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", borderRadius: 6, background: "#f9fafb", textDecoration: "none", fontSize: 12, transition: "background 0.15s" }}
+                  onMouseEnter={e => e.currentTarget.style.background = '#f3f4f6'}
+                  onMouseLeave={e => e.currentTarget.style.background = '#f9fafb'}>
+                  <span style={{ fontWeight: 600, color: "#2563eb", minWidth: 140 }}>{link.label}</span>
+                  <span style={{ color: "#9ca3af", fontSize: 11, flex: 1 }}>{link.desc}</span>
+                  <ExternalLink size={10} color="#9ca3af" />
+                </a>
+              ))}
+            </div>
+          </div>
+        ))}
+      </Card>
     </div>
   );
 }
