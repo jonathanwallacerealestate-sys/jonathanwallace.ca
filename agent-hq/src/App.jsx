@@ -1944,7 +1944,7 @@ function EmailEASection() {
         <span style={{ fontSize: 15, fontWeight: 700, color: "#111827", flex: 1 }}>Email EA</span>
         {isLive && <span style={{ fontSize: 9, fontWeight: 700, color: "#fff", background: "#10b981", padding: "2px 6px", borderRadius: 3 }}>LIVE</span>}
         {!isLive && status !== 'loading' && <span style={{ fontSize: 9, fontWeight: 700, color: "#f59e0b", background: "#fffbeb", padding: "2px 6px", borderRadius: 3 }}>CACHED</span>}
-        {fubSentTracked > 0 && <span style={{ fontSize: 9, color: "#7c3aed", background: "#f5f3ff", padding: "2px 6px", borderRadius: 3, fontWeight: 600 }}>FUB: {fubSentTracked} sent tracked</span>}
+        {(fubSentTracked > 0 || eaData?.outlookCcForwards > 0) && <span style={{ fontSize: 9, color: "#7c3aed", background: "#f5f3ff", padding: "2px 6px", borderRadius: 3, fontWeight: 600 }}>Outlook: {eaData?.outlookCcForwards || 0} sent tracked</span>}
         <button onClick={handleRefresh} disabled={refreshing} style={{ fontSize: 10, color: "#6b7280", background: "none", border: "none", cursor: "pointer", textDecoration: "underline" }}>
           {refreshing ? 'Sweeping...' : 'Sweep Now'}
         </button>
@@ -2007,6 +2007,7 @@ function EmailEASection() {
                     {pb && <span style={{ fontSize: 8, fontWeight: 700, color: pb.color, background: pb.bg, padding: "1px 5px", borderRadius: 3 }}>{pb.label}</span>}
                     {t.category && categoryLabel[t.category] && <span style={{ fontSize: 9, color: "#6b7280", background: "#f3f4f6", padding: "1px 5px", borderRadius: 3 }}>{categoryLabel[t.category]}</span>}
                     {t.fubSentMatch && <span style={{ fontSize: 8, fontWeight: 600, color: "#7c3aed", background: "#f5f3ff", padding: "1px 5px", borderRadius: 3 }}>via FUB</span>}
+                    {t.outlookCcDetected && <span style={{ fontSize: 8, fontWeight: 600, color: "#2563eb", background: "#eff6ff", padding: "1px 5px", borderRadius: 3 }}>Outlook CC</span>}
                     {t.messageCount > 1 && <span style={{ fontSize: 9, color: "#9ca3af" }}>({t.messageCount})</span>}
                   </div>
                   <div style={{ fontSize: 12, color: "#374151", fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{t.subject}</div>

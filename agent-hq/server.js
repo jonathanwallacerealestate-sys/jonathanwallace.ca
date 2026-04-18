@@ -1314,6 +1314,17 @@ app.get('/api/ea/triage', async (req, res) => {
     });
     const sentThreadIds = new Set((sentRes.data.threads || []).map(t => t.id));
 
+    // Step 2b: Fetch forwarded CC copies from Outlook (jonathan@faristeam.ca → Gmail forwarding)
+    // These arrive as inbound messages FROM jonathan@faristeam.ca when he CCs himself on Outlook replies
+    const ccForwardRes = await gmail.users.messages.list({
+      userId: 'me',
+      q: `from:jonathan@faristeam.ca newer_than:${days}d`,
+      maxResults: 100,
+    });
+    const ccForwardMsgIds = new Set((ccForwardRes.data.messages || []).map(m => m.id));
+    const ccForwardCount = ccForwardMsgIds.size;
+    console.log(`[EA] Found ${ccForwardCount} CC-forwarded Outlook replies in Gmail`);
+
     // Step 3: Process each thread
     const processedThreads = {};
 
@@ -1359,6 +1370,19 @@ app.get('/api/ea/triage', async (req, res) => {
         const isFromJonathan = JONATHAN_EMAILS.some(j => lastFromEmail.includes(j));
         const existingState = eaThreadCache.threads[thread.id];
 
+        // Also check: did Jonathan send ANY recent message in this thread?
+        // This catches CC-forwarded Outlook replies that may not be the "last" message
+        // (e.g., if the forwarded CC arrives slightly after the original)
+        const jonathanSentInThread = messages.some(msg => {
+          const msgFrom = (msg.payload?.headers || []).find(h => h.name === 'From')?.value || '';
+          const msgFromEmail = extractEmail(msgFrom);
+          return JONATHAN_EMAILS.some(j => msgFromEmail.includes(j));
+        });
+        // Check if this thread also appears in sent folder
+        const inSentFolder = sentThreadIds.has(thread.id);
+        // Combined: Jonathan has replied if last msg is from him, OR he sent in thread, OR thread is in sent
+        const jonathanHasReplied = isFromJonathan || (jonathanSentInThread && !isFromJonathan);
+
         if (existingState?.state === 'snoozed') {
           // Respect snooze — check if snooze has expired
           const snoozeUntil = existingState.snoozeUntil ? new Date(existingState.snoozeUntil) : null;
@@ -1371,11 +1395,12 @@ app.get('/api/ea/triage', async (req, res) => {
           state = 'closed'; // Respect manual close
         } else if (archiveRule) {
           state = 'closed'; // Auto-archive rule
-        } else if (isFromJonathan) {
-          // Jonathan sent last — either awaiting them or closed
+        } else if (isFromJonathan || jonathanHasReplied || inSentFolder) {
+          // Jonathan sent last, OR CC'd reply detected, OR thread is in sent folder
+          // Determine if it's a closing reply or still awaiting their response
           const lastSnippetLower = lastSnippet.toLowerCase();
-          if (lastSnippetLower.includes('thank') || lastSnippetLower.includes('confirmed') ||
-              lastSnippetLower.includes('sounds good') || lastSnippetLower.includes('all set')) {
+          if (isFromJonathan && (lastSnippetLower.includes('thank') || lastSnippetLower.includes('confirmed') ||
+              lastSnippetLower.includes('sounds good') || lastSnippetLower.includes('all set'))) {
             state = 'closed';
           } else {
             state = 'awaiting_them';
@@ -1415,6 +1440,8 @@ app.get('/api/ea/triage', async (req, res) => {
           participants: [...participants],
           autoArchiveRule: archiveRule ? archiveRule.action : null,
           linkedProperty: null, // Will be populated by property-matching logic
+          outlookCcDetected: jonathanSentInThread && !isFromJonathan, // CC-forwarded reply detected
+          inSentFolder: inSentFolder,
         };
       } catch (e) {
         console.error(`[EA] Error processing thread ${thread.id}:`, e.message);
@@ -1497,6 +1524,7 @@ app.get('/api/ea/triage', async (req, res) => {
       lastSweep: eaThreadCache.lastSweep,
       sweepCount: eaThreadCache.sweepCount,
       fubSentTracked: fubSentActivity.length,
+      outlookCcForwards: ccForwardCount,
       threads,
       counts,
     });
