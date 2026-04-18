@@ -3502,7 +3502,15 @@ function parseMLSListingText(text) {
         else if (/carpet/i.test(notes)) flooring = 'Carpet';
         else if (/vinyl/i.test(notes)) flooring = 'Vinyl Plank';
         const level = rm[2] === '2nd' || rm[2] === '3rd' ? 'Upper' : rm[2] === 'Bsmt' ? 'Basement' : rm[2];
-        rooms.push({ name: rm[1].trim(), level, dimensions: dims, flooring, features: notes });
+        // Auto-detect room details from notes
+        const details = [];
+        if (/crown\s*mould/i.test(notes)) details.push('Crown Moulding');
+        if (/pot\s*light/i.test(notes)) details.push('Pot Lights');
+        if (/walk.?in\s*closet|w\/i\s*closet/i.test(notes)) details.push('Walk-in Closet');
+        else if (/closet/i.test(notes)) details.push('Closet');
+        if (/large\s*window|picture\s*window|bay\s*window/i.test(notes)) details.push('Large Window');
+        if (/upgraded\s*light/i.test(notes)) details.push('Upgraded Lighting');
+        rooms.push({ name: rm[1].trim(), level, dimensions: dims, flooring, features: notes, details });
       }
     }
     if (rooms.length > 0) fields.rooms = rooms;

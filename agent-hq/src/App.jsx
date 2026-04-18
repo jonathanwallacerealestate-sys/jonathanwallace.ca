@@ -5347,6 +5347,7 @@ const WATER_SOURCES = ['Municipal', 'Drilled Well', 'Dug Well', 'Lake', 'Shared 
 const SEWER_TYPES = ['Municipal Sewer', 'Septic Tank', 'Holding Tank', 'Septic Bed'];
 const GARAGE_TYPES = ['Attached', 'Detached', 'Built-In', 'Carport', 'None'];
 const FLOORING_TYPES = ['Hardwood', 'Laminate', 'Vinyl Plank', 'Tile', 'Carpet', 'Concrete', 'Other'];
+const ROOM_DETAIL_OPTIONS = ['Large Window', 'Closet', 'Walk-in Closet', 'Upgraded Lighting', 'Crown Moulding', 'Pot Lights'];
 
 function defaultFormData() {
   return {
@@ -5531,14 +5532,46 @@ function ListingForm() {
     } catch {}
   };
 
+  const makeRoom = (name, level = 'Main') => ({ name, level, dimensions: '', flooring: '', features: '', details: [] });
+
   const addRoom = () => {
-    const rooms = [...(form.rooms || []), { name: '', level: 'Main', dimensions: '', flooring: '', features: '' }];
+    const rooms = [...(form.rooms || []), makeRoom('')];
+    updateField('rooms', rooms);
+  };
+
+  const generateStandardRooms = () => {
+    const existing = form.rooms || [];
+    if (existing.length > 0) return; // Don't overwrite existing rooms
+    const rooms = [];
+    // Always: Kitchen, Living Room, Dining Room
+    rooms.push(makeRoom('Kitchen'));
+    rooms.push(makeRoom('Living Room'));
+    rooms.push(makeRoom('Dining Room'));
+    // Bedrooms based on count (default 3 if not set)
+    const bedCount = parseInt(form.bedrooms) || 3;
+    for (let i = 1; i <= bedCount; i++) {
+      rooms.push(makeRoom(i === 1 ? 'Primary Bedroom' : `Bedroom ${i}`, i === 1 ? 'Upper' : 'Upper'));
+    }
+    // Bathrooms based on count (default 1)
+    const bathCount = parseInt(form.bathrooms) || 1;
+    for (let i = 1; i <= bathCount; i++) {
+      rooms.push(makeRoom(bathCount === 1 ? 'Bathroom' : i === 1 ? 'Primary Bathroom' : `Bathroom ${i}`, i === 1 ? 'Upper' : 'Main'));
+    }
+    // Always: Mechanical/Utility Room
+    rooms.push(makeRoom('Mechanical Room', 'Basement'));
     updateField('rooms', rooms);
   };
 
   const updateRoom = (idx, field, value) => {
     const rooms = [...(form.rooms || [])];
     rooms[idx] = { ...rooms[idx], [field]: value };
+    updateField('rooms', rooms);
+  };
+
+  const toggleRoomDetail = (idx, detail) => {
+    const rooms = [...(form.rooms || [])];
+    const current = rooms[idx].details || [];
+    rooms[idx] = { ...rooms[idx], details: current.includes(detail) ? current.filter(d => d !== detail) : [...current, detail] };
     updateField('rooms', rooms);
   };
 
@@ -5907,10 +5940,17 @@ function ListingForm() {
 
           {/* SECTION 15: ROOM-BY-ROOM */}
           <FormSection title="Room-by-Room Details" icon={Home} expanded={expanded.rooms} onToggle={() => toggle('rooms')} badge={form.rooms && form.rooms.length > 0 ? form.rooms.length : null}>
+            {(!form.rooms || form.rooms.length === 0) && (
+              <button type="button" onClick={generateStandardRooms} style={{
+                display: 'flex', alignItems: 'center', gap: 6, padding: '10px 18px', borderRadius: 8,
+                border: '1.5px solid #c8a96e', background: '#fdf8f0', fontSize: 12, fontWeight: 600,
+                color: '#c8a96e', cursor: 'pointer', width: '100%', justifyContent: 'center', marginBottom: 10,
+              }}><Sparkles size={14} /> Generate Standard Rooms ({form.bedrooms || 3} Bed / {form.bathrooms || 1} Bath)</button>
+            )}
             {(form.rooms || []).map((room, idx) => (
               <div key={idx} style={{ background: '#f9fafb', borderRadius: 8, padding: 12, marginBottom: 8, border: '1px solid #e5e7eb' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                  <span style={{ fontSize: 11, fontWeight: 700, color: '#6b7280' }}>ROOM {idx + 1}</span>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: '#6b7280' }}>ROOM {idx + 1}{room.name ? ` — ${room.name}` : ''}</span>
                   <div style={{ flex: 1 }} />
                   <button type="button" onClick={() => removeRoom(idx)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2 }}>
                     <X size={14} color="#ef4444" />
@@ -5936,8 +5976,25 @@ function ListingForm() {
                   </FormField>
                 </div>
                 <div style={{ marginTop: 8 }}>
-                  <FormField label="Features / Notes">
-                    <input style={inputStyle} value={room.features} onChange={e => updateRoom(idx, 'features', e.target.value)} placeholder="Walk-in closet, ensuite, bay window..." />
+                  <FormField label="Room Details">
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
+                      {ROOM_DETAIL_OPTIONS.map(opt => {
+                        const active = (room.details || []).includes(opt);
+                        return (
+                          <button key={opt} type="button" onClick={() => toggleRoomDetail(idx, opt)} style={{
+                            padding: '5px 12px', borderRadius: 16, fontSize: 11, fontWeight: active ? 600 : 400,
+                            border: `1.5px solid ${active ? '#c8a96e' : '#d1d5db'}`,
+                            background: active ? '#c8a96e' : '#fff', color: active ? '#fff' : '#374151',
+                            cursor: 'pointer', transition: 'all 0.15s',
+                          }}>{opt}</button>
+                        );
+                      })}
+                    </div>
+                  </FormField>
+                </div>
+                <div style={{ marginTop: 8 }}>
+                  <FormField label="Additional Notes">
+                    <input style={inputStyle} value={room.features} onChange={e => updateRoom(idx, 'features', e.target.value)} placeholder="Ensuite, bay window, built-in shelving..." />
                   </FormField>
                 </div>
               </div>
