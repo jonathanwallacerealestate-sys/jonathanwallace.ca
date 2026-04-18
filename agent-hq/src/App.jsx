@@ -8,7 +8,7 @@ import {
   Send, Archive, Reply, AlertTriangle, Coffee, Sun, Flame, Snowflake,
   UserPlus, RotateCcw, Eye, EyeOff, ChevronUp, MoreHorizontal, Inbox,
   Flag, Trash2, PenLine, Check, ExternalLink, RefreshCw,
-  GripVertical, ClipboardList, Home, Plus, Save, Loader2, Trash,
+  GripVertical, ClipboardList, Home, Plus, Save, Loader2, Trash, RotateCw,
 } from "lucide-react";
 
 // ─────────────────────────────────────────────
@@ -270,6 +270,7 @@ const sidebarItems = [
   { id: "listing-form", label: "Listing Form", icon: ClipboardList, badge: null },
   { id: "sellers", label: "Sellers", icon: Briefcase, badge: 3 },
   { id: "loo", label: "LOO", icon: FileText, badge: null },
+  { id: "syncs", label: "Syncs & Routines", icon: RotateCw, badge: null },
 ];
 
 // ─────────────────────────────────────────────
@@ -1913,16 +1914,6 @@ function EmailEASection() {
   const [selectedThread, setSelectedThread] = useState(null);
   const [viewFilter, setViewFilter] = useState('awaiting_you');
   const [refreshing, setRefreshing] = useState(false);
-  const [sweepStatus, setSweepStatus] = useState(null);
-
-  // Fetch sweep schedule status on mount
-  useEffect(() => {
-    fetch('/api/ea/sweep-status').then(r => r.json()).then(setSweepStatus).catch(() => {});
-    const iv = setInterval(() => {
-      fetch('/api/ea/sweep-status').then(r => r.json()).then(setSweepStatus).catch(() => {});
-    }, 5 * 60 * 1000); // refresh every 5 min
-    return () => clearInterval(iv);
-  }, []);
 
   const handleRefresh = async () => {
     setRefreshing(true);
@@ -1959,18 +1950,6 @@ function EmailEASection() {
           {refreshing ? 'Sweeping...' : 'Sweep Now'}
         </button>
       </div>
-
-      {/* Scheduled sweep status line */}
-      {sweepStatus?.lastSweep && (
-        <div style={{ fontSize: 10, color: "#9ca3af", marginBottom: 10, display: "flex", alignItems: "center", gap: 8 }}>
-          <span style={{ display: "inline-flex", alignItems: "center", gap: 3 }}>
-            <span style={{ width: 6, height: 6, borderRadius: "50%", background: sweepStatus.lastSweep.status === 'success' ? '#10b981' : '#ef4444', display: "inline-block" }} />
-            Auto-sweep: {sweepStatus.scheduledHours?.join(' & ')}
-          </span>
-          <span>Last: {sweepStatus.lastSweep.time ? new Date(sweepStatus.lastSweep.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'never'}</span>
-          {sweepStatus.lastSweep.stateChanges > 0 && <span style={{ color: "#f59e0b", fontWeight: 600 }}>{sweepStatus.lastSweep.stateChanges} updates</span>}
-        </div>
-      )}
 
       {/* State filter tabs */}
       <div style={{ display: "flex", gap: 6, marginBottom: 14, flexWrap: "wrap" }}>
@@ -6671,6 +6650,164 @@ function ClaudeStuckTicker() {
 // ─────────────────────────────────────────────
 // SECTION ROUTER
 // ─────────────────────────────────────────────
+// ─────────────────────────────────────────────
+// SYNCS & ROUTINES — Centralized status for all background sync jobs
+// ─────────────────────────────────────────────
+function SyncsSection() {
+  const [sweepStatus, setSweepStatus] = useState(null);
+  const [outlookSent, setOutlookSent] = useState(null);
+  const [triggering, setTriggering] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  const fetchAll = () => {
+    Promise.all([
+      fetch('/api/ea/sweep-status').then(r => r.json()).catch(() => null),
+      fetch('/api/ea/outlook-sent').then(r => r.json()).catch(() => null),
+    ]).then(([sweep, outlook]) => {
+      setSweepStatus(sweep);
+      setOutlookSent(outlook);
+      setLoading(false);
+    });
+  };
+
+  useEffect(() => { fetchAll(); const iv = setInterval(fetchAll, 60000); return () => clearInterval(iv); }, []);
+
+  const triggerSweep = async () => {
+    setTriggering(true);
+    try {
+      await fetch('/api/ea/sweep-now', { method: 'POST' });
+      await new Promise(r => setTimeout(r, 1000));
+      fetchAll();
+    } catch {} finally { setTriggering(false); }
+  };
+
+  const fmtTime = (iso) => iso ? new Date(iso).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'Never';
+  const statusDot = (ok) => <span style={{ width: 8, height: 8, borderRadius: "50%", background: ok ? '#10b981' : '#ef4444', display: "inline-block" }} />;
+
+  if (loading) return <Card><div style={{ textAlign: "center", padding: 40, color: "#9ca3af" }}><RefreshCw size={20} style={{ animation: "spin 1s linear infinite", margin: "0 auto 8px" }} /><div style={{ fontSize: 13 }}>Loading sync status...</div></div></Card>;
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      {/* Header */}
+      <Card>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
+          <RotateCw size={18} color="#c8a96e" />
+          <span style={{ fontSize: 17, fontWeight: 700, color: "#111827" }}>Syncs & Routines</span>
+        </div>
+        <p style={{ fontSize: 13, color: "#6b7280", margin: 0 }}>Background jobs that keep Agent HQ accurate. These run automatically and cross-reference your email activity across Gmail and Outlook.</p>
+      </Card>
+
+      {/* EA Auto-Sweep */}
+      <Card>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+          {statusDot(sweepStatus?.lastSweep?.status === 'success')}
+          <span style={{ fontSize: 14, fontWeight: 700, color: "#111827", flex: 1 }}>EA Auto-Sweep</span>
+          <span style={{ fontSize: 10, color: "#6b7280", background: "#f3f4f6", padding: "2px 8px", borderRadius: 4 }}>7:00 AM & 5:00 PM EST</span>
+          <button onClick={triggerSweep} disabled={triggering} style={{ fontSize: 11, color: "#fff", background: "#2563eb", border: "none", borderRadius: 6, padding: "5px 12px", cursor: "pointer", fontWeight: 600 }}>
+            {triggering ? 'Running...' : 'Run Now'}
+          </button>
+        </div>
+        <p style={{ fontSize: 12, color: "#6b7280", margin: "0 0 12px" }}>Automatically re-scans Gmail threads, detects CC-forwarded Outlook replies, and reconciles thread states twice daily.</p>
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 10 }}>
+          <div style={{ background: "#f9fafb", borderRadius: 8, padding: 10, textAlign: "center" }}>
+            <div style={{ fontSize: 18, fontWeight: 700, color: "#111827" }}>{sweepStatus?.totalSweeps || 0}</div>
+            <div style={{ fontSize: 10, color: "#6b7280" }}>Total Sweeps</div>
+          </div>
+          <div style={{ background: "#f9fafb", borderRadius: 8, padding: 10, textAlign: "center" }}>
+            <div style={{ fontSize: 18, fontWeight: 700, color: "#111827" }}>{sweepStatus?.lastSweep?.threadsProcessed || '—'}</div>
+            <div style={{ fontSize: 10, color: "#6b7280" }}>Threads Scanned</div>
+          </div>
+          <div style={{ background: "#f9fafb", borderRadius: 8, padding: 10, textAlign: "center" }}>
+            <div style={{ fontSize: 18, fontWeight: 700, color: "#2563eb" }}>{sweepStatus?.lastSweep?.ccForwardsFound || 0}</div>
+            <div style={{ fontSize: 10, color: "#6b7280" }}>CC Forwards Found</div>
+          </div>
+          <div style={{ background: "#f9fafb", borderRadius: 8, padding: 10, textAlign: "center" }}>
+            <div style={{ fontSize: 18, fontWeight: 700, color: "#f59e0b" }}>{sweepStatus?.lastSweep?.stateChanges || 0}</div>
+            <div style={{ fontSize: 10, color: "#6b7280" }}>State Changes</div>
+          </div>
+        </div>
+
+        <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 10 }}>Last sweep: {fmtTime(sweepStatus?.lastSweep?.time)} — {sweepStatus?.lastSweep?.status || 'unknown'} ({sweepStatus?.lastSweep?.duration || 0}ms)</div>
+
+        {/* Recent sweep log */}
+        {sweepStatus?.recentLogs?.length > 1 && (
+          <details style={{ marginTop: 10 }}>
+            <summary style={{ fontSize: 11, color: "#6b7280", cursor: "pointer" }}>Recent sweep history ({sweepStatus.recentLogs.length})</summary>
+            <div style={{ marginTop: 6, display: "flex", flexDirection: "column", gap: 3 }}>
+              {sweepStatus.recentLogs.map((log, i) => (
+                <div key={i} style={{ fontSize: 10, color: "#9ca3af", display: "flex", gap: 8 }}>
+                  {statusDot(log.status === 'success')}
+                  <span>{fmtTime(log.time)}</span>
+                  <span style={{ color: "#6b7280" }}>{log.trigger}</span>
+                  <span>{log.threadsProcessed || 0} threads</span>
+                  {log.stateChanges > 0 && <span style={{ color: "#f59e0b", fontWeight: 600 }}>{log.stateChanges} changes</span>}
+                  <span>{log.duration || 0}ms</span>
+                </div>
+              ))}
+            </div>
+          </details>
+        )}
+      </Card>
+
+      {/* Outlook Sent Scraper */}
+      <Card>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+          {statusDot(!!outlookSent?.lastScrape)}
+          <span style={{ fontSize: 14, fontWeight: 700, color: "#111827", flex: 1 }}>Outlook Sent Scraper</span>
+          <span style={{ fontSize: 10, color: "#6b7280", background: "#f3f4f6", padding: "2px 8px", borderRadius: 4 }}>Chrome Extension</span>
+        </div>
+        <p style={{ fontSize: 12, color: "#6b7280", margin: "0 0 12px" }}>Scrapes Outlook Sent Items via Chrome to catch replies Jonathan sent from Outlook that weren't CC'd to Gmail. Runs at 7AM & 5PM when Chrome is open.</p>
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 10 }}>
+          <div style={{ background: "#f9fafb", borderRadius: 8, padding: 10, textAlign: "center" }}>
+            <div style={{ fontSize: 18, fontWeight: 700, color: "#111827" }}>{outlookSent?.scrapeCount || 0}</div>
+            <div style={{ fontSize: 10, color: "#6b7280" }}>Total Scrapes</div>
+          </div>
+          <div style={{ background: "#f9fafb", borderRadius: 8, padding: 10, textAlign: "center" }}>
+            <div style={{ fontSize: 18, fontWeight: 700, color: "#111827" }}>{outlookSent?.totalStored || 0}</div>
+            <div style={{ fontSize: 10, color: "#6b7280" }}>Emails Stored</div>
+          </div>
+          <div style={{ background: "#f9fafb", borderRadius: 8, padding: 10, textAlign: "center" }}>
+            <div style={{ fontSize: 18, fontWeight: 700, color: "#10b981" }}>{outlookSent?.recentCorrections?.length || 0}</div>
+            <div style={{ fontSize: 10, color: "#6b7280" }}>Corrections Made</div>
+          </div>
+          <div style={{ background: "#f9fafb", borderRadius: 8, padding: 10, textAlign: "center" }}>
+            <div style={{ fontSize: 11, fontWeight: 600, color: "#111827" }}>{fmtTime(outlookSent?.lastScrape)}</div>
+            <div style={{ fontSize: 10, color: "#6b7280" }}>Last Scrape</div>
+          </div>
+        </div>
+
+        {/* Recent corrections */}
+        {outlookSent?.recentCorrections?.length > 0 && (
+          <details style={{ marginTop: 10 }}>
+            <summary style={{ fontSize: 11, color: "#6b7280", cursor: "pointer" }}>Recent corrections ({outlookSent.recentCorrections.length})</summary>
+            <div style={{ marginTop: 6, display: "flex", flexDirection: "column", gap: 4 }}>
+              {outlookSent.recentCorrections.map((c, i) => (
+                <div key={i} style={{ fontSize: 11, color: "#374151", background: "#ecfdf5", padding: "6px 10px", borderRadius: 6 }}>
+                  <span style={{ fontWeight: 600 }}>{c.subject?.substring(0, 50)}</span>
+                  <span style={{ color: "#9ca3af", marginLeft: 8 }}>{c.oldState} → {c.newState}</span>
+                  <span style={{ color: "#9ca3af", marginLeft: 8, fontSize: 10 }}>{fmtTime(c.correctedAt)}</span>
+                </div>
+              ))}
+            </div>
+          </details>
+        )}
+      </Card>
+
+      {/* CC Workflow Status */}
+      <Card>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+          {statusDot(true)}
+          <span style={{ fontSize: 14, fontWeight: 700, color: "#111827", flex: 1 }}>CC-to-Gmail Forwarding</span>
+          <span style={{ fontSize: 10, color: "#10b981", background: "#ecfdf5", padding: "2px 8px", borderRadius: 4, fontWeight: 600 }}>ALWAYS ON</span>
+        </div>
+        <p style={{ fontSize: 12, color: "#6b7280", margin: 0 }}>When you CC <strong>jonathan@faristeam.ca</strong> on Outlook replies, the forwarding rule sends a copy to Gmail. The EA triage engine detects these automatically — no scraping needed. This is the primary tracking method.</p>
+      </Card>
+    </div>
+  );
+}
+
 function SectionContent({ section }) {
   switch (section) {
     case "briefing": return (
@@ -6711,6 +6848,7 @@ function SectionContent({ section }) {
     case "listing-form": return <ListingForm />;
     case "sellers": return <SellersSection />;
     case "loo": return <PlaceholderSection title="LOO" icon={FileText} />;
+    case "syncs": return <SyncsSection />;
     default: return <PlaceholderSection title={section} icon={FileText} />;
   }
 }
