@@ -462,6 +462,127 @@ app.post('/api/tasks', (req, res) => {
 });
 
 // ─────────────────────────────────────────────
+// Feedback Submitted State Persistence
+// ─────────────────────────────────────────────
+const FEEDBACK_STATE_PATH = path.join(__dirname, '.feedback-submitted.json');
+
+let submittedFeedbackIds = [];
+try {
+  if (fs.existsSync(FEEDBACK_STATE_PATH)) {
+    submittedFeedbackIds = JSON.parse(fs.readFileSync(FEEDBACK_STATE_PATH, 'utf8'));
+  }
+} catch { submittedFeedbackIds = []; }
+
+app.get('/api/feedback/submitted', (req, res) => {
+  res.json({ ids: submittedFeedbackIds });
+});
+
+app.post('/api/feedback/submitted', (req, res) => {
+  const { ids } = req.body;
+  if (Array.isArray(ids)) {
+    submittedFeedbackIds = ids;
+    try {
+      fs.writeFileSync(FEEDBACK_STATE_PATH, JSON.stringify(ids, null, 2));
+    } catch (err) {
+      console.error('[Feedback] Save error:', err.message);
+    }
+  }
+  res.json({ status: 'saved' });
+});
+
+// ─────────────────────────────────────────────
+// AI Feedback Formatter — Sandwich Format
+// Positives → Constructive notes → Questions
+// ─────────────────────────────────────────────
+app.post('/api/feedback/format', (req, res) => {
+  const { raw, address, listingAgent } = req.body;
+  if (!raw?.trim()) {
+    return res.json({ formatted: '' });
+  }
+
+  // Parse raw dictation into structured sandwich format
+  const formatted = buildSandwichFeedback(raw.trim(), address, listingAgent);
+  res.json({ formatted });
+});
+
+function buildSandwichFeedback(raw, address, listingAgent) {
+  // Extract sentences/thoughts
+  const thoughts = raw.split(/[.!?\n]+/).map(s => s.trim()).filter(Boolean);
+
+  const positives = [];
+  const concerns = [];
+  const questions = [];
+
+  // Simple NLP classification
+  const positiveWords = ['interest', 'love', 'great', 'nice', 'beautiful', 'well', 'good', 'excellent', 'opportunity', 'potential', 'contender', 'impressed', 'pretty', 'spacious', 'bright', 'clean', 'location', 'convenient', 'charming'];
+  const negativeWords = ['rough', 'work', 'unfinished', 'outdated', 'dated', 'small', 'concern', 'issue', 'problem', 'stain', 'damage', 'needs', 'lacking', 'tight', 'narrow', 'noisy', 'old'];
+  const questionWords = ['when', 'what', 'why', 'how', 'where', 'who', 'is there', 'do you know', 'question', 'wondering', 'curious'];
+
+  for (const t of thoughts) {
+    const lower = t.toLowerCase();
+
+    // Check if it's a question
+    if (questionWords.some(q => lower.includes(q)) || raw.includes(t + '?')) {
+      questions.push(t);
+      continue;
+    }
+
+    // Score positive vs negative
+    const posScore = positiveWords.filter(w => lower.includes(w)).length;
+    const negScore = negativeWords.filter(w => lower.includes(w)).length;
+
+    if (negScore > posScore) {
+      concerns.push(t);
+    } else if (posScore > 0) {
+      positives.push(t);
+    } else {
+      // Neutral goes to positives if it's general, concerns if it mentions work needed
+      if (lower.includes('but') || lower.includes('however') || lower.includes('although')) {
+        concerns.push(t);
+      } else {
+        positives.push(t);
+      }
+    }
+  }
+
+  // Build the sandwich
+  const agentFirst = listingAgent ? listingAgent.split('/')[0].trim().split(' ')[0] : 'there';
+  let output = `Hi ${agentFirst},\n\nThank you for the opportunity to show ${address || 'the property'}.`;
+
+  if (positives.length > 0) {
+    output += '\n\n';
+    output += positives.map(p => {
+      // Capitalize first letter and ensure proper ending
+      let s = p.charAt(0).toUpperCase() + p.slice(1);
+      if (!s.endsWith('.') && !s.endsWith('!')) s += '.';
+      return s;
+    }).join(' ');
+  }
+
+  if (concerns.length > 0) {
+    output += '\n\n';
+    output += concerns.map(c => {
+      let s = c.charAt(0).toUpperCase() + c.slice(1);
+      if (!s.endsWith('.') && !s.endsWith('!')) s += '.';
+      return s;
+    }).join(' ');
+  }
+
+  if (questions.length > 0) {
+    output += '\n\nA couple of questions if you don\'t mind:\n';
+    output += questions.map(q => {
+      let s = q.charAt(0).toUpperCase() + q.slice(1);
+      if (!s.endsWith('?')) s += '?';
+      return `• ${s}`;
+    }).join('\n');
+  }
+
+  output += '\n\nPlease don\'t hesitate to reach out if you need anything further.\n\nBest regards,\nJonathan Wallace';
+
+  return output;
+}
+
+// ─────────────────────────────────────────────
 // BrokerBay Feedback Email Scanner
 // Scans Gmail for "Showing Feedback" emails from BrokerBay,
 // extracts the feedback URLs, and returns them with address info

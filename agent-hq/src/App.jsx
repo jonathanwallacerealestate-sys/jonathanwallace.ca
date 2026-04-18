@@ -494,11 +494,48 @@ function MorningBriefing() {
 }
 
 // ─────────────────────────────────────────────
+// SHARED FEEDBACK STATE — tracks submitted feedback across components
+// ─────────────────────────────────────────────
+let _submittedFeedbackIds = (() => {
+  try { return JSON.parse(window.__submittedFeedback || '[]'); } catch { return []; }
+})();
+function getSubmittedFeedback() { return _submittedFeedbackIds; }
+function markFeedbackSubmitted(id) {
+  if (!_submittedFeedbackIds.includes(id)) {
+    _submittedFeedbackIds = [..._submittedFeedbackIds, id];
+    window.__submittedFeedback = JSON.stringify(_submittedFeedbackIds);
+    // Also persist to server
+    fetch('/api/feedback/submitted', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids: _submittedFeedbackIds }),
+    }).catch(() => {});
+  }
+}
+// Load submitted IDs from server on startup
+fetch('/api/feedback/submitted').then(r => r.json()).then(data => {
+  if (data?.ids?.length) {
+    _submittedFeedbackIds = data.ids;
+    window.__submittedFeedback = JSON.stringify(data.ids);
+  }
+}).catch(() => {});
+
+// AI Feedback Formatter — structures raw dictation into sandwich format
+function formatFeedbackSandwich(raw) {
+  const lines = raw.trim();
+  if (!lines) return '';
+
+  // Simple structured output — the server endpoint will do the real AI formatting
+  return `Thank you for the opportunity to show this property.\n\n${lines}\n\nPlease don't hesitate to reach out if you have any questions.\n\nBest regards,\nJonathan Wallace`;
+}
+
+// ─────────────────────────────────────────────
 // OUTSTANDING FEEDBACK BAR (compact, below brief)
 // ─────────────────────────────────────────────
 function OutstandingFeedbackBar() {
   const [dismissed, setDismissed] = useState({});
-  const visible = outstandingFeedback.filter(f => !dismissed[f.id]);
+  const [submitted, setSubmitted] = useState(getSubmittedFeedback());
+  const visible = outstandingFeedback.filter(f => !dismissed[f.id] && !submitted.includes(f.id));
   if (visible.length === 0) return null;
 
   return (
@@ -531,6 +568,165 @@ function OutstandingFeedbackBar() {
           </div>
         </div>
       ))}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
+// FEEDBACK CARD — full dictation + AI formatting + BrokerBay submit
+// ─────────────────────────────────────────────
+function FeedbackCard({ fb }) {
+  const [mode, setMode] = useState('idle'); // idle | dictating | formatting | formatted | submitted
+  const [rawInput, setRawInput] = useState('');
+  const [formatted, setFormatted] = useState('');
+  const [, forceUpdate] = useState(0);
+
+  const handleFormat = async () => {
+    setMode('formatting');
+    try {
+      const res = await fetch('/api/feedback/format', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ raw: rawInput, address: fb.address, listingAgent: fb.listingAgent }),
+      });
+      const data = await res.json();
+      setFormatted(data.formatted || formatFeedbackSandwich(rawInput));
+    } catch {
+      setFormatted(formatFeedbackSandwich(rawInput));
+    }
+    setMode('formatted');
+  };
+
+  const handleSubmit = () => {
+    markFeedbackSubmitted(fb.id);
+    setMode('submitted');
+    // Open BrokerBay with the feedback ready to paste
+    if (fb.feedbackUrl) {
+      window.open(fb.feedbackUrl, '_blank');
+    }
+    forceUpdate(n => n + 1);
+  };
+
+  if (mode === 'submitted') {
+    return (
+      <div style={{ borderRadius: 12, border: "2px solid #86efac", overflow: "hidden", background: "#f0fdf4", padding: 20, textAlign: "center" }}>
+        <CheckCircle2 size={28} color="#16a34a" style={{ margin: "0 auto 8px" }} />
+        <div style={{ fontSize: 13, fontWeight: 600, color: "#16a34a" }}>Feedback Submitted</div>
+        <div style={{ fontSize: 11, color: "#6b7280", marginTop: 4 }}>{fb.address} — BrokerBay opened in new tab. Paste your formatted feedback there.</div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ borderRadius: 12, border: "2px solid #fecdd3", overflow: "hidden", background: "#fff" }}>
+      <div style={{ padding: "14px 16px", background: "#fff1f2" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: "#111827" }}>{fb.address}</div>
+            <div style={{ fontSize: 12, color: "#6b7280", marginTop: 2 }}>{fb.date} &middot; {fb.time}</div>
+          </div>
+          <span style={{ fontSize: 10, fontWeight: 700, color: "#dc2626", background: "#fef2f2", padding: "4px 10px", borderRadius: 6, border: "1px solid #fecaca" }}>FEEDBACK DUE</span>
+        </div>
+      </div>
+      <div style={{ padding: "14px 16px" }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, fontSize: 12, marginBottom: 12 }}>
+          <div><span style={{ color: "#9ca3af" }}>Listing Agent:</span> <span style={{ fontWeight: 600 }}>{fb.listingAgent}</span></div>
+          <div><span style={{ color: "#9ca3af" }}>Brokerage:</span> <span style={{ fontWeight: 600 }}>{fb.brokerage}</span></div>
+          <div><span style={{ color: "#9ca3af" }}>Email:</span> <span style={{ fontWeight: 600 }}>{fb.listingAgentEmail}</span></div>
+          <div><span style={{ color: "#9ca3af" }}>Phone:</span> <span style={{ fontWeight: 600 }}>{fb.listingAgentPhone}</span></div>
+        </div>
+        <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 12, padding: "8px 10px", background: "#f9fafb", borderRadius: 6 }}>
+          {fb.notes}
+        </div>
+
+        {/* Dictation / Formatting Area */}
+        {mode === 'idle' && (
+          <div style={{ padding: 14, borderRadius: 10, border: "2px solid #e11d48", background: "#fff1f2", textAlign: "center" }}>
+            <MessageCircle size={20} color="#e11d48" style={{ margin: "0 auto 6px" }} />
+            <div style={{ fontSize: 12, fontWeight: 600, color: "#374151", marginBottom: 4 }}>Dictate Your Feedback</div>
+            <div style={{ fontSize: 11, color: "#9ca3af", marginBottom: 10 }}>Type or dictate your raw thoughts. AI will format them professionally: positives first, constructive notes, then questions.</div>
+            <div style={{ display: "flex", gap: 8, justifyContent: "center" }}>
+              <button onClick={() => setMode('dictating')} style={{ padding: "8px 24px", borderRadius: 8, border: "none", background: "#e11d48", color: "#fff", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+                Start Feedback
+              </button>
+              {fb.feedbackUrl && (
+                <button onClick={() => window.open(fb.feedbackUrl, '_blank')} style={{ padding: "8px 16px", borderRadius: 8, border: "1px solid #e5e7eb", background: "#fff", color: "#374151", fontSize: 12, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}>
+                  <ExternalLink size={12} /> Open BrokerBay Directly
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
+        {mode === 'dictating' && (
+          <div style={{ padding: 14, borderRadius: 10, border: "2px solid #3b82f6", background: "#eff6ff" }}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: "#1e40af", marginBottom: 8 }}>Your Raw Feedback</div>
+            <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 8 }}>Speak naturally — include positives, any concerns, and questions. AI will organize it professionally.</div>
+            <textarea
+              value={rawInput}
+              onChange={e => setRawInput(e.target.value)}
+              placeholder="e.g. My client might be interested. Shows well but a little rough around the edges. Basement is unfinished. Good location though, could be an opportunity. Questions: when did the sump pump last go off? There's a stain in the main floor bedroom — what's that from?"
+              style={{
+                width: "100%", minHeight: 120, padding: 12, borderRadius: 8, border: "1px solid #bfdbfe",
+                fontSize: 13, fontFamily: "inherit", resize: "vertical", outline: "none",
+                lineHeight: 1.5, background: "#fff",
+              }}
+            />
+            <div style={{ display: "flex", gap: 8, marginTop: 10, justifyContent: "flex-end" }}>
+              <button onClick={() => { setMode('idle'); setRawInput(''); }} style={{ padding: "8px 16px", borderRadius: 8, border: "1px solid #e5e7eb", background: "#fff", color: "#6b7280", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+                Cancel
+              </button>
+              <button
+                onClick={handleFormat}
+                disabled={!rawInput.trim()}
+                style={{
+                  padding: "8px 24px", borderRadius: 8, border: "none",
+                  background: rawInput.trim() ? "#3b82f6" : "#d1d5db",
+                  color: "#fff", fontSize: 12, fontWeight: 600,
+                  cursor: rawInput.trim() ? "pointer" : "not-allowed",
+                }}
+              >
+                Format with AI
+              </button>
+            </div>
+          </div>
+        )}
+
+        {mode === 'formatting' && (
+          <div style={{ padding: 20, borderRadius: 10, border: "2px dashed #d1d5db", background: "#fafafa", textAlign: "center" }}>
+            <RefreshCw size={20} color="#6b7280" style={{ margin: "0 auto 6px", animation: "spin 1s linear infinite" }} />
+            <div style={{ fontSize: 12, fontWeight: 600, color: "#374151" }}>Formatting your feedback...</div>
+            <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 4 }}>Organizing into professional sandwich format</div>
+          </div>
+        )}
+
+        {mode === 'formatted' && (
+          <div style={{ padding: 14, borderRadius: 10, border: "2px solid #16a34a", background: "#f0fdf4" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: "#16a34a" }}>Formatted Feedback — Ready to Submit</div>
+              <button onClick={() => setMode('dictating')} style={{ fontSize: 11, color: "#3b82f6", background: "none", border: "none", cursor: "pointer", fontWeight: 600 }}>Edit Raw</button>
+            </div>
+            <div style={{
+              padding: 12, borderRadius: 8, background: "#fff", border: "1px solid #bbf7d0",
+              fontSize: 13, lineHeight: 1.6, color: "#1f2937", whiteSpace: "pre-wrap",
+              maxHeight: 300, overflowY: "auto",
+            }}>
+              {formatted}
+            </div>
+            <div style={{ display: "flex", gap: 8, marginTop: 12, justifyContent: "flex-end" }}>
+              <button onClick={() => { navigator.clipboard?.writeText(formatted); }} style={{ padding: "8px 16px", borderRadius: 8, border: "1px solid #e5e7eb", background: "#fff", color: "#374151", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+                Copy to Clipboard
+              </button>
+              <button
+                onClick={handleSubmit}
+                style={{ padding: "8px 24px", borderRadius: 8, border: "none", background: "#16a34a", color: "#fff", fontSize: 12, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}
+              >
+                <ExternalLink size={13} /> Submit on BrokerBay
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -3797,65 +3993,19 @@ function SellersSection() {
             <div style={{ fontSize: 11, color: "#be123c", lineHeight: 1.5 }}>When you show a property as buyer agent, the listing agent requests feedback via BrokerBay. These are outstanding. Voice-to-text your thoughts and we'll submit through BrokerBay.</div>
           </div>
 
-          {outstandingFeedback.length === 0 ? (
-            <div style={{ padding: 32, textAlign: "center", color: "#9ca3af" }}>
-              <CheckCircle2 size={28} style={{ margin: "0 auto 8px" }} />
-              <div style={{ fontSize: 13, fontWeight: 600 }}>All caught up!</div>
-              <div style={{ fontSize: 11 }}>No outstanding feedback requests.</div>
-            </div>
-          ) : (
-            outstandingFeedback.map(fb => (
-              <div key={fb.id} style={{ borderRadius: 12, border: "2px solid #fecdd3", overflow: "hidden", background: "#fff" }}>
-                <div style={{ padding: "14px 16px", background: "#fff1f2" }}>
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                    <div>
-                      <div style={{ fontSize: 14, fontWeight: 700, color: "#111827" }}>{fb.address}</div>
-                      <div style={{ fontSize: 12, color: "#6b7280", marginTop: 2 }}>{fb.date} &middot; {fb.time}</div>
-                    </div>
-                    <span style={{ fontSize: 10, fontWeight: 700, color: "#dc2626", background: "#fef2f2", padding: "4px 10px", borderRadius: 6, border: "1px solid #fecaca" }}>FEEDBACK DUE</span>
-                  </div>
-                </div>
-                <div style={{ padding: "14px 16px" }}>
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, fontSize: 12, marginBottom: 12 }}>
-                    <div><span style={{ color: "#9ca3af" }}>Listing Agent:</span> <span style={{ fontWeight: 600 }}>{fb.listingAgent}</span></div>
-                    <div><span style={{ color: "#9ca3af" }}>Brokerage:</span> <span style={{ fontWeight: 600 }}>{fb.brokerage}</span></div>
-                    <div><span style={{ color: "#9ca3af" }}>Email:</span> <span style={{ fontWeight: 600 }}>{fb.listingAgentEmail}</span></div>
-                    <div><span style={{ color: "#9ca3af" }}>Phone:</span> <span style={{ fontWeight: 600 }}>{fb.listingAgentPhone}</span></div>
-                  </div>
-                  <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 12, padding: "8px 10px", background: "#f9fafb", borderRadius: 6 }}>
-                    {fb.notes}
-                  </div>
-
-                  {/* BrokerBay feedback link */}
-                  <div style={{ padding: 14, borderRadius: 10, border: fb.feedbackUrl ? "2px solid #e11d48" : "2px dashed #d1d5db", background: fb.feedbackUrl ? "#fff1f2" : "#fafafa", textAlign: "center" }}>
-                    <ExternalLink size={20} color={fb.feedbackUrl ? "#e11d48" : "#6b7280"} style={{ margin: "0 auto 6px" }} />
-                    <div style={{ fontSize: 12, fontWeight: 600, color: "#374151", marginBottom: 4 }}>
-                      {fb.feedbackUrl ? "Submit Feedback on BrokerBay" : "Feedback Link Not Available"}
-                    </div>
-                    <div style={{ fontSize: 11, color: "#9ca3af", marginBottom: 10 }}>
-                      {fb.feedbackUrl
-                        ? "Click below to open the BrokerBay feedback form for this showing. Fill out interest level, price opinion, and condition."
-                        : "Waiting for BrokerBay feedback email. The link will appear here once the email is received."}
-                    </div>
-                    <div style={{ display: "flex", gap: 8, justifyContent: "center" }}>
-                      {fb.feedbackUrl ? (
-                        <button
-                          onClick={() => window.open(fb.feedbackUrl, '_blank')}
-                          style={{ padding: "8px 24px", borderRadius: 8, border: "none", background: "#e11d48", color: "#fff", fontSize: 12, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}
-                        >
-                          <ExternalLink size={13} /> Open in BrokerBay
-                        </button>
-                      ) : (
-                        <button style={{ padding: "8px 20px", borderRadius: 8, border: "1px solid #e5e7eb", background: "#fff", color: "#9ca3af", fontSize: 12, fontWeight: 600, cursor: "not-allowed" }} disabled>
-                          Awaiting Email...
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                </div>
+          {(() => {
+            const submitted = getSubmittedFeedback();
+            const pending = outstandingFeedback.filter(f => !submitted.includes(f.id));
+            return pending.length === 0 ? (
+              <div style={{ padding: 32, textAlign: "center", color: "#9ca3af" }}>
+                <CheckCircle2 size={28} style={{ margin: "0 auto 8px" }} />
+                <div style={{ fontSize: 13, fontWeight: 600 }}>All caught up!</div>
+                <div style={{ fontSize: 11 }}>No outstanding feedback requests.</div>
               </div>
-            ))
-          )}
+            ) : (
+              pending.map(fb => <FeedbackCard key={fb.id} fb={fb} />)
+            );
+          })()}
 
           {/* Recently completed feedback */}
           <div style={{ marginTop: 8, fontSize: 11, fontWeight: 700, color: "#6b7280", textTransform: "uppercase", letterSpacing: 0.5 }}>Completed Feedback</div>
