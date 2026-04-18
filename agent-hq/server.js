@@ -1192,6 +1192,334 @@ function parseBrokerBayShowingEmail(body, subject) {
 }
 
 // ─────────────────────────────────────────────
+// FOLLOW UP BOSS INTEGRATION
+// ─────────────────────────────────────────────
+const FUB_API_KEY = process.env.FUB_API_KEY || '';
+const FUB_BASE = 'https://api.followupboss.com/v1';
+
+function fubHeaders() {
+  return {
+    'Authorization': 'Basic ' + Buffer.from(FUB_API_KEY + ':').toString('base64'),
+    'Content-Type': 'application/json',
+    'X-System': 'AgentHQ',
+    'X-System-Key': 'agenthq-v1',
+  };
+}
+
+// Stage → bucket mapping (user-configured stages)
+const STAGE_BUCKET_MAP = {
+  'a - hot': 'hot',
+  'a-hot': 'hot',
+  'hot': 'hot',
+  'b - warm': 'warm',
+  'b-warm': 'warm',
+  'warm': 'warm',
+  'active clients': 'active',
+  'active client': 'active',
+  'under contract': 'active',
+  'listing appointment': 'active',
+  'active buyer': 'active',
+  'active seller': 'active',
+  'past clients': 'past',
+  'past client': 'past',
+  'all leads - uncategorized': 'cold',
+  'uncategorized': 'cold',
+  'sphere': 'sphere',
+  'new lead': 'cold',
+  'unqualified': 'cold',
+};
+
+function classifyBucket(stage) {
+  if (!stage) return 'cold';
+  const key = stage.toLowerCase().trim();
+  return STAGE_BUCKET_MAP[key] || 'cold';
+}
+
+// Scoring algorithm — higher = should be called sooner
+function scoreContact(contact) {
+  let score = 0;
+  const now = Date.now();
+  const bucket = classifyBucket(contact.stage);
+
+  // 1) Stage weight — hot/active contacts get priority
+  const stageWeights = { hot: 50, active: 45, warm: 30, past: 20, sphere: 15, cold: 10 };
+  score += stageWeights[bucket] || 10;
+
+  // 2) Last contact recency — the longer since contact, the higher the urgency
+  if (contact.lastActivity) {
+    const lastMs = new Date(contact.lastActivity).getTime();
+    const daysSince = Math.max(0, (now - lastMs) / (1000 * 60 * 60 * 24));
+    // Hot leads neglected for even 2 days = big bump
+    // Cold leads need much longer gaps to surface
+    if (bucket === 'hot' || bucket === 'active') {
+      score += Math.min(daysSince * 5, 40);  // caps at 40 for 8+ days
+    } else if (bucket === 'warm') {
+      score += Math.min(daysSince * 2, 30);  // caps at 30 for 15+ days
+    } else if (bucket === 'past' || bucket === 'sphere') {
+      score += Math.min(daysSince * 0.3, 25); // caps at 25 for 83+ days
+    } else {
+      score += Math.min(daysSince * 0.2, 20); // cold leads cap at 20
+    }
+  } else {
+    // Never contacted — bump up significantly
+    score += 35;
+  }
+
+  // 3) Creation date — older contacts we've never reached out to get a nudge
+  if (contact.created) {
+    const createdMs = new Date(contact.created).getTime();
+    const ageInDays = (now - createdMs) / (1000 * 60 * 60 * 24);
+    if (ageInDays > 180 && bucket === 'cold') {
+      score += 5; // aging cold leads get a small bump
+    }
+  }
+
+  // 4) Has phone number bonus — can't call without one
+  if (contact.phones && contact.phones.length > 0) {
+    score += 5;
+  } else {
+    score -= 100; // effectively exclude contacts without phone numbers
+  }
+
+  return score;
+}
+
+// Format last activity as relative string
+function formatLastActivity(dateStr) {
+  if (!dateStr) return 'Never';
+  const now = Date.now();
+  const then = new Date(dateStr).getTime();
+  const days = Math.floor((now - then) / (1000 * 60 * 60 * 24));
+  if (days === 0) return 'Today';
+  if (days === 1) return 'Yesterday';
+  if (days < 7) return `${days} days ago`;
+  if (days < 30) return `${Math.floor(days / 7)} week${Math.floor(days / 7) > 1 ? 's' : ''} ago`;
+  if (days < 365) return `${Math.floor(days / 30)} month${Math.floor(days / 30) > 1 ? 's' : ''} ago`;
+  return `${Math.floor(days / 365)} year${Math.floor(days / 365) > 1 ? 's' : ''} ago`;
+}
+
+// Bucket style config
+const BUCKET_STYLES = {
+  hot:    { tag: 'Hot Lead',       tagColor: '#ef4444', tagBg: '#fef2f2' },
+  warm:   { tag: 'Warm Lead',      tagColor: '#f59e0b', tagBg: '#fffbeb' },
+  active: { tag: 'Active Client',  tagColor: '#2563eb', tagBg: '#eff6ff' },
+  past:   { tag: 'Past Client',    tagColor: '#8b5cf6', tagBg: '#f5f3ff' },
+  sphere: { tag: 'Sphere',         tagColor: '#06b6d4', tagBg: '#ecfeff' },
+  cold:   { tag: 'Cold Lead',      tagColor: '#6b7280', tagBg: '#f3f4f6' },
+};
+
+// Build the daily call list with zero bias
+// Allocation: 3 hot, 3 cold/warm, 2 past/sphere, 2 active = 10 total
+function buildCallList(scoredContacts) {
+  const buckets = { hot: [], warm: [], active: [], past: [], sphere: [], cold: [] };
+
+  for (const c of scoredContacts) {
+    const bucket = classifyBucket(c.stage);
+    buckets[bucket].push(c);
+  }
+
+  // Sort each bucket by score descending
+  for (const key of Object.keys(buckets)) {
+    buckets[key].sort((a, b) => (b._score || 0) - (a._score || 0));
+  }
+
+  const selected = [];
+  let idCounter = 1;
+
+  const pick = (pool, count) => {
+    const picked = pool.splice(0, count);
+    for (const c of picked) {
+      const bucket = classifyBucket(c.stage);
+      const style = BUCKET_STYLES[bucket] || BUCKET_STYLES.cold;
+      const phone = (c.phones && c.phones.length > 0) ? c.phones[0].value : '—';
+      selected.push({
+        id: idCounter++,
+        fubId: c.id,
+        name: [c.firstName, c.lastName].filter(Boolean).join(' ') || 'Unknown',
+        phone,
+        bucket,
+        tag: style.tag,
+        tagColor: style.tagColor,
+        tagBg: style.tagBg,
+        lastContact: formatLastActivity(c.lastActivity),
+        context: c.lastNote || `Stage: ${c.stage || 'Unknown'}. Score: ${c._score || 0}.`,
+        fubStage: c.stage || 'Unknown',
+        priority: idCounter - 1,
+        score: c._score || 0,
+        email: c.emails && c.emails[0] ? c.emails[0].value : null,
+        source: 'followupboss',
+        live: true,
+      });
+    }
+  };
+
+  // Allocation with zero call bias:
+  // 3 from hot (fall back to warm if not enough hot)
+  const hotPool = [...buckets.hot];
+  pick(hotPool, 3);
+  // If we didn't get 3 from hot, fill from warm
+  if (selected.length < 3) {
+    pick([...buckets.warm], 3 - selected.length);
+  }
+
+  // 3 from cold/warm mix
+  const coldWarmPool = [...buckets.cold, ...buckets.warm].sort((a, b) => (b._score || 0) - (a._score || 0));
+  pick(coldWarmPool, 3);
+
+  // 2 from past/sphere
+  const pastSpherePool = [...buckets.past, ...buckets.sphere].sort((a, b) => (b._score || 0) - (a._score || 0));
+  pick(pastSpherePool, 2);
+
+  // 2 from active
+  pick([...buckets.active], 2);
+
+  // De-duplicate (a contact could appear in multiple picks if bucket classification overlaps)
+  const seen = new Set();
+  const deduped = [];
+  for (const c of selected) {
+    if (!seen.has(c.fubId)) {
+      seen.add(c.fubId);
+      deduped.push(c);
+    }
+  }
+
+  return deduped;
+}
+
+// Cache the call list so we don't hammer FUB API on every page load
+let callListCache = { list: null, generatedAt: null, dateKey: null };
+
+// GET /api/fub/status — check connection
+app.get('/api/fub/status', (req, res) => {
+  res.json({
+    connected: !!FUB_API_KEY,
+    configured: FUB_API_KEY.length > 0,
+    cacheDate: callListCache.dateKey,
+  });
+});
+
+// GET /api/fub/calllist — the daily scored call list
+app.get('/api/fub/calllist', async (req, res) => {
+  if (!FUB_API_KEY) {
+    return res.json({ error: 'FUB_API_KEY not configured', callList: [], connected: false });
+  }
+
+  const todayKey = new Date().toISOString().slice(0, 10);
+  const forceRefresh = req.query.refresh === 'true';
+
+  // Return cache if it's from today and not forced
+  if (!forceRefresh && callListCache.list && callListCache.dateKey === todayKey) {
+    return res.json({ callList: callListCache.list, cached: true, generatedAt: callListCache.generatedAt, connected: true });
+  }
+
+  try {
+    // Fetch contacts from all relevant stages
+    // FUB API uses stage name filter
+    const stages = ['Active Clients', 'A - Hot', 'B - Warm', 'Past Clients', 'All Leads - Uncategorized', 'Sphere'];
+    let allContacts = [];
+
+    for (const stage of stages) {
+      let offset = 0;
+      let hasMore = true;
+
+      while (hasMore) {
+        const url = `${FUB_BASE}/people?stage=${encodeURIComponent(stage)}&limit=100&offset=${offset}&sort=lastActivity&order=desc`;
+        const resp = await fetch(url, { headers: fubHeaders() });
+
+        if (!resp.ok) {
+          console.error(`[FUB] Error fetching stage "${stage}": ${resp.status} ${resp.statusText}`);
+          break;
+        }
+
+        const data = await resp.json();
+        const people = data.people || [];
+        allContacts.push(...people);
+
+        // Check if there are more pages
+        if (people.length < 100) {
+          hasMore = false;
+        } else {
+          offset += 100;
+          // Safety: cap at 500 per stage to avoid runaway
+          if (offset >= 500) hasMore = false;
+        }
+      }
+    }
+
+    console.log(`[FUB] Fetched ${allContacts.length} total contacts across ${stages.length} stages`);
+
+    // Score every contact
+    for (const c of allContacts) {
+      c._score = scoreContact(c);
+    }
+
+    // Also fetch recent notes for top candidates to add context
+    // (We'll do this for the final selected list to save API calls)
+    const callList = buildCallList(allContacts);
+
+    // Try to fetch last note for each selected contact
+    for (const item of callList) {
+      try {
+        const noteResp = await fetch(`${FUB_BASE}/notes?personId=${item.fubId}&limit=1&sort=created&order=desc`, {
+          headers: fubHeaders(),
+        });
+        if (noteResp.ok) {
+          const noteData = await noteResp.json();
+          const notes = noteData.notes || [];
+          if (notes.length > 0 && notes[0].body) {
+            // Clean HTML from note body
+            const cleanNote = notes[0].body.replace(/<[^>]*>/g, '').trim();
+            if (cleanNote.length > 0) {
+              item.context = cleanNote.length > 120 ? cleanNote.slice(0, 117) + '...' : cleanNote;
+            }
+          }
+        }
+      } catch (e) {
+        // Notes are bonus context — don't fail if they error
+      }
+    }
+
+    // Cache it
+    callListCache = {
+      list: callList,
+      generatedAt: new Date().toISOString(),
+      dateKey: todayKey,
+    };
+
+    res.json({ callList, cached: false, generatedAt: callListCache.generatedAt, connected: true, totalContacts: allContacts.length });
+  } catch (err) {
+    console.error('[FUB] Call list error:', err);
+    res.json({ error: err.message, callList: callListCache.list || [], connected: true });
+  }
+});
+
+// GET /api/fub/stages — list all stages in FUB for reference
+app.get('/api/fub/stages', async (req, res) => {
+  if (!FUB_API_KEY) return res.json({ error: 'FUB_API_KEY not configured' });
+  try {
+    const resp = await fetch(`${FUB_BASE}/stages`, { headers: fubHeaders() });
+    if (!resp.ok) return res.json({ error: `FUB returned ${resp.status}` });
+    const data = await resp.json();
+    res.json(data);
+  } catch (err) {
+    res.json({ error: err.message });
+  }
+});
+
+// GET /api/fub/people/:id — get single contact detail
+app.get('/api/fub/people/:id', async (req, res) => {
+  if (!FUB_API_KEY) return res.json({ error: 'FUB_API_KEY not configured' });
+  try {
+    const resp = await fetch(`${FUB_BASE}/people/${req.params.id}`, { headers: fubHeaders() });
+    if (!resp.ok) return res.json({ error: `FUB returned ${resp.status}` });
+    const data = await resp.json();
+    res.json(data);
+  } catch (err) {
+    res.json({ error: err.message });
+  }
+});
+
+// ─────────────────────────────────────────────
 // SPA Fallback — serve index.html for all other routes
 // ─────────────────────────────────────────────
 app.get('*', (req, res) => {

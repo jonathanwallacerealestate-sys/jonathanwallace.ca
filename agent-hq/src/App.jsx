@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo, createContext, useContext } from "react";
 import {
   Mail, Users, Calendar, Target, DollarSign, User, Dumbbell,
   UtensilsCrossed, Megaphone, BookOpen, Briefcase, Clock, Settings, Bell,
@@ -12,20 +12,65 @@ import {
 } from "lucide-react";
 
 // ─────────────────────────────────────────────
-// DATA: FUB SMART CALL LIST
+// DATA: FUB SMART CALL LIST (live from Follow Up Boss)
 // ─────────────────────────────────────────────
-const dailyCallList = [
-  { id: 1, name: "Sarah Chen", phone: "(705) 555-0142", bucket: "hot", tag: "Hot Lead", tagColor: "#ef4444", tagBg: "#fef2f2", lastContact: "2 days ago", context: "Interested in 18 Bayshore Dr. Wants to view this week.", fubStage: "New Lead", priority: 1 },
-  { id: 2, name: "Mike Patterson", phone: "(705) 555-0298", bucket: "hot", tag: "Hot Lead", tagColor: "#ef4444", tagBg: "#fef2f2", lastContact: "1 day ago", context: "Offer pending on 45 King St. Needs update on counter.", fubStage: "Active Buyer", priority: 2 },
-  { id: 3, name: "Derek & Julie Huang", phone: "(705) 555-0331", bucket: "hot", tag: "Hot Lead", tagColor: "#ef4444", tagBg: "#fef2f2", lastContact: "3 days ago", context: "Pre-approved, looking $500-650K waterfront. Haven't found the right one yet.", fubStage: "Active Buyer", priority: 3 },
-  { id: 4, name: "Kevin Tremblay", phone: "(705) 555-0187", bucket: "cold", tag: "Cold Lead", tagColor: "#6b7280", tagBg: "#f3f4f6", lastContact: "45 days ago", context: "Website inquiry from Feb. Never followed up. Might be looking in Penetang area.", fubStage: "Unqualified", priority: 4 },
-  { id: 5, name: "Amanda Cross", phone: "(705) 555-0412", bucket: "cold", tag: "Cold Lead", tagColor: "#6b7280", tagBg: "#f3f4f6", lastContact: "60 days ago", context: "Open house sign-in at 22 Maple. Left email only. Cold outreach.", fubStage: "Unqualified", priority: 5 },
-  { id: 6, name: "Raj & Priya Mehta", phone: "(416) 555-0293", bucket: "cold", tag: "Cold Lead", tagColor: "#6b7280", tagBg: "#f3f4f6", lastContact: "90 days ago", context: "Referral from Lisa D. GTA couple looking for cottage country. Never reached.", fubStage: "New Lead", priority: 6 },
-  { id: 7, name: "Bob & Donna Morrison", phone: "(705) 555-0156", bucket: "past", tag: "Past Client", tagColor: "#8b5cf6", tagBg: "#f5f3ff", lastContact: "6 months ago", context: "Sold their Midland bungalow last year. Great referral source — check in.", fubStage: "Past Client", priority: 7 },
-  { id: 8, name: "Lena Kowalski", phone: "(705) 555-0389", bucket: "past", tag: "Past Client", tagColor: "#8b5cf6", tagBg: "#f5f3ff", lastContact: "4 months ago", context: "Bought with you in 2024. Mentioned her sister might be selling.", fubStage: "Past Client", priority: 8 },
-  { id: 9, name: "The Martins", phone: "(705) 555-0221", bucket: "active", tag: "Active Client", tagColor: "#2563eb", tagBg: "#eff6ff", lastContact: "Today", context: "In negotiation on 45 King St. Counter-offer due today.", fubStage: "Under Contract", priority: 9 },
-  { id: 10, name: "Tom & Sandra Reed", phone: "(705) 555-0445", bucket: "active", tag: "Active Client", tagColor: "#2563eb", tagBg: "#eff6ff", lastContact: "Yesterday", context: "Listing appointment Friday. Need to confirm time and prep CMA.", fubStage: "Listing Appointment", priority: 10 },
-];
+// Fallback used while FUB loads or if API key isn't configured
+const dailyCallListFallback = [];
+
+// Hook to fetch live call list from FUB
+function useFubCallList() {
+  const [callList, setCallList] = useState(() => {
+    try {
+      const cached = localStorage.getItem('agenthq-fub-calllist');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        // Only use cache from today
+        const todayKey = new Date().toISOString().slice(0, 10);
+        if (parsed.dateKey === todayKey && parsed.list) return parsed.list;
+      }
+    } catch {}
+    return dailyCallListFallback;
+  });
+  const [loading, setLoading] = useState(true);
+  const [connected, setConnected] = useState(false);
+  const [totalContacts, setTotalContacts] = useState(0);
+  const [generatedAt, setGeneratedAt] = useState(null);
+
+  const fetchCallList = async (forceRefresh = false) => {
+    setLoading(true);
+    try {
+      const url = forceRefresh ? '/api/fub/calllist?refresh=true' : '/api/fub/calllist';
+      const res = await fetch(url);
+      const data = await res.json();
+      if (data.callList && data.callList.length > 0) {
+        setCallList(data.callList);
+        setConnected(data.connected !== false);
+        setTotalContacts(data.totalContacts || data.callList.length);
+        setGeneratedAt(data.generatedAt || null);
+        // Cache locally
+        try {
+          localStorage.setItem('agenthq-fub-calllist', JSON.stringify({
+            list: data.callList,
+            dateKey: new Date().toISOString().slice(0, 10),
+          }));
+        } catch {}
+      } else if (data.connected === false) {
+        setConnected(false);
+      }
+    } catch (err) {
+      console.error('[FUB] Failed to fetch call list:', err);
+    }
+    setLoading(false);
+  };
+
+  useEffect(() => { fetchCallList(); }, []);
+
+  return { callList, loading, connected, totalContacts, generatedAt, refresh: () => fetchCallList(true) };
+}
+
+// FUB call list context — shared across Dashboard, HourOfPowerBar, MorningBriefing, CallListSection
+const FubContext = createContext({ callList: [], loading: true, connected: false, totalContacts: 0, generatedAt: null, refresh: () => {} });
+function useFubContext() { return useContext(FubContext); }
 
 // ─────────────────────────────────────────────
 // DATA: EMAIL TRIAGE (LIVE — pulled from Gmail)
@@ -213,6 +258,7 @@ function HourOfPowerBar() {
   }, [active, paused]);
 
   const fmt = (s) => `${String(Math.floor(s/60)).padStart(2,"0")}:${String(s%60).padStart(2,"0")}`;
+  const { callList: dailyCallList } = useFubContext();
   const currentCall = dailyCallList[callIdx];
   const pace = elapsed > 10 ? ((dials / elapsed) * 60).toFixed(1) : null;
 
@@ -410,6 +456,39 @@ function MorningCalendarSnapshot() {
   );
 }
 
+function CallListPreview() {
+  const { callList, loading, connected } = useFubContext();
+  const hotCount = callList.filter(c => c.bucket === 'hot').length;
+  const warmCount = callList.filter(c => c.bucket === 'warm').length;
+  const coldCount = callList.filter(c => c.bucket === 'cold').length;
+  const pastCount = callList.filter(c => c.bucket === 'past').length;
+  const sphereCount = callList.filter(c => c.bucket === 'sphere').length;
+  const activeCount = callList.filter(c => c.bucket === 'active').length;
+
+  return (
+    <div style={{ background: "#fff", borderRadius: 10, padding: 14, border: "1px solid #fde68a" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 10 }}>
+        <Phone size={14} color="#2563eb" />
+        <span style={{ fontSize: 12, fontWeight: 700, color: "#92400e" }}>{callList.length} calls queued</span>
+        {connected && <span style={{ fontSize: 9, fontWeight: 700, color: "#fff", background: "#10b981", padding: "1px 5px", borderRadius: 3 }}>LIVE</span>}
+        {loading && <span style={{ fontSize: 9, color: "#9ca3af" }}>syncing...</span>}
+      </div>
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
+        {[
+          { label: "Hot", count: hotCount, color: "#ef4444", bg: "#fef2f2" },
+          { label: "Warm", count: warmCount, color: "#f59e0b", bg: "#fffbeb" },
+          { label: "Cold", count: coldCount, color: "#6b7280", bg: "#f3f4f6" },
+          { label: "Past", count: pastCount + sphereCount, color: "#8b5cf6", bg: "#f5f3ff" },
+          { label: "Active", count: activeCount, color: "#2563eb", bg: "#eff6ff" },
+        ].filter(b => b.count > 0).map(b => (
+          <span key={b.label} style={{ fontSize: 10, fontWeight: 700, color: b.color, background: b.bg, padding: "3px 8px", borderRadius: 4 }}>{b.count} {b.label}</span>
+        ))}
+      </div>
+      <div style={{ fontSize: 11, color: "#6b7280" }}>{connected ? "Live from Follow Up Boss — zero call bias." : "Balanced rotation — no call bias."}</div>
+    </div>
+  );
+}
+
 function MorningBriefing() {
   const urgentEmails = emailInbox.filter(e => e.category === "response_needed");
   const todayKey = new Date().toISOString().slice(0, 10); // resets daily
@@ -478,24 +557,8 @@ function MorningBriefing() {
           ))}
         </div>
 
-        {/* Call list preview */}
-        <div style={{ background: "#fff", borderRadius: 10, padding: 14, border: "1px solid #fde68a" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 10 }}>
-            <Phone size={14} color="#2563eb" />
-            <span style={{ fontSize: 12, fontWeight: 700, color: "#92400e" }}>10 calls queued</span>
-          </div>
-          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
-            {[
-              { label: "Hot", count: dailyCallList.filter(c => c.bucket === "hot").length, color: "#ef4444", bg: "#fef2f2" },
-              { label: "Cold", count: dailyCallList.filter(c => c.bucket === "cold").length, color: "#6b7280", bg: "#f3f4f6" },
-              { label: "Past", count: dailyCallList.filter(c => c.bucket === "past").length, color: "#8b5cf6", bg: "#f5f3ff" },
-              { label: "Active", count: dailyCallList.filter(c => c.bucket === "active").length, color: "#2563eb", bg: "#eff6ff" },
-            ].map(b => (
-              <span key={b.label} style={{ fontSize: 10, fontWeight: 700, color: b.color, background: b.bg, padding: "3px 8px", borderRadius: 4 }}>{b.count} {b.label}</span>
-            ))}
-          </div>
-          <div style={{ fontSize: 11, color: "#6b7280" }}>Balanced rotation — no call bias.</div>
-        </div>
+        {/* Call list preview — LIVE from Follow Up Boss */}
+        <CallListPreview />
       </div>
     </Card>
   );
@@ -890,6 +953,8 @@ function FeedbackCard({ fb }) {
 // CALL LIST SECTION
 // ─────────────────────────────────────────────
 function CallListSection() {
+  const { callList: dailyCallList, loading, connected, totalContacts, generatedAt, refresh } = useFubContext();
+  const [refreshing, setRefreshing] = useState(false);
   const [completed, setCompleted] = useState(() => {
     try { return JSON.parse(localStorage.getItem('agenthq-calls-completed') || '{}'); } catch { return {}; }
   });
@@ -900,53 +965,95 @@ function CallListSection() {
       return next;
     });
   };
-  const bucketOrder = ["hot", "cold", "past", "active"];
-  const bucketLabels = { hot: "Hot Leads", cold: "Cold Leads", past: "Past Clients", active: "Active Clients" };
-  const bucketIcons = { hot: Flame, cold: Snowflake, past: RotateCcw, active: UserPlus };
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    await refresh();
+    setRefreshing(false);
+  };
+
+  const bucketOrder = ["hot", "warm", "cold", "past", "sphere", "active"];
+  const bucketLabels = { hot: "Hot Leads", warm: "Warm Leads", cold: "Cold Leads", past: "Past Clients", sphere: "Sphere", active: "Active Clients" };
+  const bucketIcons = { hot: Flame, warm: Sun, cold: Snowflake, past: RotateCcw, sphere: Users, active: UserPlus };
+  const bucketColors = { hot: "#ef4444", warm: "#f59e0b", cold: "#6b7280", past: "#8b5cf6", sphere: "#06b6d4", active: "#2563eb" };
+
+  const completedCount = dailyCallList.filter(c => completed[c.id] || completed[c.fubId]).length;
 
   return (
     <Card>
-      <SectionHeader title="Today's Call List" count={10} action="Refresh from FUB →" />
-      <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 16, padding: "8px 12px", background: "#f9fafb", borderRadius: 8, border: "1px solid #f3f4f6" }}>
-        Auto-generated daily from Follow Up Boss. 3 Hot / 3 Cold / 2 Past Clients / 2 Active — ensuring balanced outreach with zero call bias.
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <Phone size={16} color="#2563eb" />
+          <span style={{ fontSize: 15, fontWeight: 700, color: "#111827" }}>Today's Call List</span>
+          <span style={{ fontSize: 11, fontWeight: 600, color: "#6b7280", background: "#f3f4f6", padding: "2px 8px", borderRadius: 6 }}>{completedCount}/{dailyCallList.length}</span>
+          {connected && <span style={{ fontSize: 9, fontWeight: 700, color: "#fff", background: "#10b981", padding: "1px 5px", borderRadius: 3 }}>LIVE</span>}
+        </div>
+        <button onClick={handleRefresh} disabled={refreshing} style={{
+          display: "flex", alignItems: "center", gap: 4, background: "none", border: "1px solid #e5e7eb", borderRadius: 6, padding: "4px 10px", fontSize: 11, fontWeight: 600, color: "#2563eb", cursor: refreshing ? "wait" : "pointer",
+        }}>
+          <RefreshCw size={11} style={{ animation: refreshing ? "spin 1s linear infinite" : "none" }} />
+          {refreshing ? "Syncing..." : "Refresh from FUB"}
+        </button>
       </div>
+      <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 16, padding: "8px 12px", background: "#f9fafb", borderRadius: 8, border: "1px solid #f3f4f6" }}>
+        {connected
+          ? <>Scored and ranked from <strong>{totalContacts}</strong> contacts in Follow Up Boss. Weighted by last contact date + stage priority. Zero call bias.</>
+          : <>Set <code>FUB_API_KEY</code> in Railway to connect Follow Up Boss and generate a live call list.</>}
+        {generatedAt && <span style={{ fontSize: 10, color: "#9ca3af", marginLeft: 8 }}>Generated: {new Date(generatedAt).toLocaleTimeString()}</span>}
+      </div>
+      {loading && dailyCallList.length === 0 && (
+        <div style={{ textAlign: "center", padding: "40px 0", color: "#9ca3af", fontSize: 13 }}>
+          <RefreshCw size={20} style={{ animation: "spin 1s linear infinite", marginBottom: 8 }} /><br />
+          Loading call list from Follow Up Boss...
+        </div>
+      )}
+      {!loading && dailyCallList.length === 0 && !connected && (
+        <div style={{ textAlign: "center", padding: "40px 0", color: "#9ca3af", fontSize: 13 }}>
+          Follow Up Boss not connected. Add your FUB_API_KEY to Railway environment variables.
+        </div>
+      )}
       {bucketOrder.map(bucket => {
         const contacts = dailyCallList.filter(c => c.bucket === bucket);
+        if (contacts.length === 0) return null;
         const BIcon = bucketIcons[bucket];
-        const colors = { hot: "#ef4444", cold: "#6b7280", past: "#8b5cf6", active: "#2563eb" };
         return (
           <div key={bucket} style={{ marginBottom: 16 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
-              <BIcon size={13} color={colors[bucket]} />
-              <span style={{ fontSize: 12, fontWeight: 700, color: colors[bucket], textTransform: "uppercase", letterSpacing: "0.05em" }}>{bucketLabels[bucket]}</span>
+              <BIcon size={13} color={bucketColors[bucket]} />
+              <span style={{ fontSize: 12, fontWeight: 700, color: bucketColors[bucket], textTransform: "uppercase", letterSpacing: "0.05em" }}>{bucketLabels[bucket]}</span>
               <span style={{ fontSize: 11, color: "#9ca3af" }}>({contacts.length})</span>
             </div>
-            {contacts.map(c => (
-              <div key={c.id} style={{
-                display: "flex", alignItems: "center", gap: 12, padding: "10px 12px", borderRadius: 10,
-                background: completed[c.id] ? "#f0fdf4" : "#fafafa", marginBottom: 4,
-                border: completed[c.id] ? "1px solid #bbf7d0" : "1px solid transparent",
-                opacity: completed[c.id] ? 0.6 : 1,
-              }}>
-                <button onClick={() => persistCompleted(p => ({ ...p, [c.id]: !p[c.id] }))} style={{
-                  width: 20, height: 20, borderRadius: "50%", border: completed[c.id] ? "none" : "2px solid #d1d5db",
-                  background: completed[c.id] ? "#10b981" : "transparent", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0,
+            {contacts.map(c => {
+              const cKey = c.fubId || c.id;
+              const isDone = completed[cKey];
+              return (
+                <div key={cKey} style={{
+                  display: "flex", alignItems: "center", gap: 12, padding: "10px 12px", borderRadius: 10,
+                  background: isDone ? "#f0fdf4" : "#fafafa", marginBottom: 4,
+                  border: isDone ? "1px solid #bbf7d0" : "1px solid transparent",
+                  opacity: isDone ? 0.6 : 1,
                 }}>
-                  {completed[c.id] && <Check size={12} color="#fff" />}
-                </button>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <span style={{ fontSize: 13, fontWeight: 700, color: "#111827" }}>{c.name}</span>
-                    <span style={{ fontSize: 10, fontWeight: 600, color: c.tagColor, background: c.tagBg, padding: "1px 6px", borderRadius: 4 }}>{c.fubStage}</span>
+                  <button onClick={() => persistCompleted(p => ({ ...p, [cKey]: !p[cKey] }))} style={{
+                    width: 20, height: 20, borderRadius: "50%", border: isDone ? "none" : "2px solid #d1d5db",
+                    background: isDone ? "#10b981" : "transparent", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0,
+                  }}>
+                    {isDone && <Check size={12} color="#fff" />}
+                  </button>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <span style={{ fontSize: 13, fontWeight: 700, color: "#111827" }}>{c.name}</span>
+                      <span style={{ fontSize: 10, fontWeight: 600, color: c.tagColor, background: c.tagBg, padding: "1px 6px", borderRadius: 4 }}>{c.fubStage}</span>
+                      {c.source === 'followupboss' && <span style={{ fontSize: 8, color: "#9ca3af" }}>FUB</span>}
+                    </div>
+                    <div style={{ fontSize: 11, color: "#6b7280", marginTop: 2 }}>{c.context}</div>
                   </div>
-                  <div style={{ fontSize: 11, color: "#6b7280", marginTop: 2 }}>{c.context}</div>
+                  <div style={{ textAlign: "right", flexShrink: 0 }}>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: "#374151" }}>{c.phone}</div>
+                    <div style={{ fontSize: 10, color: "#9ca3af" }}>Last: {c.lastContact}</div>
+                  </div>
                 </div>
-                <div style={{ textAlign: "right", flexShrink: 0 }}>
-                  <div style={{ fontSize: 12, fontWeight: 600, color: "#374151" }}>{c.phone}</div>
-                  <div style={{ fontSize: 10, color: "#9ca3af" }}>Last: {c.lastContact}</div>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         );
       })}
@@ -4666,6 +4773,9 @@ export default function Dashboard() {
   const [dragIdx, setDragIdx] = useState(null);
   const [dragOverIdx, setDragOverIdx] = useState(null);
 
+  // FUB call list — shared via context
+  const fubData = useFubCallList();
+
   const orderedSidebar = sidebarOrder.map(id => sidebarItems.find(i => i.id === id)).filter(Boolean);
 
   const handleDragStart = (e, idx) => { setDragIdx(idx); e.dataTransfer.effectAllowed = "move"; };
@@ -4684,6 +4794,7 @@ export default function Dashboard() {
   };
 
   return (
+    <FubContext.Provider value={fubData}>
     <div style={{ display: "flex", height: "100vh", fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif', background: "#f3f4f6", overflow: "hidden" }}>
 
       {/* SIDEBAR */}
@@ -4777,5 +4888,6 @@ export default function Dashboard() {
         </div>
       </div>
     </div>
+    </FubContext.Provider>
   );
 }
