@@ -1185,6 +1185,423 @@ app.get('/api/gmail/activity', async (req, res) => {
   }
 });
 
+// ─────────────────────────────────────────────
+// EA EMAIL ENGINE — Thread State Model + Live Triage
+// Per Wallace Agent HQ Framework §3: turns inbox from a chase into a resolved-state dashboard
+// States: awaiting_you | draft_ready | awaiting_them | closed | snoozed
+// ─────────────────────────────────────────────
+
+const EA_THREADS_PATH = path.join(__dirname, '.ea-thread-state.json');
+const EA_STUCK_PATH = path.join(__dirname, '.ea-stuck-queue.json');
+let eaThreadCache = { threads: {}, lastSweep: null, sweepCount: 0 };
+let eaStuckQueue = [];
+
+function loadEaState() {
+  try {
+    if (fs.existsSync(EA_THREADS_PATH)) eaThreadCache = JSON.parse(fs.readFileSync(EA_THREADS_PATH, 'utf8'));
+    if (fs.existsSync(EA_STUCK_PATH)) eaStuckQueue = JSON.parse(fs.readFileSync(EA_STUCK_PATH, 'utf8'));
+  } catch (err) { console.error('[EA] Failed to load state:', err.message); }
+}
+loadEaState();
+
+function saveEaThreads() {
+  try { fs.writeFileSync(EA_THREADS_PATH, JSON.stringify(eaThreadCache, null, 2)); } catch {}
+}
+function saveEaStuck() {
+  try { fs.writeFileSync(EA_STUCK_PATH, JSON.stringify(eaStuckQueue, null, 2)); } catch {}
+}
+
+// Jonathan's known emails — used to detect "last sender = Jonathan" for thread state
+const JONATHAN_EMAILS = [
+  'jonathanwallacerealestate@gmail.com',
+  'jonathan@faristeam.ca',
+];
+
+// Auto-archive patterns from framework §3.7
+const AUTO_ARCHIVE_PATTERNS = [
+  { from: 'info@mg.brokerbay.com', subject: /showing confirmed/i, action: 'archive_file', label: 'property' },
+  { from: 'noreply@sisu.co', subject: null, action: 'archive_extract', label: 'sisu' },
+  { from: 'noreply@realtor.ca', subject: null, action: 'archive', label: null },
+  { from: 'sso@ampre.ca', subject: null, action: 'archive', label: null },
+  { from: 'hello@notify.railway.app', subject: null, action: 'archive', label: null },
+  { from: 'noreply@github.com', subject: null, action: 'archive', label: null },
+  { from: 'notifications@em.realmmlp.ca', subject: null, action: 'archive', label: null },
+  { from: 'offers@faristeam.ca', subject: null, action: 'archive', label: null },
+];
+
+// Priority classification from framework §3.4 + §12.3
+function classifyThreadPriority(fromEmail, subject, category) {
+  const sub = (subject || '').toLowerCase();
+  const from = (fromEmail || '').toLowerCase();
+
+  // P0: Offers, lawyer/client urgent with financial impact
+  if (sub.includes('offer') || sub.includes('accepted') || sub.includes('counter') || sub.includes('aps')) return 'p0';
+  if (sub.includes('amendment') || sub.includes('waiver') || sub.includes('notice of fulfillment')) return 'p0';
+
+  // P1: Lead reassignment, new lead first-touch, InterFace form
+  if (from.includes('followupboss') && (sub.includes('reassign') || sub.includes('reach out'))) return 'p1';
+  if (from.includes('followupboss') && sub.includes('lead assigned')) return 'p1';
+  if (from.includes('interface.re') && sub.includes('not submitted')) return 'p1';
+
+  // Client-facing = high priority
+  if (category === 'transaction' || category === 'showing') return 'p1';
+
+  return 'p2';
+}
+
+// Determine sender type from email address
+function classifySenderType(email) {
+  const e = (email || '').toLowerCase();
+  if (JONATHAN_EMAILS.some(j => e.includes(j))) return 'jonathan';
+  if (e.includes('brokerbay') || e.includes('sisu') || e.includes('realtor.ca') || e.includes('railway') || e.includes('github') || e.includes('ampre') || e.includes('realm')) return 'auto-notif';
+  if (e.includes('faristeam.ca')) return 'internal';
+  if (e.includes('followupboss')) return 'auto-notif';
+  // Known lawyers from preferences.md
+  if (e.includes('playtiscameron') || e.includes('hgrgraham') || e.includes('peggyhill')) return 'lawyer';
+  // Known lenders
+  if (e.includes('erieshores')) return 'lender';
+  return 'client'; // Default — agents and clients
+}
+
+// Check if an email matches auto-archive patterns
+function shouldAutoArchive(fromEmail, subject) {
+  const from = (fromEmail || '').toLowerCase();
+  const sub = (subject || '').toLowerCase();
+  for (const pattern of AUTO_ARCHIVE_PATTERNS) {
+    if (from.includes(pattern.from.toLowerCase())) {
+      if (!pattern.subject || pattern.subject.test(subject)) {
+        return pattern;
+      }
+    }
+  }
+  return null;
+}
+
+// GET /api/ea/triage — The main EA email sweep endpoint
+// Scans Gmail threads, classifies state, returns the full thread state dashboard
+app.get('/api/ea/triage', async (req, res) => {
+  if (!tokens) {
+    // Return cached data as fallback when disconnected
+    const threads = Object.values(eaThreadCache.threads);
+    if (threads.length > 0) {
+      return res.json({
+        status: 'offline_cached',
+        lastSweep: eaThreadCache.lastSweep,
+        threads: threads,
+        counts: countThreadStates(threads),
+      });
+    }
+    return res.json({ status: 'disconnected', threads: [], counts: { awaiting_you: 0, draft_ready: 0, awaiting_them: 0, closed: 0, snoozed: 0 } });
+  }
+
+  try {
+    const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
+    const days = parseInt(req.query.days) || 14;
+
+    // Step 1: Fetch inbox threads (not individual messages)
+    const inboxRes = await gmail.users.threads.list({
+      userId: 'me',
+      q: `in:inbox newer_than:${days}d`,
+      maxResults: 80,
+    });
+    const inboxThreads = inboxRes.data.threads || [];
+
+    // Step 2: Fetch sent threads to detect "awaiting them" state
+    const sentRes = await gmail.users.threads.list({
+      userId: 'me',
+      q: `in:sent newer_than:${days}d`,
+      maxResults: 50,
+    });
+    const sentThreadIds = new Set((sentRes.data.threads || []).map(t => t.id));
+
+    // Step 3: Process each thread
+    const processedThreads = {};
+
+    for (const thread of inboxThreads) {
+      try {
+        const detail = await gmail.users.threads.get({
+          userId: 'me',
+          id: thread.id,
+          format: 'metadata',
+          metadataHeaders: ['From', 'To', 'Subject', 'Date', 'Cc'],
+        });
+
+        const messages = detail.data.messages || [];
+        if (messages.length === 0) continue;
+
+        // Get the first message for subject, and last message for state
+        const firstMsg = messages[0];
+        const lastMsg = messages[messages.length - 1];
+
+        const firstHeaders = firstMsg.payload?.headers || [];
+        const lastHeaders = lastMsg.payload?.headers || [];
+
+        const subject = firstHeaders.find(h => h.name === 'Subject')?.value || '(no subject)';
+        const lastFrom = lastHeaders.find(h => h.name === 'From')?.value || '';
+        const lastDate = lastHeaders.find(h => h.name === 'Date')?.value || '';
+        const lastFromEmail = extractEmail(lastFrom);
+        const lastSenderType = classifySenderType(lastFromEmail);
+
+        // First message sender info (for display)
+        const firstFrom = firstHeaders.find(h => h.name === 'From')?.value || '';
+
+        // Classify the email category
+        const lastSnippet = lastMsg.snippet || '';
+        const lastLabels = lastMsg.labelIds || [];
+        const category = categorizeEmail(lastFrom, subject, lastSnippet, lastLabels);
+        const priority = classifyThreadPriority(lastFromEmail, subject, category);
+
+        // Check if auto-archive applies
+        const archiveRule = shouldAutoArchive(lastFromEmail, subject);
+
+        // Determine thread state per framework §3.5
+        let state = 'awaiting_you';
+        const isFromJonathan = JONATHAN_EMAILS.some(j => lastFromEmail.includes(j));
+        const existingState = eaThreadCache.threads[thread.id];
+
+        if (existingState?.state === 'snoozed') {
+          // Respect snooze — check if snooze has expired
+          const snoozeUntil = existingState.snoozeUntil ? new Date(existingState.snoozeUntil) : null;
+          if (snoozeUntil && snoozeUntil > new Date()) {
+            state = 'snoozed';
+          } else {
+            state = 'awaiting_you'; // Snooze expired
+          }
+        } else if (existingState?.state === 'closed' && !lastLabels.includes('UNREAD')) {
+          state = 'closed'; // Respect manual close
+        } else if (archiveRule) {
+          state = 'closed'; // Auto-archive rule
+        } else if (isFromJonathan) {
+          // Jonathan sent last — either awaiting them or closed
+          const lastSnippetLower = lastSnippet.toLowerCase();
+          if (lastSnippetLower.includes('thank') || lastSnippetLower.includes('confirmed') ||
+              lastSnippetLower.includes('sounds good') || lastSnippetLower.includes('all set')) {
+            state = 'closed';
+          } else {
+            state = 'awaiting_them';
+          }
+        } else if (existingState?.state === 'draft_ready') {
+          state = 'draft_ready'; // Preserve draft_ready
+        } else {
+          state = 'awaiting_you';
+        }
+
+        // Determine who we're waiting on / who needs reply
+        const participants = new Set();
+        for (const msg of messages) {
+          const from = (msg.payload?.headers || []).find(h => h.name === 'From')?.value || '';
+          const to = (msg.payload?.headers || []).find(h => h.name === 'To')?.value || '';
+          if (from) participants.add(extractEmail(from));
+          if (to) participants.add(extractEmail(to));
+        }
+
+        processedThreads[thread.id] = {
+          threadId: thread.id,
+          subject,
+          from: parseEmailSender(lastFrom),
+          fromEmail: lastFromEmail,
+          firstFrom: parseEmailSender(firstFrom),
+          firstFromEmail: extractEmail(firstFrom),
+          lastDate,
+          timestamp: parseInt(lastMsg.internalDate),
+          messageCount: messages.length,
+          state,
+          priority,
+          category,
+          senderType: lastSenderType,
+          isRead: !lastLabels.includes('UNREAD'),
+          isStarred: lastLabels.includes('STARRED'),
+          snippet: lastSnippet,
+          participants: [...participants],
+          autoArchiveRule: archiveRule ? archiveRule.action : null,
+          linkedProperty: null, // Will be populated by property-matching logic
+        };
+      } catch (e) {
+        console.error(`[EA] Error processing thread ${thread.id}:`, e.message);
+      }
+    }
+
+    // Also check FUB for sent-email activity (solves Outlook sent-folder visibility gap)
+    let fubSentActivity = [];
+    if (FUB_API_KEY) {
+      try {
+        // FUB tracks email events — we can see what Jonathan has sent
+        const fubResp = await fetch(`${FUB_BASE}/events?type=email&limit=50&sort=created&order=desc`, {
+          headers: fubHeaders(),
+        });
+        if (fubResp.ok) {
+          const fubData = await fubResp.json();
+          fubSentActivity = (fubData.events || []).filter(e =>
+            e.type === 'email' && e.isIncoming === false
+          ).map(e => ({
+            personId: e.personId,
+            personName: e.person ? [e.person.firstName, e.person.lastName].filter(Boolean).join(' ') : '',
+            subject: e.description || '',
+            date: e.created,
+            source: 'fub',
+          }));
+          console.log(`[EA] FUB sent activity: ${fubSentActivity.length} outbound emails found`);
+        }
+      } catch (e) {
+        console.log('[EA] FUB events check (non-critical):', e.message);
+      }
+    }
+
+    // Cross-reference FUB sent emails to update thread states
+    // If we see a FUB sent email that matches a thread's subject/contact, mark it awaiting_them
+    for (const fubSent of fubSentActivity) {
+      // Try to match by subject similarity
+      for (const [tid, thread] of Object.entries(processedThreads)) {
+        if (thread.state === 'awaiting_you') {
+          const fubSubLower = (fubSent.subject || '').toLowerCase();
+          const threadSubLower = (thread.subject || '').toLowerCase();
+          // Match if subjects overlap or if the FUB person name matches the thread sender
+          const nameLower = (fubSent.personName || '').toLowerCase();
+          const threadFrom = (thread.from || '').toLowerCase();
+          if ((fubSubLower && threadSubLower.includes(fubSubLower.slice(0, 20))) ||
+              (nameLower && threadFrom.includes(nameLower.split(' ')[0]))) {
+            // Check if FUB sent date is after last thread message
+            const fubDate = new Date(fubSent.date).getTime();
+            if (fubDate > (thread.timestamp || 0)) {
+              processedThreads[tid].state = 'awaiting_them';
+              processedThreads[tid].fubSentMatch = true;
+            }
+          }
+        }
+      }
+    }
+
+    // Save thread cache
+    eaThreadCache = {
+      threads: processedThreads,
+      lastSweep: new Date().toISOString(),
+      sweepCount: (eaThreadCache.sweepCount || 0) + 1,
+      fubSentCount: fubSentActivity.length,
+    };
+    saveEaThreads();
+
+    const threads = Object.values(processedThreads);
+    const counts = countThreadStates(threads);
+
+    // Sort: P0 first, then P1, then by unread, then by timestamp
+    threads.sort((a, b) => {
+      const po = { p0: 0, p1: 1, p2: 2 };
+      const pd = (po[a.priority] || 2) - (po[b.priority] || 2);
+      if (pd !== 0) return pd;
+      if (a.isRead !== b.isRead) return a.isRead ? 1 : -1;
+      return (b.timestamp || 0) - (a.timestamp || 0);
+    });
+
+    res.json({
+      status: 'ok',
+      lastSweep: eaThreadCache.lastSweep,
+      sweepCount: eaThreadCache.sweepCount,
+      fubSentTracked: fubSentActivity.length,
+      threads,
+      counts,
+    });
+  } catch (err) {
+    console.error('[EA] Triage error:', err.message);
+    // Fallback to cached data
+    const threads = Object.values(eaThreadCache.threads);
+    res.json({
+      status: 'error_cached',
+      error: err.message,
+      lastSweep: eaThreadCache.lastSweep,
+      threads,
+      counts: countThreadStates(threads),
+    });
+  }
+});
+
+function countThreadStates(threads) {
+  const counts = { awaiting_you: 0, draft_ready: 0, awaiting_them: 0, closed: 0, snoozed: 0 };
+  for (const t of threads) {
+    if (counts[t.state] !== undefined) counts[t.state]++;
+  }
+  return counts;
+}
+
+// POST /api/ea/thread/:threadId/state — Manually update thread state (snooze, close, etc.)
+app.post('/api/ea/thread/:threadId/state', (req, res) => {
+  const { threadId } = req.params;
+  const { state, snoozeUntil } = req.body;
+  if (!eaThreadCache.threads[threadId]) {
+    return res.json({ success: false, error: 'Thread not found' });
+  }
+  const validStates = ['awaiting_you', 'draft_ready', 'awaiting_them', 'closed', 'snoozed'];
+  if (!validStates.includes(state)) {
+    return res.json({ success: false, error: 'Invalid state' });
+  }
+  eaThreadCache.threads[threadId].state = state;
+  if (state === 'snoozed' && snoozeUntil) {
+    eaThreadCache.threads[threadId].snoozeUntil = snoozeUntil;
+  }
+  saveEaThreads();
+  res.json({ success: true, threadId, state });
+});
+
+// ─────────────────────────────────────────────
+// "CLAUDE STUCK, NEEDS ANSWER" TICKER
+// Per framework §12.4 + §13.2: dashboard widget for blocked decisions
+// ─────────────────────────────────────────────
+
+// GET /api/ea/stuck — Get all pending stuck questions
+app.get('/api/ea/stuck', (req, res) => {
+  const pending = eaStuckQueue.filter(q => !q.resolved);
+  res.json({ questions: pending, total: pending.length });
+});
+
+// POST /api/ea/stuck — Add a new stuck question
+app.post('/api/ea/stuck', (req, res) => {
+  const { summary, context, options, priority, workflow } = req.body;
+  if (!summary || !options || !Array.isArray(options) || options.length < 2) {
+    return res.json({ success: false, error: 'Need summary + at least 2 options' });
+  }
+  const question = {
+    id: `stuck-${Date.now()}`,
+    summary,
+    context: context || '',
+    options, // Array of { label, description }
+    priority: priority || 'p2',
+    workflow: workflow || 'general',
+    createdAt: new Date().toISOString(),
+    resolved: false,
+    resolvedAt: null,
+    answer: null,
+  };
+  eaStuckQueue.push(question);
+  saveEaStuck();
+  console.log(`[EA] Stuck question added: "${summary}" (${options.length} options)`);
+  res.json({ success: true, question });
+});
+
+// POST /api/ea/stuck/:id/resolve — Answer a stuck question
+app.post('/api/ea/stuck/:id/resolve', (req, res) => {
+  const { id } = req.params;
+  const { answer } = req.body;
+  const question = eaStuckQueue.find(q => q.id === id);
+  if (!question) return res.json({ success: false, error: 'Question not found' });
+  question.resolved = true;
+  question.resolvedAt = new Date().toISOString();
+  question.answer = answer;
+  saveEaStuck();
+  console.log(`[EA] Stuck question resolved: "${question.summary}" → "${answer}"`);
+  res.json({ success: true, question });
+});
+
+// POST /api/ea/stuck/:id/dismiss — Dismiss without answering
+app.post('/api/ea/stuck/:id/dismiss', (req, res) => {
+  const { id } = req.params;
+  const question = eaStuckQueue.find(q => q.id === id);
+  if (!question) return res.json({ success: false, error: 'Question not found' });
+  question.resolved = true;
+  question.resolvedAt = new Date().toISOString();
+  question.answer = '__dismissed__';
+  saveEaStuck();
+  res.json({ success: true });
+});
+
 // ─── Helper Functions ───
 
 function parseEmailSender(from) {
