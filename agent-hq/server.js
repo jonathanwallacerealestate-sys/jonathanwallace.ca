@@ -1602,6 +1602,60 @@ app.post('/api/ea/stuck/:id/dismiss', (req, res) => {
   res.json({ success: true });
 });
 
+// GET /api/ea/fub-sent-diagnostic — Raw dump of FUB email events to verify Outlook tracking
+app.get('/api/ea/fub-sent-diagnostic', async (req, res) => {
+  if (!FUB_API_KEY) {
+    return res.json({ success: false, error: 'FUB_API_KEY not configured', events: [] });
+  }
+  try {
+    const limit = Math.min(parseInt(req.query.limit) || 50, 200);
+    const fubResp = await fetch(`${FUB_BASE}/events?type=email&limit=${limit}&sort=created&order=desc`, {
+      headers: fubHeaders(),
+    });
+    if (!fubResp.ok) {
+      return res.json({ success: false, error: `FUB API returned ${fubResp.status}`, events: [] });
+    }
+    const fubData = await fubResp.json();
+    const allEmailEvents = fubData.events || [];
+
+    // Separate inbound vs outbound
+    const outbound = allEmailEvents.filter(e => e.isIncoming === false);
+    const inbound = allEmailEvents.filter(e => e.isIncoming === true);
+    const unknown = allEmailEvents.filter(e => e.isIncoming === undefined || e.isIncoming === null);
+
+    // Extract useful fields for diagnosis
+    const formatEvent = (e) => ({
+      id: e.id,
+      type: e.type,
+      isIncoming: e.isIncoming,
+      description: e.description || '',
+      person: e.person ? { name: [e.person.firstName, e.person.lastName].filter(Boolean).join(' '), email: e.person.emails?.[0]?.value || '' } : null,
+      created: e.created,
+      source: e.source || null,
+      metadata: e.metadata || null,
+    });
+
+    res.json({
+      success: true,
+      summary: {
+        totalEmailEvents: allEmailEvents.length,
+        outbound: outbound.length,
+        inbound: inbound.length,
+        directionUnknown: unknown.length,
+        outlookTrackingActive: outbound.length > 0,
+        oldestOutbound: outbound.length > 0 ? outbound[outbound.length - 1].created : null,
+        newestOutbound: outbound.length > 0 ? outbound[0].created : null,
+      },
+      outboundEmails: outbound.slice(0, 20).map(formatEvent),
+      inboundEmails: inbound.slice(0, 10).map(formatEvent),
+      unknownDirection: unknown.slice(0, 5).map(formatEvent),
+      rawSampleEvent: allEmailEvents[0] || null,
+    });
+  } catch (err) {
+    res.json({ success: false, error: err.message, events: [] });
+  }
+});
+
 // ─── Helper Functions ───
 
 function parseEmailSender(from) {
