@@ -715,6 +715,22 @@ app.get('/api/gmail/status', (req, res) => {
   res.json({ connected: true, scopes: SCOPES });
 });
 
+// GET /api/gmail/labels — Debug: list all Gmail labels
+app.get('/api/gmail/labels', async (req, res) => {
+  if (!tokens) return res.json({ error: 'Not connected' });
+  try {
+    const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
+    const labelsResp = await gmail.users.labels.list({ userId: 'me' });
+    const labels = labelsResp.data.labels || [];
+    res.json({
+      count: labels.length,
+      labels: labels.map(l => ({ id: l.id, name: l.name, type: l.type })),
+    });
+  } catch (err) {
+    res.json({ error: err.message, code: err.code, details: err.errors });
+  }
+});
+
 // GET /api/gmail/inbox — Recent inbox emails with AI categorization
 app.get('/api/gmail/inbox', async (req, res) => {
   if (!tokens) return res.json({ status: 'disconnected', emails: [] });
