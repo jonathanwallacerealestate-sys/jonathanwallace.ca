@@ -4144,10 +4144,10 @@ export default function Dashboard() {
       {/* MAIN */}
       <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
         {/* Top bar */}
-        <div style={{ background: "#fff", padding: "12px 24px", display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid #e5e7eb", flexShrink: 0 }}>
-          <div>
-            <h1 style={{ fontSize: 18, fontWeight: 700, color: "#111827", margin: 0 }}>Agent HQ</h1>
-            <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 1 }}>Thursday, April 16, 2026</div>
+        <div style={{ background: "#fff", padding: "10px 24px", display: "flex", justifyContent: "center", alignItems: "center", borderBottom: "1px solid #e5e7eb", flexShrink: 0 }}>
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
+            <img src="/agent-hq-logo.png" alt="Agent HQ" style={{ height: 60, objectFit: "contain" }} />
+            <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 2 }}>{new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</div>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 6, background: "#f3f4f6", borderRadius: 8, padding: "6px 12px" }}>
