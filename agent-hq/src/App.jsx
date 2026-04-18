@@ -497,14 +497,18 @@ function MorningBriefing() {
 // SHARED FEEDBACK STATE — tracks submitted feedback across components
 // ─────────────────────────────────────────────
 let _submittedFeedbackIds = (() => {
-  try { return JSON.parse(window.__submittedFeedback || '[]'); } catch { return []; }
+  // Try localStorage first (survives server redeploys)
+  try {
+    const local = localStorage.getItem('agenthq-feedback-submitted');
+    if (local) return JSON.parse(local);
+  } catch {}
+  return [];
 })();
 function getSubmittedFeedback() { return _submittedFeedbackIds; }
 function markFeedbackSubmitted(id) {
   if (!_submittedFeedbackIds.includes(id)) {
     _submittedFeedbackIds = [..._submittedFeedbackIds, id];
-    window.__submittedFeedback = JSON.stringify(_submittedFeedbackIds);
-    // Also persist to server
+    try { localStorage.setItem('agenthq-feedback-submitted', JSON.stringify(_submittedFeedbackIds)); } catch {}
     fetch('/api/feedback/submitted', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -512,11 +516,13 @@ function markFeedbackSubmitted(id) {
     }).catch(() => {});
   }
 }
-// Load submitted IDs from server on startup
+// Load submitted IDs from server on startup, merge with localStorage
 fetch('/api/feedback/submitted').then(r => r.json()).then(data => {
   if (data?.ids?.length) {
-    _submittedFeedbackIds = data.ids;
-    window.__submittedFeedback = JSON.stringify(data.ids);
+    // Merge server + local to avoid losing any
+    const merged = [...new Set([..._submittedFeedbackIds, ...data.ids])];
+    _submittedFeedbackIds = merged;
+    try { localStorage.setItem('agenthq-feedback-submitted', JSON.stringify(merged)); } catch {}
   }
 }).catch(() => {});
 
@@ -1553,32 +1559,73 @@ function TopPriorities() {
   const [doneIds, setDoneIds] = useState([]); // track which task IDs have been completed
   const [loaded, setLoaded] = useState(false);
 
-  // Load saved state from backend on mount
+  // Load saved state — try server first, fall back to localStorage backup
   useEffect(() => {
     (async () => {
+      let stateLoaded = false;
+
+      // 1. Try server
       try {
         const res = await fetch('/api/tasks');
         const { state } = await res.json();
-        if (state && state.priorities) {
+        if (state && state.priorities && state.savedAt) {
           setPriorities(state.priorities);
           setBacklog(state.backlog || []);
           setDoneCount(state.doneCount || 0);
           setDoneIds(state.doneIds || []);
+          stateLoaded = true;
+          // Update localStorage backup with server data
+          try { localStorage.setItem('agenthq-tasks', JSON.stringify(state)); } catch {}
         }
-      } catch { /* use defaults */ }
+      } catch { /* server unavailable */ }
+
+      // 2. If server had nothing, try localStorage backup
+      if (!stateLoaded) {
+        try {
+          const backup = localStorage.getItem('agenthq-tasks');
+          if (backup) {
+            const state = JSON.parse(backup);
+            if (state && state.priorities && state.savedAt) {
+              setPriorities(state.priorities);
+              setBacklog(state.backlog || []);
+              setDoneCount(state.doneCount || 0);
+              setDoneIds(state.doneIds || []);
+              stateLoaded = true;
+              console.log('[Tasks] Restored from localStorage backup (server had no data — likely redeployed)');
+              // Push the backup back to server so it's in sync
+              fetch('/api/tasks', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: backup,
+              }).catch(() => {});
+            }
+          }
+        } catch { /* no backup available */ }
+      }
+
+      if (!stateLoaded) {
+        console.log('[Tasks] No saved state found — using defaults');
+      }
+
       setLoaded(true);
     })();
   }, []);
 
-  // Save state to backend whenever priorities/backlog/doneCount change (debounced)
+  // Save state to server + localStorage whenever priorities/backlog/doneCount change (debounced)
   useEffect(() => {
     if (!loaded) return; // don't save before initial load
     const timer = setTimeout(() => {
+      const payload = { priorities, backlog, doneCount, doneIds, savedAt: new Date().toISOString() };
+
+      // Save to server
       fetch('/api/tasks', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ priorities, backlog, doneCount, doneIds }),
+        body: JSON.stringify(payload),
       }).catch(() => {});
+
+      // Save to localStorage as backup (survives server redeploys)
+      try { localStorage.setItem('agenthq-tasks', JSON.stringify(payload)); } catch {}
     }, 500);
     return () => clearTimeout(timer);
   }, [priorities, backlog, doneCount, doneIds, loaded]);
@@ -4526,13 +4573,15 @@ export default function Dashboard() {
       {/* MAIN */}
       <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
         {/* Top bar */}
-        <div style={{ background: "#fff", padding: "10px 24px", display: "flex", justifyContent: "center", alignItems: "center", borderBottom: "1px solid #e5e7eb", flexShrink: 0 }}>
-          <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
-            <img src="/agent-hq-logo.png" alt="Agent HQ" style={{ height: 60, objectFit: "contain" }} />
+        <div style={{ background: "#fff", padding: "10px 24px", display: "flex", alignItems: "center", borderBottom: "1px solid #e5e7eb", flexShrink: 0, position: "relative" }}>
+          {/* Center — Logo + Date */}
+          <div style={{ position: "absolute", left: "50%", transform: "translateX(-50%)", display: "flex", flexDirection: "column", alignItems: "center" }}>
+            <img src="/agent-hq-logo.png" alt="Agent HQ" style={{ height: 50, objectFit: "contain" }} />
             <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 2 }}>{new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</div>
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 6, background: "#f3f4f6", borderRadius: 8, padding: "6px 12px" }}>
+          {/* Right — Search, Bell, Avatar */}
+          <div style={{ display: "flex", alignItems: "center", gap: 14, marginLeft: "auto" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, background: "#f3f4f6", borderRadius: 8, padding: "6px 12px", cursor: "pointer" }}>
               <Search size={13} color="#9ca3af" />
               <span style={{ fontSize: 12, color: "#9ca3af" }}>Search...</span>
             </div>
