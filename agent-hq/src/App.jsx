@@ -32,7 +32,7 @@ const dailyCallList = [
 // ─────────────────────────────────────────────
 const emailInbox = [
   { id: 1, from: "Dan Landry", email: "dlandry0214@gmail.com", subject: "Re: 308 Christine", snippet: "Thank you for the update! However, I did want to revisit the strategy as what you are suggesting is slightly different from our recollection...", time: "8:40 PM (Apr 15)", category: "response_needed", priority: "high", suggestedAction: "Dan is questioning the listing strategy — revisit Plan A vs your recommendation. Reply today.", drafted: false, live: true },
-  { id: 2, from: "BrokerBay", email: "info@mg.brokerbay.com", subject: "Showing Request - 282 Robins Point Road", snippet: "NICK CUONG CHUONG from LPT REALTY has requested a showing. Date: Apr 22, 9:30 AM – 10:30 AM. Type: Home Inspection.", time: "3:12 PM", category: "response_needed", priority: "high", suggestedAction: "Confirm or decline showing request for 282 Robins Point Road. Home inspection — coordinate with sellers.", drafted: false, live: true },
+  { id: 2, from: "BrokerBay", email: "info@mg.brokerbay.com", subject: "Showing Confirmed - 282 Robins Point Road", snippet: "Showing for 282 Robins Point Road has been CONFIRMED. Nick Cuong Chuong (LPT Realty) — Apr 22, 9:30 AM – 10:30 AM. Home Inspection.", time: "3:12 PM", category: "fyi", priority: "low", suggestedAction: "Showing confirmed. No action needed — notify sellers about upcoming home inspection.", drafted: false, live: true, resolved: true },
   { id: 3, from: "Vanessa Playtis", email: "vanessa@playtiscameronlaw.com", subject: "RE: 11 Joliet - Possible Holdback Required", snippet: "Update — we are still waiting on funds from the buyers to complete the sale. They have informed us that they are still waiting on their mortgage funds.", time: "1:46 PM", category: "response_needed", priority: "high", suggestedAction: "Closing delayed — buyer mortgage funds pending. Monitor and update Dani Thompson.", drafted: false, live: true },
   { id: 4, from: "Follow Up Boss", email: "leads@followupboss.com", subject: "Lead assigned - Vittorio Destefano", snippet: "New lead from Team: Brokerage Call-In. (647) 207-8660 — vdestefano@rogers.com", time: "3:40 PM (Apr 14)", category: "response_needed", priority: "medium", suggestedAction: "New inbound lead — call Vittorio at (647) 207-8660. Add to FUB pipeline.", drafted: false, live: true },
   { id: 5, from: "Lino D'Angicco", email: "ldangicco@rogers.com", subject: "Re: Listing(s) for your review", snippet: "well that's not great.", time: "5:40 PM (Apr 14)", category: "response_needed", priority: "medium", suggestedAction: "Lino seems disappointed — follow up to understand his concern and address it.", drafted: false, live: true },
@@ -84,11 +84,11 @@ const brokerBayShowings = [
     buyerName: "—", sellerName: "Your Listing",
     notes: "Rhys Williams — rhys@torrogroup.ca — Keller Williams: 705-720-2200.", lockboxCode: "—",
     source: "brokerbay", live: true, role: "listing_agent" },
-  // NEXT WEEK — your listing 282 Robins Point Road (NEW REQUEST — needs confirmation)
-  { id: "bb-5", time: "9:30 AM", end: "10:30 AM", date: "Wed, Apr 22", property: "282 Robins Point Road", mls: "—", status: "requested",
+  // NEXT WEEK — your listing 282 Robins Point Road (CONFIRMED)
+  { id: "bb-5", time: "9:30 AM", end: "10:30 AM", date: "Wed, Apr 22", property: "282 Robins Point Road", mls: "—", status: "confirmed",
     requestedBy: "Nick Cuong Chuong (LPT Realty)", buyerAgent: "Nick Cuong Chuong",
     buyerName: "—", sellerName: "Your Listing",
-    notes: "Home Inspection showing. Agent notes included. Needs CONFIRMATION.", lockboxCode: "—",
+    notes: "Home Inspection showing. Confirmed via BrokerBay.", lockboxCode: "—",
     source: "brokerbay", live: true, role: "listing_agent" },
 ];
 
@@ -98,9 +98,9 @@ const brokerBaySyncStatus = {
   calendarFeedUrl: "webcal://edge.brokerbay.com/ical/agent/jw-9482.ics",
   googleCalendarLinked: true,
   totalShowingsThisWeek: 5,
-  confirmedCount: 3,
+  confirmedCount: 4,
   completedCount: 1,
-  pendingCount: 1,
+  pendingCount: 0,
 };
 
 // ─────────────────────────────────────────────
@@ -137,7 +137,7 @@ const sidebarItems = [
 // ─────────────────────────────────────────────
 const defaultBig3 = [
   { id: 1, text: "Reply to Dan Landry re: 308 Christine listing strategy", done: false, category: "deal", categoryColor: "#ef4444", live: true },
-  { id: 2, text: "Confirm BrokerBay showing — 282 Robins Point Rd (Apr 22, Home Inspection)", done: false, category: "showing", categoryColor: "#2563eb", live: true },
+  { id: 2, text: "Notify sellers about confirmed home inspection — 282 Robins Point Rd (Apr 22, 9:30 AM)", done: false, category: "showing", categoryColor: "#2563eb", live: true },
   { id: 3, text: "Follow up on 11 Joliet closing — buyer mortgage funds pending", done: false, category: "deal", categoryColor: "#ef4444", live: true },
 ];
 
@@ -967,7 +967,7 @@ function EmailEASection() {
         {emailInbox.map(em => {
           const isSelected = selectedEmail === em.id;
           const catColor = em.category === "response_needed" ? "#ef4444" : em.category === "followup_others" ? "#f59e0b" : em.category === "auto_file" ? "#10b981" : "#6b7280";
-          const acted = actions[em.id];
+          const acted = actions[em.id] || em.resolved;
 
           return (
             <div key={em.id}>
@@ -977,16 +977,17 @@ function EmailEASection() {
                 border: isSelected ? "1px solid #bfdbfe" : acted ? "1px solid #bbf7d0" : "1px solid transparent",
                 opacity: acted ? 0.6 : 1,
               }}>
-                <div style={{ width: 4, height: 30, borderRadius: 2, background: catColor, flexShrink: 0 }} />
-                <div style={{ width: 30, height: 30, borderRadius: "50%", background: catColor + "18", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                  <span style={{ fontSize: 12, fontWeight: 800, color: catColor }}>{em.from.charAt(0)}</span>
+                <div style={{ width: 4, height: 30, borderRadius: 2, background: acted ? "#10b981" : catColor, flexShrink: 0 }} />
+                <div style={{ width: 30, height: 30, borderRadius: "50%", background: (acted ? "#10b981" : catColor) + "18", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                  {acted ? <CheckCircle2 size={14} color="#10b981" /> : <span style={{ fontSize: 12, fontWeight: 800, color: catColor }}>{em.from.charAt(0)}</span>}
                 </div>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                    <span style={{ fontSize: 13, fontWeight: 700, color: "#111827" }}>{em.from}</span>
-                    {em.priority === "high" && <span style={{ fontSize: 9, fontWeight: 700, color: "#ef4444", background: "#fef2f2", padding: "1px 5px", borderRadius: 3 }}>URGENT</span>}
+                    <span style={{ fontSize: 13, fontWeight: 700, color: acted ? "#6b7280" : "#111827" }}>{em.from}</span>
+                    {em.resolved && <span style={{ fontSize: 9, fontWeight: 700, color: "#10b981", background: "#ecfdf5", padding: "1px 5px", borderRadius: 3 }}>CONFIRMED</span>}
+                    {!em.resolved && em.priority === "high" && <span style={{ fontSize: 9, fontWeight: 700, color: "#ef4444", background: "#fef2f2", padding: "1px 5px", borderRadius: 3 }}>URGENT</span>}
                   </div>
-                  <div style={{ fontSize: 12, color: "#374151", fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{em.subject}</div>
+                  <div style={{ fontSize: 12, color: acted ? "#9ca3af" : "#374151", fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{em.subject}</div>
                 </div>
                 <span style={{ fontSize: 11, color: "#9ca3af", whiteSpace: "nowrap" }}>{em.time}</span>
                 {isSelected ? <ChevronUp size={14} color="#9ca3af" /> : <ChevronDown size={14} color="#9ca3af" />}
@@ -2538,15 +2539,15 @@ const showingIntelligence = [
     followUpSentAt: null, followUpType: null,
     notes: "Request came in at 9:10 AM, confirmed at 10:55 AM same day.",
   },
-  // 282 Robins Point Road — YOUR LISTING (NEW REQUEST)
+  // 282 Robins Point Road — YOUR LISTING (CONFIRMED)
   { id: "si-5", listingId: "lst-3", address: "282 Robins Point Road", date: "Wed, Apr 22", time: "9:30 AM", end: "10:30 AM",
     buyerAgent: "Nick Cuong Chuong (LPT Realty)", buyerAgentPhone: "—", buyerAgentEmail: "—",
-    status: "requested", feedbackStatus: "n/a", live: true,
+    status: "confirmed", feedbackStatus: "n/a", live: true,
     feedback: null,
     sellerNotified: false, sellerNotifiedAt: null,
-    emailSource: "info@mg.brokerbay.com", emailSubject: "Showing Request - 282 Robins Point Road", parsedAt: "Apr 16, 3:12 PM",
+    emailSource: "info@mg.brokerbay.com", emailSubject: "Showing Confirmed - 282 Robins Point Road", parsedAt: "Apr 17, 3:45 PM",
     followUpSentAt: null, followUpType: null,
-    notes: "Home Inspection showing — needs your CONFIRMATION. Agent included notes in request.",
+    notes: "Home Inspection showing — CONFIRMED. Notify sellers about upcoming inspection.",
   },
 ];
 
