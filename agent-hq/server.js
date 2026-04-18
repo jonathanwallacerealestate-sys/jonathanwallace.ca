@@ -2305,12 +2305,29 @@ app.post('/api/tj/scan', async (req, res) => {
       const body = getEmailBody(full.data.payload);
       const parsed = parseEmailForContact(headers, body);
 
-      const contactEmail = parsed.emails[0] || null;
-      const contactName = parsed.fromName || (parsed.names.length > 0 ? parsed.names[0] : null);
+      // --- DETERMINE CONTACT: if sender is internal (Jonathan), the contact is the recipient ---
+      const internalDomains = ['teamjordan.ca', 'faristeam.ca'];
+      const senderIsInternal = parsed.fromEmail && internalDomains.some(d => parsed.fromEmail.toLowerCase().includes(d));
+
+      let contactEmail, contactName;
+      if (senderIsInternal) {
+        // Jonathan sent this — the contact is whoever he sent it TO
+        // Use To field first, fall back to first non-internal email in body
+        const toEmail = parsed.toEmail && !internalDomains.some(d => parsed.toEmail.toLowerCase().includes(d)) ? parsed.toEmail : null;
+        const toName = toEmail ? parsed.toName : null;
+        const bodyEmailNonInternal = parsed.emails.find(e => !internalDomains.some(d => e.toLowerCase().includes(d)) && e !== parsed.fromEmail);
+        contactEmail = toEmail || bodyEmailNonInternal || null;
+        contactName = toName || (parsed.names.length > 0 ? parsed.names[0] : null);
+      } else {
+        // External sender — they are the contact
+        contactEmail = parsed.emails[0] || null;
+        contactName = parsed.fromName || (parsed.names.length > 0 ? parsed.names[0] : null);
+      }
 
       // --- EXCLUSION FILTERS (auto-skip with reason) ---
-      const internalDomains = ['teamjordan.ca', 'faristeam.ca'];
-      if (parsed.fromEmail && internalDomains.some(d => parsed.fromEmail.toLowerCase().includes(d))) {
+      // For internal senders: we already flipped to use the recipient as contact above.
+      // Only skip if the CONTACT email is also internal (internal-to-internal email).
+      if (contactEmail && internalDomains.some(d => contactEmail.toLowerCase().includes(d))) {
         const internalRealtorCheck = /\b(realtor|sales\s+representative)\b/i;
         if (!internalRealtorCheck.test(body)) {
           skipped.push({ msgId, name: contactName, email: contactEmail, reason: 'Internal team (no Realtor/Sales Rep in signature)' });
@@ -2319,6 +2336,16 @@ app.post('/api/tj/scan', async (req, res) => {
           scannedCount++;
           continue;
         }
+      }
+
+      // Skip if the resolved contact is still Jonathan (self-emails, drafts, etc.)
+      const ownerEmails = ['jonathan@teamjordan.ca', 'jonathanwallacerealestate@gmail.com'];
+      if (contactEmail && ownerEmails.some(e => contactEmail.toLowerCase() === e)) {
+        skipped.push({ msgId, name: contactName, email: contactEmail, reason: 'Owner email (self)' });
+        state.processedEmailIds[msgId] = 'skipped';
+        state.emailsSkipped++;
+        scannedCount++;
+        continue;
       }
 
       const systemSenders = [
