@@ -1559,6 +1559,93 @@ app.get('/api/fub/people/:id', async (req, res) => {
   }
 });
 
+// POST /api/fub/log-call — log a call + note in Follow Up Boss
+app.post('/api/fub/log-call', async (req, res) => {
+  if (!FUB_API_KEY) return res.json({ error: 'FUB_API_KEY not configured', success: false });
+
+  const { personId, outcome, notes, contactName } = req.body;
+  if (!personId) return res.json({ error: 'personId is required', success: false });
+
+  try {
+    const results = { note: null, event: null };
+
+    // 1) Create a note on the contact
+    const noteBody = outcome === 'no_answer'
+      ? `<p><strong>Call — No Answer, Left Voicemail</strong></p><p>Called from Agent HQ. No answer — voicemail left.</p>${notes ? `<p>${notes}</p>` : ''}`
+      : `<p><strong>Call Logged from Agent HQ</strong></p><p>${notes || 'Call completed.'}</p>`;
+
+    try {
+      const noteResp = await fetch(`${FUB_BASE}/notes`, {
+        method: 'POST',
+        headers: fubHeaders(),
+        body: JSON.stringify({
+          personId: Number(personId),
+          body: noteBody,
+          subject: outcome === 'no_answer' ? 'No Answer — Left Voicemail' : 'Call Logged',
+          isHtml: true,
+        }),
+      });
+      if (noteResp.ok) {
+        results.note = await noteResp.json();
+        console.log(`[FUB] Note created for person ${personId}`);
+      } else {
+        const errText = await noteResp.text();
+        console.error(`[FUB] Note creation failed: ${noteResp.status} — ${errText}`);
+        results.note = { error: `${noteResp.status}: ${errText}` };
+      }
+    } catch (err) {
+      console.error(`[FUB] Note creation error:`, err);
+      results.note = { error: err.message };
+    }
+
+    // 2) Log a call event on the contact
+    try {
+      const eventResp = await fetch(`${FUB_BASE}/events`, {
+        method: 'POST',
+        headers: fubHeaders(),
+        body: JSON.stringify({
+          personId: Number(personId),
+          type: 'Call',
+          description: outcome === 'no_answer'
+            ? 'No answer — left voicemail. Logged from Agent HQ.'
+            : (notes || 'Call completed. Logged from Agent HQ.'),
+          outcome: outcome === 'no_answer' ? 'No Answer' : 'Connected',
+        }),
+      });
+      if (eventResp.ok) {
+        results.event = await eventResp.json();
+        console.log(`[FUB] Call event logged for person ${personId}`);
+      } else {
+        const errText = await eventResp.text();
+        console.error(`[FUB] Event creation failed: ${eventResp.status} — ${errText}`);
+        results.event = { error: `${eventResp.status}: ${errText}` };
+      }
+    } catch (err) {
+      console.error(`[FUB] Event creation error:`, err);
+      results.event = { error: err.message };
+    }
+
+    // 3) Update lastActivity by touching the contact (FUB auto-updates on note/event)
+    // No extra call needed — creating a note/event already updates lastActivity
+
+    // 4) Remove this contact from today's cached call list
+    if (callListCache.list) {
+      callListCache.list = callListCache.list.filter(c => c.fubId !== Number(personId));
+    }
+
+    res.json({
+      success: true,
+      personId,
+      contactName: contactName || 'Unknown',
+      outcome,
+      results,
+    });
+  } catch (err) {
+    console.error('[FUB] Log call error:', err);
+    res.json({ error: err.message, success: false });
+  }
+});
+
 // ─────────────────────────────────────────────
 // SPA Fallback — serve index.html for all other routes
 // ─────────────────────────────────────────────

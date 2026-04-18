@@ -952,18 +952,180 @@ function FeedbackCard({ fb }) {
 // ─────────────────────────────────────────────
 // CALL LIST SECTION
 // ─────────────────────────────────────────────
+// Individual call card with log/voicemail actions
+function CallCard({ c, onLogged }) {
+  const cKey = c.fubId || c.id;
+  const [mode, setMode] = useState('idle'); // idle | logging | submitting | done | vm_submitting | vm_done
+  const [notes, setNotes] = useState('');
+  const [outcome, setOutcome] = useState(null); // 'connected' | 'no_answer'
+
+  const submitLog = async (callOutcome, callNotes) => {
+    setMode(callOutcome === 'no_answer' ? 'vm_submitting' : 'submitting');
+    try {
+      const res = await fetch('/api/fub/log-call', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          personId: c.fubId,
+          outcome: callOutcome,
+          notes: callNotes || '',
+          contactName: c.name,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setMode(callOutcome === 'no_answer' ? 'vm_done' : 'done');
+        setOutcome(callOutcome);
+        // Remove from list after brief success flash
+        setTimeout(() => onLogged(cKey, callOutcome), 1200);
+      } else {
+        console.error('[FUB] Log call failed:', data.error);
+        setMode('idle');
+      }
+    } catch (err) {
+      console.error('[FUB] Log call error:', err);
+      setMode('idle');
+    }
+  };
+
+  // Done/VM done state — green success flash
+  if (mode === 'done' || mode === 'vm_done') {
+    return (
+      <div style={{
+        display: "flex", alignItems: "center", gap: 12, padding: "12px 14px", borderRadius: 10,
+        background: "#f0fdf4", marginBottom: 4, border: "1px solid #bbf7d0",
+        transition: "all 0.3s ease",
+      }}>
+        <CheckCircle2 size={18} color="#10b981" />
+        <div style={{ flex: 1 }}>
+          <span style={{ fontSize: 13, fontWeight: 700, color: "#065f46" }}>{c.name}</span>
+          <span style={{ fontSize: 11, color: "#10b981", marginLeft: 8 }}>
+            {mode === 'vm_done' ? 'Voicemail logged to FUB' : 'Call logged to FUB'}
+          </span>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{
+      borderRadius: 10, background: mode === 'logging' ? "#fff" : "#fafafa", marginBottom: 4,
+      border: mode === 'logging' ? "1px solid #bfdbfe" : "1px solid transparent",
+      transition: "all 0.2s ease",
+    }}>
+      {/* Main contact row */}
+      <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 12px" }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ fontSize: 13, fontWeight: 700, color: "#111827" }}>{c.name}</span>
+            <span style={{ fontSize: 10, fontWeight: 600, color: c.tagColor, background: c.tagBg, padding: "1px 6px", borderRadius: 4 }}>{c.fubStage}</span>
+          </div>
+          <div style={{ fontSize: 11, color: "#6b7280", marginTop: 2 }}>{c.context}</div>
+        </div>
+        <div style={{ textAlign: "right", flexShrink: 0, marginRight: 8 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: "#374151" }}>{c.phone}</div>
+          <div style={{ fontSize: 10, color: "#9ca3af" }}>Last: {c.lastContact}</div>
+        </div>
+        {/* Action buttons */}
+        <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+          {mode === 'idle' && (
+            <>
+              <button onClick={() => setMode('logging')} style={{
+                display: "flex", alignItems: "center", gap: 4, background: "#2563eb", color: "#fff", border: "none", borderRadius: 6,
+                padding: "6px 10px", fontSize: 11, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap",
+              }}>
+                <PenLine size={11} /> Log Call
+              </button>
+              <button onClick={() => submitLog('no_answer', '')} disabled={mode === 'vm_submitting'} style={{
+                display: "flex", alignItems: "center", gap: 4, background: "#f3f4f6", color: "#6b7280", border: "1px solid #e5e7eb", borderRadius: 6,
+                padding: "6px 8px", fontSize: 10, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap",
+              }}>
+                <PhoneOff size={10} /> No Answer
+              </button>
+            </>
+          )}
+          {mode === 'vm_submitting' && (
+            <span style={{ fontSize: 11, color: "#9ca3af", display: "flex", alignItems: "center", gap: 4 }}>
+              <RefreshCw size={11} style={{ animation: "spin 1s linear infinite" }} /> Logging...
+            </span>
+          )}
+          {mode === 'submitting' && (
+            <span style={{ fontSize: 11, color: "#2563eb", display: "flex", alignItems: "center", gap: 4 }}>
+              <RefreshCw size={11} style={{ animation: "spin 1s linear infinite" }} /> Saving to FUB...
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* Expanded notes panel */}
+      {mode === 'logging' && (
+        <div style={{ padding: "0 12px 12px", borderTop: "1px solid #e5e7eb", marginTop: 4, paddingTop: 10 }}>
+          <textarea
+            value={notes}
+            onChange={e => setNotes(e.target.value)}
+            placeholder="Call notes — what did you discuss? Any follow-up needed?"
+            autoFocus
+            style={{
+              width: "100%", minHeight: 70, padding: 10, borderRadius: 8, border: "1px solid #d1d5db",
+              fontSize: 12, fontFamily: "inherit", resize: "vertical", outline: "none", boxSizing: "border-box",
+            }}
+          />
+          <div style={{ display: "flex", gap: 8, marginTop: 8, justifyContent: "flex-end" }}>
+            <button onClick={() => { setMode('idle'); setNotes(''); }} style={{
+              background: "#f3f4f6", color: "#6b7280", border: "1px solid #e5e7eb", borderRadius: 6,
+              padding: "6px 14px", fontSize: 11, fontWeight: 600, cursor: "pointer",
+            }}>
+              Cancel
+            </button>
+            <button onClick={() => submitLog('no_answer', notes)} style={{
+              display: "flex", alignItems: "center", gap: 4, background: "#fef3c7", color: "#92400e", border: "1px solid #fde68a", borderRadius: 6,
+              padding: "6px 12px", fontSize: 11, fontWeight: 600, cursor: "pointer",
+            }}>
+              <PhoneOff size={11} /> No Answer, Left VM
+            </button>
+            <button onClick={() => submitLog('connected', notes)} disabled={!notes.trim()} style={{
+              display: "flex", alignItems: "center", gap: 4, background: notes.trim() ? "#10b981" : "#d1d5db", color: "#fff", border: "none", borderRadius: 6,
+              padding: "6px 14px", fontSize: 11, fontWeight: 600, cursor: notes.trim() ? "pointer" : "not-allowed",
+            }}>
+              <Check size={11} /> Log Call to FUB
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function CallListSection() {
   const { callList: dailyCallList, loading, connected, totalContacts, generatedAt, refresh } = useFubContext();
   const [refreshing, setRefreshing] = useState(false);
-  const [completed, setCompleted] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('agenthq-calls-completed') || '{}'); } catch { return {}; }
+  const [loggedIds, setLoggedIds] = useState(() => {
+    try {
+      const saved = localStorage.getItem('agenthq-calls-logged');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        // Only use today's logged calls
+        const todayKey = new Date().toISOString().slice(0, 10);
+        if (parsed.dateKey === todayKey) return parsed.ids || {};
+        }
+    } catch {}
+    return {};
   });
-  const persistCompleted = (updater) => {
-    setCompleted(prev => {
+
+  const persistLogged = (updater) => {
+    setLoggedIds(prev => {
       const next = typeof updater === 'function' ? updater(prev) : updater;
-      try { localStorage.setItem('agenthq-calls-completed', JSON.stringify(next)); } catch {}
+      try {
+        localStorage.setItem('agenthq-calls-logged', JSON.stringify({
+          ids: next, dateKey: new Date().toISOString().slice(0, 10),
+        }));
+      } catch {}
       return next;
     });
+  };
+
+  const handleLogged = (cKey, outcome) => {
+    persistLogged(prev => ({ ...prev, [cKey]: outcome }));
   };
 
   const handleRefresh = async () => {
@@ -977,7 +1139,9 @@ function CallListSection() {
   const bucketIcons = { hot: Flame, warm: Sun, cold: Snowflake, past: RotateCcw, sphere: Users, active: UserPlus };
   const bucketColors = { hot: "#ef4444", warm: "#f59e0b", cold: "#6b7280", past: "#8b5cf6", sphere: "#06b6d4", active: "#2563eb" };
 
-  const completedCount = dailyCallList.filter(c => completed[c.id] || completed[c.fubId]).length;
+  // Filter out logged calls
+  const activeCallList = dailyCallList.filter(c => !loggedIds[c.fubId || c.id]);
+  const loggedCount = Object.keys(loggedIds).length;
 
   return (
     <Card>
@@ -985,7 +1149,7 @@ function CallListSection() {
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <Phone size={16} color="#2563eb" />
           <span style={{ fontSize: 15, fontWeight: 700, color: "#111827" }}>Today's Call List</span>
-          <span style={{ fontSize: 11, fontWeight: 600, color: "#6b7280", background: "#f3f4f6", padding: "2px 8px", borderRadius: 6 }}>{completedCount}/{dailyCallList.length}</span>
+          <span style={{ fontSize: 11, fontWeight: 600, color: "#6b7280", background: "#f3f4f6", padding: "2px 8px", borderRadius: 6 }}>{loggedCount}/{dailyCallList.length} done</span>
           {connected && <span style={{ fontSize: 9, fontWeight: 700, color: "#fff", background: "#10b981", padding: "1px 5px", borderRadius: 3 }}>LIVE</span>}
         </div>
         <button onClick={handleRefresh} disabled={refreshing} style={{
@@ -997,7 +1161,7 @@ function CallListSection() {
       </div>
       <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 16, padding: "8px 12px", background: "#f9fafb", borderRadius: 8, border: "1px solid #f3f4f6" }}>
         {connected
-          ? <>Scored and ranked from <strong>{totalContacts}</strong> contacts in Follow Up Boss. Weighted by last contact date + stage priority. Zero call bias.</>
+          ? <>Scored and ranked from <strong>{totalContacts}</strong> contacts in Follow Up Boss. Log calls below — notes sync directly to FUB.</>
           : <>Set <code>FUB_API_KEY</code> in Railway to connect Follow Up Boss and generate a live call list.</>}
         {generatedAt && <span style={{ fontSize: 10, color: "#9ca3af", marginLeft: 8 }}>Generated: {new Date(generatedAt).toLocaleTimeString()}</span>}
       </div>
@@ -1012,8 +1176,14 @@ function CallListSection() {
           Follow Up Boss not connected. Add your FUB_API_KEY to Railway environment variables.
         </div>
       )}
+      {!loading && activeCallList.length === 0 && dailyCallList.length > 0 && (
+        <div style={{ textAlign: "center", padding: "30px 0", color: "#10b981", fontSize: 14, fontWeight: 600 }}>
+          <CheckCircle2 size={24} style={{ marginBottom: 6 }} /><br />
+          All {dailyCallList.length} calls completed for today!
+        </div>
+      )}
       {bucketOrder.map(bucket => {
-        const contacts = dailyCallList.filter(c => c.bucket === bucket);
+        const contacts = activeCallList.filter(c => c.bucket === bucket);
         if (contacts.length === 0) return null;
         const BIcon = bucketIcons[bucket];
         return (
@@ -1023,37 +1193,9 @@ function CallListSection() {
               <span style={{ fontSize: 12, fontWeight: 700, color: bucketColors[bucket], textTransform: "uppercase", letterSpacing: "0.05em" }}>{bucketLabels[bucket]}</span>
               <span style={{ fontSize: 11, color: "#9ca3af" }}>({contacts.length})</span>
             </div>
-            {contacts.map(c => {
-              const cKey = c.fubId || c.id;
-              const isDone = completed[cKey];
-              return (
-                <div key={cKey} style={{
-                  display: "flex", alignItems: "center", gap: 12, padding: "10px 12px", borderRadius: 10,
-                  background: isDone ? "#f0fdf4" : "#fafafa", marginBottom: 4,
-                  border: isDone ? "1px solid #bbf7d0" : "1px solid transparent",
-                  opacity: isDone ? 0.6 : 1,
-                }}>
-                  <button onClick={() => persistCompleted(p => ({ ...p, [cKey]: !p[cKey] }))} style={{
-                    width: 20, height: 20, borderRadius: "50%", border: isDone ? "none" : "2px solid #d1d5db",
-                    background: isDone ? "#10b981" : "transparent", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0,
-                  }}>
-                    {isDone && <Check size={12} color="#fff" />}
-                  </button>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      <span style={{ fontSize: 13, fontWeight: 700, color: "#111827" }}>{c.name}</span>
-                      <span style={{ fontSize: 10, fontWeight: 600, color: c.tagColor, background: c.tagBg, padding: "1px 6px", borderRadius: 4 }}>{c.fubStage}</span>
-                      {c.source === 'followupboss' && <span style={{ fontSize: 8, color: "#9ca3af" }}>FUB</span>}
-                    </div>
-                    <div style={{ fontSize: 11, color: "#6b7280", marginTop: 2 }}>{c.context}</div>
-                  </div>
-                  <div style={{ textAlign: "right", flexShrink: 0 }}>
-                    <div style={{ fontSize: 12, fontWeight: 600, color: "#374151" }}>{c.phone}</div>
-                    <div style={{ fontSize: 10, color: "#9ca3af" }}>Last: {c.lastContact}</div>
-                  </div>
-                </div>
-              );
-            })}
+            {contacts.map(c => (
+              <CallCard key={c.fubId || c.id} c={c} onLogged={handleLogged} />
+            ))}
           </div>
         );
       })}
