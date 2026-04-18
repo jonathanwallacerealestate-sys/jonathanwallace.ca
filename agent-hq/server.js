@@ -1795,6 +1795,124 @@ app.post('/api/ea/sweep-now', async (req, res) => {
   res.json(result);
 });
 
+// ─────────────────────────────────────────────
+// OUTLOOK SENT FOLDER SCRAPER
+// Receives scraped sent emails from Chrome extension, stores them,
+// and cross-references against EA thread cache to fix missed states.
+// ─────────────────────────────────────────────
+const OUTLOOK_SCRAPE_PATH = path.join(__dirname, '.outlook-sent-scrape.json');
+let outlookSentCache = { emails: [], lastScrape: null, scrapeCount: 0, corrections: [] };
+
+function loadOutlookSent() {
+  try {
+    if (fs.existsSync(OUTLOOK_SCRAPE_PATH)) outlookSentCache = JSON.parse(fs.readFileSync(OUTLOOK_SCRAPE_PATH, 'utf8'));
+  } catch {}
+}
+function saveOutlookSent() {
+  try { fs.writeFileSync(OUTLOOK_SCRAPE_PATH, JSON.stringify(outlookSentCache, null, 2)); } catch {}
+}
+loadOutlookSent();
+
+// POST /api/ea/outlook-sent — Receive scraped sent emails from Chrome extension
+app.post('/api/ea/outlook-sent', (req, res) => {
+  const { emails } = req.body;
+  if (!emails || !Array.isArray(emails)) {
+    return res.json({ success: false, error: 'Expected { emails: [...] }' });
+  }
+
+  console.log(`[Outlook Scrape] Received ${emails.length} sent emails`);
+
+  // Deduplicate by subject+date combo
+  const existingKeys = new Set(outlookSentCache.emails.map(e => `${e.subject}|${e.date}`));
+  let newCount = 0;
+  for (const email of emails) {
+    const key = `${email.subject}|${email.date}`;
+    if (!existingKeys.has(key)) {
+      outlookSentCache.emails.push({
+        subject: email.subject || '',
+        to: email.to || '',
+        date: email.date || '',
+        snippet: email.snippet || '',
+        scrapedAt: new Date().toISOString(),
+      });
+      existingKeys.add(key);
+      newCount++;
+    }
+  }
+
+  // Trim to last 500 emails
+  if (outlookSentCache.emails.length > 500) {
+    outlookSentCache.emails = outlookSentCache.emails.slice(-500);
+  }
+
+  outlookSentCache.lastScrape = new Date().toISOString();
+  outlookSentCache.scrapeCount = (outlookSentCache.scrapeCount || 0) + 1;
+
+  // Cross-reference: check if any scraped sent emails match "awaiting_you" threads
+  const corrections = [];
+  const threads = Object.values(eaThreadCache.threads);
+  for (const thread of threads) {
+    if (thread.state !== 'awaiting_you') continue;
+
+    // Match by subject (fuzzy: strip Re:/Fwd: prefixes)
+    const cleanSubject = (s) => (s || '').replace(/^(re|fwd|fw):\s*/gi, '').trim().toLowerCase();
+    const threadSubjectClean = cleanSubject(thread.subject);
+
+    for (const sent of emails) {
+      const sentSubjectClean = cleanSubject(sent.subject);
+      if (threadSubjectClean && sentSubjectClean && threadSubjectClean === sentSubjectClean) {
+        // Check if the sent email is more recent than the thread's last message
+        const sentDate = new Date(sent.date).getTime();
+        if (sentDate > (thread.timestamp || 0) - 300000) { // 5 min tolerance
+          // Jonathan replied via Outlook — correct the state
+          console.log(`[Outlook Scrape] Correcting thread "${thread.subject}" from awaiting_you → awaiting_them (matched sent email from ${sent.date})`);
+          eaThreadCache.threads[thread.id].state = 'awaiting_them';
+          eaThreadCache.threads[thread.id].outlookScrapeMatch = true;
+          corrections.push({
+            threadId: thread.id,
+            subject: thread.subject,
+            oldState: 'awaiting_you',
+            newState: 'awaiting_them',
+            matchedSentDate: sent.date,
+            correctedAt: new Date().toISOString(),
+          });
+          break;
+        }
+      }
+    }
+  }
+
+  if (corrections.length > 0) {
+    outlookSentCache.corrections.push(...corrections);
+    // Trim corrections log
+    if (outlookSentCache.corrections.length > 200) {
+      outlookSentCache.corrections = outlookSentCache.corrections.slice(-200);
+    }
+    saveEaThreads();
+  }
+  saveOutlookSent();
+
+  res.json({
+    success: true,
+    received: emails.length,
+    newEmails: newCount,
+    corrections: corrections.length,
+    correctionDetails: corrections,
+    totalStored: outlookSentCache.emails.length,
+  });
+});
+
+// GET /api/ea/outlook-sent — View stored Outlook sent data and correction history
+app.get('/api/ea/outlook-sent', (req, res) => {
+  res.json({
+    lastScrape: outlookSentCache.lastScrape,
+    scrapeCount: outlookSentCache.scrapeCount,
+    totalStored: outlookSentCache.emails.length,
+    recentEmails: outlookSentCache.emails.slice(-20),
+    recentCorrections: outlookSentCache.corrections.slice(-20),
+  });
+});
+
 // POST /api/ea/thread/:threadId/state — Manually update thread state (snooze, close, etc.)
 app.post('/api/ea/thread/:threadId/state', (req, res) => {
   const { threadId } = req.params;

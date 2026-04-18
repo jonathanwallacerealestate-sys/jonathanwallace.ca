@@ -2030,6 +2030,7 @@ function EmailEASection() {
                     {t.category && categoryLabel[t.category] && <span style={{ fontSize: 9, color: "#6b7280", background: "#f3f4f6", padding: "1px 5px", borderRadius: 3 }}>{categoryLabel[t.category]}</span>}
                     {t.fubSentMatch && <span style={{ fontSize: 8, fontWeight: 600, color: "#7c3aed", background: "#f5f3ff", padding: "1px 5px", borderRadius: 3 }}>via FUB</span>}
                     {t.outlookCcDetected && <span style={{ fontSize: 8, fontWeight: 600, color: "#2563eb", background: "#eff6ff", padding: "1px 5px", borderRadius: 3 }}>Outlook CC</span>}
+                    {t.outlookScrapeMatch && <span style={{ fontSize: 8, fontWeight: 600, color: "#059669", background: "#ecfdf5", padding: "1px 5px", borderRadius: 3 }}>Outlook Sent</span>}
                     {t.messageCount > 1 && <span style={{ fontSize: 9, color: "#9ca3af" }}>({t.messageCount})</span>}
                   </div>
                   <div style={{ fontSize: 12, color: "#374151", fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{t.subject}</div>
