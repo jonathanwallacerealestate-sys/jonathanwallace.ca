@@ -494,7 +494,6 @@ function MorningCalendarSnapshot() {
             <div style={{ fontSize: 11, fontWeight: 600, color: "#374151" }}>{ev.title}</div>
             <div style={{ fontSize: 10, color: "#9ca3af" }}>{ev.allDay ? "All day" : formatTime(ev.start)}</div>
           </div>
-          <span style={{ fontSize: 8, fontWeight: 700, color: "#fff", background: "#10b981", padding: "1px 4px", borderRadius: 3 }}>LIVE</span>
         </div>
       )) : fallbackEvents.map((ev, i) => (
         <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
@@ -892,7 +891,6 @@ function OutstandingFeedbackBar() {
                 </div>
               </div>
               <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                <span style={{ fontSize: 9, fontWeight: 700, color: "#fff", background: "#10b981", padding: "2px 6px", borderRadius: 3 }}>LIVE</span>
                 <button onClick={() => {
                   if (isExpanded) {
                     setExpandedId(null); setMode('idle'); setRawInput(''); setFormatted('');
@@ -2427,7 +2425,6 @@ function CalendarSection() {
                     {ev.location ? ` · ${ev.location}` : ""}
                   </div>
                 </div>
-                <span style={{ fontSize: 9, fontWeight: 700, color: "#fff", background: "#10b981", padding: "1px 5px", borderRadius: 3 }}>LIVE</span>
                 {ev.htmlLink && (
                   <a href={ev.htmlLink} target="_blank" rel="noopener noreferrer" style={{ color: "#9ca3af" }}>
                     <ExternalLink size={12} />
