@@ -412,12 +412,20 @@ function MorningCalendarSnapshot() {
 
 function MorningBriefing() {
   const urgentEmails = emailInbox.filter(e => e.category === "response_needed");
-  const [dismissed, setDismissed] = useState(false);
+  const todayKey = new Date().toISOString().slice(0, 10); // resets daily
+  const [dismissed, setDismissed] = useState(() => {
+    try { return localStorage.getItem('agenthq-brief-dismissed') === todayKey; } catch { return false; }
+  });
   if (dismissed) return null;
+
+  const handleDismiss = () => {
+    setDismissed(true);
+    try { localStorage.setItem('agenthq-brief-dismissed', todayKey); } catch {}
+  };
 
   return (
     <Card style={{ background: "linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%)", border: "1px solid #fde68a", marginBottom: 16, position: "relative" }}>
-      <button onClick={() => setDismissed(true)} style={{ position: "absolute", top: 12, right: 12, background: "none", border: "none", color: "#d97706", cursor: "pointer" }}><X size={14} /></button>
+      <button onClick={handleDismiss} style={{ position: "absolute", top: 12, right: 12, background: "none", border: "none", color: "#d97706", cursor: "pointer" }}><X size={14} /></button>
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
         <div style={{ width: 36, height: 36, borderRadius: 10, background: "linear-gradient(135deg,#c8a96e,#f59e0b)", display: "flex", alignItems: "center", justifyContent: "center" }}>
           <Coffee size={18} color="#fff" />
@@ -882,7 +890,16 @@ function FeedbackCard({ fb }) {
 // CALL LIST SECTION
 // ─────────────────────────────────────────────
 function CallListSection() {
-  const [completed, setCompleted] = useState({});
+  const [completed, setCompleted] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('agenthq-calls-completed') || '{}'); } catch { return {}; }
+  });
+  const persistCompleted = (updater) => {
+    setCompleted(prev => {
+      const next = typeof updater === 'function' ? updater(prev) : updater;
+      try { localStorage.setItem('agenthq-calls-completed', JSON.stringify(next)); } catch {}
+      return next;
+    });
+  };
   const bucketOrder = ["hot", "cold", "past", "active"];
   const bucketLabels = { hot: "Hot Leads", cold: "Cold Leads", past: "Past Clients", active: "Active Clients" };
   const bucketIcons = { hot: Flame, cold: Snowflake, past: RotateCcw, active: UserPlus };
@@ -911,7 +928,7 @@ function CallListSection() {
                 border: completed[c.id] ? "1px solid #bbf7d0" : "1px solid transparent",
                 opacity: completed[c.id] ? 0.6 : 1,
               }}>
-                <button onClick={() => setCompleted(p => ({ ...p, [c.id]: !p[c.id] }))} style={{
+                <button onClick={() => persistCompleted(p => ({ ...p, [c.id]: !p[c.id] }))} style={{
                   width: 20, height: 20, borderRadius: "50%", border: completed[c.id] ? "none" : "2px solid #d1d5db",
                   background: completed[c.id] ? "#10b981" : "transparent", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0,
                 }}>
@@ -942,7 +959,16 @@ function CallListSection() {
 // ─────────────────────────────────────────────
 function EmailEASection() {
   const [selectedEmail, setSelectedEmail] = useState(null);
-  const [actions, setActions] = useState({});
+  const [actions, setActions] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('agenthq-email-actions') || '{}'); } catch { return {}; }
+  });
+  const persistActions = (updater) => {
+    setActions(prev => {
+      const next = typeof updater === 'function' ? updater(prev) : updater;
+      try { localStorage.setItem('agenthq-email-actions', JSON.stringify(next)); } catch {}
+      return next;
+    });
+  };
   const categories = [
     { key: "response_needed", label: "Needs Your Response", color: "#ef4444", bg: "#fef2f2", icon: Reply, count: emailInbox.filter(e => e.category === "response_needed").length },
     { key: "followup_others", label: "Waiting on Others", color: "#f59e0b", bg: "#fffbeb", icon: Clock, count: emailInbox.filter(e => e.category === "followup_others").length },
@@ -1012,9 +1038,9 @@ function EmailEASection() {
                     <span style={{ fontSize: 12, color: "#374151" }}>{em.suggestedAction}</span>
                   </div>
                   <div style={{ display: "flex", gap: 6 }}>
-                    <button onClick={() => setActions(a => ({ ...a, [em.id]: "replied" }))} style={{ display: "flex", alignItems: "center", gap: 4, background: "#2563eb", color: "#fff", border: "none", borderRadius: 6, padding: "6px 12px", fontSize: 11, fontWeight: 600, cursor: "pointer" }}><Reply size={11} /> Draft Reply</button>
-                    <button onClick={() => setActions(a => ({ ...a, [em.id]: "flagged" }))} style={{ display: "flex", alignItems: "center", gap: 4, background: "#f59e0b20", color: "#f59e0b", border: "1px solid #f59e0b40", borderRadius: 6, padding: "6px 10px", fontSize: 11, fontWeight: 600, cursor: "pointer" }}><Flag size={11} /> Flag for Later</button>
-                    <button onClick={() => setActions(a => ({ ...a, [em.id]: "filed" }))} style={{ display: "flex", alignItems: "center", gap: 4, background: "#f3f4f6", color: "#6b7280", border: "1px solid #e5e7eb", borderRadius: 6, padding: "6px 10px", fontSize: 11, fontWeight: 600, cursor: "pointer" }}><Archive size={11} /> File</button>
+                    <button onClick={() => persistActions(a => ({ ...a, [em.id]: "replied" }))} style={{ display: "flex", alignItems: "center", gap: 4, background: "#2563eb", color: "#fff", border: "none", borderRadius: 6, padding: "6px 12px", fontSize: 11, fontWeight: 600, cursor: "pointer" }}><Reply size={11} /> Draft Reply</button>
+                    <button onClick={() => persistActions(a => ({ ...a, [em.id]: "flagged" }))} style={{ display: "flex", alignItems: "center", gap: 4, background: "#f59e0b20", color: "#f59e0b", border: "1px solid #f59e0b40", borderRadius: 6, padding: "6px 10px", fontSize: 11, fontWeight: 600, cursor: "pointer" }}><Flag size={11} /> Flag for Later</button>
+                    <button onClick={() => persistActions(a => ({ ...a, [em.id]: "filed" }))} style={{ display: "flex", alignItems: "center", gap: 4, background: "#f3f4f6", color: "#6b7280", border: "1px solid #e5e7eb", borderRadius: 6, padding: "6px 10px", fontSize: 11, fontWeight: 600, cursor: "pointer" }}><Archive size={11} /> File</button>
                   </div>
                 </div>
               )}
@@ -4627,8 +4653,16 @@ function SectionContent({ section }) {
 // ─────────────────────────────────────────────
 export default function Dashboard() {
   const [section, setSection] = useState("briefing");
-  const [collapsed, setCollapsed] = useState(false);
-  const [sidebarOrder, setSidebarOrder] = useState(sidebarItems.map(i => i.id));
+  const [collapsed, setCollapsed] = useState(() => {
+    try { return localStorage.getItem('agenthq-sidebar-collapsed') === 'true'; } catch { return false; }
+  });
+  const [sidebarOrder, setSidebarOrder] = useState(() => {
+    try {
+      const saved = localStorage.getItem('agenthq-sidebar-order');
+      if (saved) { const parsed = JSON.parse(saved); if (Array.isArray(parsed) && parsed.length) return parsed; }
+    } catch {}
+    return sidebarItems.map(i => i.id);
+  });
   const [dragIdx, setDragIdx] = useState(null);
   const [dragOverIdx, setDragOverIdx] = useState(null);
 
@@ -4644,6 +4678,7 @@ export default function Dashboard() {
     const [moved] = updated.splice(dragIdx, 1);
     updated.splice(dropIdx, 0, moved);
     setSidebarOrder(updated);
+    try { localStorage.setItem('agenthq-sidebar-order', JSON.stringify(updated)); } catch {}
     setDragIdx(null);
     setDragOverIdx(null);
   };
@@ -4653,7 +4688,7 @@ export default function Dashboard() {
 
       {/* SIDEBAR */}
       <div style={{ width: collapsed ? 64 : 210, background: "#111827", display: "flex", flexDirection: "column", transition: "width 0.2s", flexShrink: 0, overflow: "hidden" }}>
-        <div style={{ padding: collapsed ? "16px 12px" : "16px 16px", borderBottom: "1px solid #1f2937", display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }} onClick={() => setCollapsed(!collapsed)}>
+        <div style={{ padding: collapsed ? "16px 12px" : "16px 16px", borderBottom: "1px solid #1f2937", display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }} onClick={() => { const next = !collapsed; setCollapsed(next); try { localStorage.setItem('agenthq-sidebar-collapsed', String(next)); } catch {} }}>
           <div style={{ width: 32, height: 32, borderRadius: 8, background: "linear-gradient(135deg,#c8a96e,#d4b878)", display: "flex", alignItems: "center", justifyContent: "center", color: "#111827", fontWeight: 800, fontSize: 14, flexShrink: 0 }}>JW</div>
           {!collapsed && <div>
             <div style={{ fontSize: 13, fontWeight: 700, color: "#fff", lineHeight: 1.2 }}>Jonathan Wallace</div>
