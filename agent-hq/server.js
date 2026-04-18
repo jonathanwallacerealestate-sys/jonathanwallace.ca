@@ -1272,6 +1272,29 @@ app.get('/api/gmail/brokerbay', async (req, res) => {
       }
     }
 
+    // ── AUTO-CREATE REALTOR CONTACTS IN FUB ──
+    // Fire-and-forget: don't block the response
+    const agentsToProcess = [...showings.confirmed, ...activeRequests, ...showings.modified];
+    const realtorResults = [];
+    if (FUB_API_KEY) {
+      // Process in background — don't await, just kick it off
+      (async () => {
+        for (const s of agentsToProcess) {
+          if (s.agentName) {
+            try {
+              const result = await ensureRealtorInFub(s.agentName, s.agentEmail, s.agentPhone, s.brokerage, s.address);
+              if (result) realtorResults.push(result);
+            } catch (err) {
+              console.error(`[BB→FUB] Background error for ${s.agentName}:`, err.message);
+            }
+          }
+        }
+        if (realtorResults.filter(r => r.status === 'created').length > 0) {
+          console.log(`[BB→FUB] Created ${realtorResults.filter(r => r.status === 'created').length} new realtor contacts from showings`);
+        }
+      })();
+    }
+
     res.json({
       status: 'ok',
       summary: {
@@ -2313,7 +2336,138 @@ function parseBrokerBayShowingEmail(body, subject) {
   const typeMatch = body.match(/Type:\s*([^\n<]+)/i);
   if (typeMatch) info.showingType = typeMatch[1].trim();
 
+  // Agent phone
+  const phoneMatch = body.match(/Phone:\s*([^\n<]+)/i) || body.match(/Tel:\s*([^\n<]+)/i) || body.match(/Cell:\s*([^\n<]+)/i);
+  if (phoneMatch) info.agentPhone = phoneMatch[1].trim();
+  if (!info.agentPhone) {
+    // Fallback: grab a phone number near agent name context
+    const phonePattern = body.match(/\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}/);
+    if (phonePattern) info.agentPhone = phonePattern[0];
+  }
+
+  // Agent email
+  const emailField = body.match(/Email:\s*([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/i);
+  if (emailField) info.agentEmail = emailField[1].trim();
+  if (!info.agentEmail) {
+    // Fallback: find email addresses excluding BrokerBay system emails
+    const allEmails = body.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g) || [];
+    const agentEmails = allEmails.filter(e =>
+      !e.includes('brokerbay.com') && !e.includes('noreply') &&
+      !e.includes('jonathanwallacerealestate') && !e.includes('faristeam.ca')
+    );
+    if (agentEmails.length > 0) info.agentEmail = agentEmails[0];
+  }
+
   return info;
+}
+
+// ── Auto-create realtor contacts in FUB from BrokerBay showing emails ──
+const BB_AGENTS_PROCESSED_PATH = path.join(__dirname, '.bb-agents-processed.json');
+let bbAgentsProcessed = {};
+try {
+  if (fs.existsSync(BB_AGENTS_PROCESSED_PATH)) {
+    bbAgentsProcessed = JSON.parse(fs.readFileSync(BB_AGENTS_PROCESSED_PATH, 'utf8'));
+  }
+} catch {}
+
+function saveBbAgentsProcessed() {
+  try { fs.writeFileSync(BB_AGENTS_PROCESSED_PATH, JSON.stringify(bbAgentsProcessed, null, 2)); } catch {}
+}
+
+async function ensureRealtorInFub(agentName, agentEmail, agentPhone, brokerage, sourceAddress) {
+  if (!FUB_API_KEY || !agentName) return null;
+
+  // Create a dedup key from name (normalized)
+  const key = agentName.toLowerCase().replace(/[^a-z]/g, '');
+  if (bbAgentsProcessed[key]) return { status: 'already_processed', name: agentName };
+
+  try {
+    // Check if contact already exists in FUB by email or name
+    let existingId = null;
+    if (agentEmail) {
+      const resp = await fetch(`${FUB_BASE}/people?email=${encodeURIComponent(agentEmail)}&limit=1`, { headers: fubHeaders() });
+      if (resp.ok) {
+        const data = await resp.json();
+        if (data.people && data.people.length > 0) existingId = data.people[0].id;
+      }
+    }
+    if (!existingId) {
+      // Search by name
+      const resp = await fetch(`${FUB_BASE}/people?name=${encodeURIComponent(agentName)}&limit=3`, { headers: fubHeaders() });
+      if (resp.ok) {
+        const data = await resp.json();
+        if (data.people && data.people.length > 0) {
+          // Check for close match
+          const nameLower = agentName.toLowerCase();
+          const match = data.people.find(p => {
+            const fullName = `${p.firstName || ''} ${p.lastName || ''}`.trim().toLowerCase();
+            return fullName === nameLower;
+          });
+          if (match) existingId = match.id;
+        }
+      }
+    }
+
+    if (existingId) {
+      bbAgentsProcessed[key] = { fubId: existingId, status: 'already_exists', timestamp: new Date().toISOString() };
+      saveBbAgentsProcessed();
+      console.log(`[BB→FUB] Agent "${agentName}" already exists (ID: ${existingId})`);
+      return { status: 'already_exists', fubId: existingId, name: agentName };
+    }
+
+    // Create new realtor contact
+    const nameParts = agentName.split(/\s+/);
+    const firstName = nameParts[0] || '';
+    const lastName = nameParts.slice(1).join(' ') || '';
+
+    const newPerson = {
+      firstName,
+      lastName,
+      stage: 'Real Estate Agent',
+      source: 'BrokerBay Showing',
+      tags: ['Realtor', 'Agent', 'BrokerBay Import', 'Agent HQ Import'],
+      phones: agentPhone ? [{ value: agentPhone, type: 'Work' }] : [],
+      emails: agentEmail ? [{ value: agentEmail }] : [],
+    };
+    if (brokerage) newPerson.company = brokerage;
+
+    const createResp = await fetch(`${FUB_BASE}/people`, {
+      method: 'POST',
+      headers: fubHeaders(),
+      body: JSON.stringify(newPerson),
+    });
+
+    if (createResp.ok) {
+      const created = await createResp.json();
+      bbAgentsProcessed[key] = { fubId: created.id, status: 'created', timestamp: new Date().toISOString() };
+      saveBbAgentsProcessed();
+
+      // Add a note about which property they showed
+      if (sourceAddress) {
+        try {
+          await fetch(`${FUB_BASE}/notes`, {
+            method: 'POST',
+            headers: fubHeaders(),
+            body: JSON.stringify({
+              personId: created.id,
+              subject: 'BrokerBay Showing',
+              body: `<p>Showing at <strong>${sourceAddress}</strong> — imported from BrokerBay via Agent HQ.</p>${brokerage ? `<p>Brokerage: ${brokerage}</p>` : ''}`,
+            }),
+          });
+        } catch {}
+      }
+
+      console.log(`[BB→FUB] Created realtor: ${agentName} (ID: ${created.id}) — ${brokerage || 'no brokerage'}`);
+      return { status: 'created', fubId: created.id, name: agentName };
+    } else {
+      const errText = await createResp.text();
+      console.error(`[BB→FUB] Failed to create ${agentName}: ${createResp.status} — ${errText}`);
+      return { status: 'error', name: agentName, error: errText };
+    }
+  } catch (err) {
+    console.error(`[BB→FUB] Error for ${agentName}:`, err.message);
+    return { status: 'error', name: agentName, error: err.message };
+  }
 }
 
 // ─────────────────────────────────────────────
