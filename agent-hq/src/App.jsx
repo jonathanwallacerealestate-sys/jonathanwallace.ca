@@ -75,12 +75,8 @@ function useFubContext() { return useContext(FubContext); }
 // ─────────────────────────────────────────────
 // DATA: EMAIL TRIAGE (LIVE — EA Engine from Gmail + FUB)
 // ─────────────────────────────────────────────
-// Fallback data shown when Gmail is disconnected
-const emailInboxFallback = [
-  { id: 1, from: "Dan Landry", email: "dlandry0214@gmail.com", subject: "Re: 308 Christine", snippet: "Thank you for the update! However, I did want to revisit the strategy...", time: "8:40 PM (Apr 15)", category: "response_needed", priority: "high", state: "awaiting_you" },
-  { id: 3, from: "Vanessa Playtis", email: "vanessa@playtiscameronlaw.com", subject: "RE: 11 Joliet - Possible Holdback Required", snippet: "Update — we are still waiting on funds from the buyers.", time: "1:46 PM", category: "response_needed", priority: "high", state: "awaiting_you" },
-  { id: 4, from: "Follow Up Boss", email: "leads@followupboss.com", subject: "Lead assigned - Vittorio Destefano", snippet: "New lead from Team: Brokerage Call-In. (647) 207-8660", time: "3:40 PM (Apr 14)", category: "response_needed", priority: "medium", state: "awaiting_you" },
-];
+// No fallback data — show "Reconnect to Google" when disconnected
+const emailInboxFallback = [];
 
 // Hook to fetch live EA email triage
 function useEaEmailTriage() {
@@ -188,67 +184,37 @@ const EaContext = createContext(null);
 // ─────────────────────────────────────────────
 // NOTE: Google Calendar MCP integration needs reconnection.
 // Showing only BrokerBay-confirmed events as LIVE data for now.
-const todayCalendar = [
-  { time: "2:00 PM", end: "3:00 PM", title: "Showing — 481 Islandview Lane, Midland", type: "showing", color: "#10b981", icon: CheckCircle2, source: "brokerbay", live: true },
-];
+// Calendar events — populated from live Google Calendar API
+const todayCalendar = [];
 const gcalConnectionStatus = { connected: false, reason: "Google Calendar integration needs refresh — reconnect to pull full calendar." };
 
 // ─────────────────────────────────────────────
 // DATA: BROKERBAY SHOWINGS (LIVE — parsed from Gmail)
 // ─────────────────────────────────────────────
-const brokerBayShowings = [
-  // YESTERDAY — completed (Jonathan attended as buyer agent)
-  { id: "bb-1", time: "12:30 PM", end: "1:30 PM", date: "Thu, Apr 16", property: "45 Brule Street, Penetanguishene", mls: "—", status: "completed",
-    requestedBy: "Jonathan Wallace (Buyer Agent)", buyerAgent: "Jonathan Wallace",
-    buyerName: "—", sellerName: "Peggy Hill / Christine Hanna (Re/Max Hallmark Peggy Hill Group)",
-    notes: "Modified from 3:30 PM → 12:30 PM. Feedback requested by listing agent.", lockboxCode: "4610",
-    source: "brokerbay", live: true, role: "buyer_agent" },
-  // TODAY — your listing 612 Bay St (CANCELLED via BrokerBay email)
-  { id: "bb-2", time: "11:15 AM", end: "12:15 PM", date: "Today", property: "612 Bay Street, Midland", mls: "—", status: "cancelled",
-    requestedBy: "Caitlin Danielle Renton (Renton Realty)", buyerAgent: "Caitlin Danielle Renton",
-    buyerName: "—", sellerName: "Your Listing",
-    notes: "CANCELLED — Caitlin Renton cancelled this showing. Originally confirmed for 11:15 AM.", lockboxCode: "—",
-    source: "brokerbay", live: true, role: "listing_agent" },
-  // TODAY — your listing 481 Islandview Lane
-  { id: "bb-3", time: "2:00 PM", end: "3:00 PM", date: "Today", property: "481 Islandview Lane, Midland", mls: "—", status: "confirmed",
-    requestedBy: "Jordan Iles (Real Broker Ontario Ltd.)", buyerAgent: "Jordan Iles",
-    buyerName: "—", sellerName: "Your Listing",
-    notes: "Jordan Iles — jiles@teamjordan.ca — Real Broker Ontario: 888-311-1172.", lockboxCode: "—",
-    source: "brokerbay", live: true, role: "listing_agent" },
-  // SUNDAY — your listing 612 Bay St
-  { id: "bb-4", time: "12:30 PM", end: "1:30 PM", date: "Sun, Apr 19", property: "612 Bay Street, Midland", mls: "—", status: "confirmed",
-    requestedBy: "Rhys Williams (Keller Williams Experience Realty)", buyerAgent: "Rhys Williams",
-    buyerName: "—", sellerName: "Your Listing",
-    notes: "Rhys Williams — rhys@torrogroup.ca — Keller Williams: 705-720-2200.", lockboxCode: "—",
-    source: "brokerbay", live: true, role: "listing_agent" },
-  // NEXT WEEK — your listing 282 Robins Point Road (CONFIRMED)
-  { id: "bb-5", time: "9:30 AM", end: "10:30 AM", date: "Wed, Apr 22", property: "282 Robins Point Road", mls: "—", status: "confirmed",
-    requestedBy: "Nick Cuong Chuong (LPT Realty)", buyerAgent: "Nick Cuong Chuong",
-    buyerName: "—", sellerName: "Your Listing",
-    notes: "Home Inspection showing. Confirmed via BrokerBay.", lockboxCode: "—",
-    source: "brokerbay", live: true, role: "listing_agent" },
-];
+// BrokerBay showings — populated from live Gmail parsing when connected
+const brokerBayShowings = [];
 
 const brokerBaySyncStatus = {
-  connected: true,
-  lastSync: "Just now — pulled from Gmail",
-  calendarFeedUrl: "webcal://edge.brokerbay.com/ical/agent/jw-9482.ics",
-  googleCalendarLinked: true,
-  totalShowingsThisWeek: 4,
-  confirmedCount: 3,
-  completedCount: 1,
-  cancelledCount: 1,
+  connected: false,
+  lastSync: "Not synced — reconnect Google to pull showings",
+  calendarFeedUrl: "",
+  googleCalendarLinked: false,
+  totalShowingsThisWeek: 0,
+  confirmedCount: 0,
+  completedCount: 0,
+  cancelledCount: 0,
   pendingCount: 0,
 };
 
 // ─────────────────────────────────────────────
 // DATA: METRICS + PIPELINE
 // ─────────────────────────────────────────────
+// Metrics — populated from live FUB/Sisu data when connected
 const metricCards = [
-  { title: "New Leads", value: "47", change: "+12%", trend: "up", period: "This month", color: "#2563eb", target: 60, current: 47 },
-  { title: "Active Deals", value: "8", change: "+2", trend: "up", period: "In pipeline", color: "#f59e0b", target: 12, current: 8 },
-  { title: "Deals Closed", value: "3", change: "+1", trend: "up", period: "This month", color: "#10b981", target: 5, current: 3 },
-  { title: "Closed Volume", value: "$1.2M", change: "+18%", trend: "up", period: "This quarter", color: "#8b5cf6", target: 100, current: 72 },
+  { title: "New Leads", value: "—", change: "", trend: "up", period: "This month", color: "#2563eb", target: 100, current: 0 },
+  { title: "Active Deals", value: "—", change: "", trend: "up", period: "In pipeline", color: "#f59e0b", target: 100, current: 0 },
+  { title: "Deals Closed", value: "—", change: "", trend: "up", period: "This month", color: "#10b981", target: 100, current: 0 },
+  { title: "Closed Volume", value: "—", change: "", trend: "up", period: "This quarter", color: "#8b5cf6", target: 100, current: 0 },
 ];
 
 const sidebarItems = [
@@ -767,10 +733,11 @@ function MorningBriefing() {
         <div style={{ background: "#fff", borderRadius: 10, padding: 14, border: "1px solid #fde68a" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 10 }}>
             <Mail size={14} color="#dc2626" />
-            <span style={{ fontSize: 12, fontWeight: 700, color: "#92400e" }}>{urgentEmails.length} emails need you</span>
-            <span style={{ fontSize: 9, fontWeight: 700, color: "#fff", background: "#10b981", padding: "1px 5px", borderRadius: 3 }}>LIVE</span>
+            <span style={{ fontSize: 12, fontWeight: 700, color: "#92400e" }}>{urgentEmails.length > 0 ? `${urgentEmails.length} emails need you` : 'Emails'}</span>
+            {urgentEmails.length > 0 && <span style={{ fontSize: 9, fontWeight: 700, color: "#fff", background: "#10b981", padding: "1px 5px", borderRadius: 3 }}>LIVE</span>}
+            {urgentEmails.length === 0 && <span style={{ fontSize: 9, fontWeight: 700, color: "#f59e0b", background: "#fffbeb", padding: "1px 5px", borderRadius: 3 }}>GCal offline</span>}
           </div>
-          {urgentEmails.slice(0, 3).map((em, i) => (
+          {urgentEmails.length > 0 ? urgentEmails.slice(0, 3).map((em, i) => (
             <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
               <div style={{ width: 24, height: 24, borderRadius: "50%", background: em.priority === "high" ? "#fef2f2" : "#f3f4f6", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                 <span style={{ fontSize: 10, fontWeight: 800, color: em.priority === "high" ? "#ef4444" : "#6b7280" }}>{em.from.charAt(0)}</span>
@@ -780,7 +747,13 @@ function MorningBriefing() {
                 <div style={{ fontSize: 10, color: "#9ca3af", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{em.subject}</div>
               </div>
             </div>
-          ))}
+          )) : (
+            <div style={{ textAlign: "center", padding: "8px 0" }}>
+              <AlertTriangle size={16} color="#f59e0b" style={{ margin: "0 auto 6px" }} />
+              <div style={{ fontSize: 11, color: "#92400e", fontWeight: 600, marginBottom: 6 }}>Gmail disconnected</div>
+              <a href="/api/auth/google" style={{ fontSize: 10, color: "#2563eb", textDecoration: "underline" }}>Reconnect to Google</a>
+            </div>
+          )}
         </div>
 
         {/* Call list preview — LIVE from Follow Up Boss */}
@@ -1944,7 +1917,7 @@ function EmailEASection() {
         <Mail size={16} color="#c8a96e" />
         <span style={{ fontSize: 15, fontWeight: 700, color: "#111827", flex: 1 }}>Email EA</span>
         {isLive && <span style={{ fontSize: 9, fontWeight: 700, color: "#fff", background: "#10b981", padding: "2px 6px", borderRadius: 3 }}>LIVE</span>}
-        {!isLive && status !== 'loading' && <span style={{ fontSize: 9, fontWeight: 700, color: "#f59e0b", background: "#fffbeb", padding: "2px 6px", borderRadius: 3 }}>CACHED</span>}
+        {!isLive && status !== 'loading' && <span style={{ fontSize: 9, fontWeight: 700, color: "#ef4444", background: "#fef2f2", padding: "2px 6px", borderRadius: 3 }}>DISCONNECTED</span>}
         {(fubSentTracked > 0 || eaData?.outlookCcForwards > 0) && <span style={{ fontSize: 9, color: "#7c3aed", background: "#f5f3ff", padding: "2px 6px", borderRadius: 3, fontWeight: 600 }}>Outlook: {eaData?.outlookCcForwards || 0} sent tracked</span>}
         <button onClick={handleRefresh} disabled={refreshing} style={{ fontSize: 10, color: "#6b7280", background: "none", border: "none", cursor: "pointer", textDecoration: "underline" }}>
           {refreshing ? 'Sweeping...' : 'Sweep Now'}
@@ -1978,7 +1951,17 @@ function EmailEASection() {
 
       {/* Thread list */}
       <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-        {threads.length === 0 && (
+        {threads.length === 0 && !isLive && status !== 'loading' && (
+          <div style={{ textAlign: "center", padding: 40 }}>
+            <AlertTriangle size={24} color="#f59e0b" style={{ margin: "0 auto 10px" }} />
+            <div style={{ fontSize: 14, fontWeight: 600, color: "#374151", marginBottom: 6 }}>Gmail disconnected</div>
+            <div style={{ fontSize: 12, color: "#9ca3af", marginBottom: 12 }}>Session expired — reconnect to see your email threads.</div>
+            <a href="/api/auth/google" style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 20px", background: "#2563eb", color: "#fff", borderRadius: 8, fontSize: 12, fontWeight: 600, textDecoration: "none" }}>
+              <RefreshCw size={13} /> Reconnect to Google
+            </a>
+          </div>
+        )}
+        {threads.length === 0 && isLive && (
           <div style={{ textAlign: "center", padding: 30, color: "#9ca3af", fontSize: 13 }}>
             {viewFilter === 'awaiting_you' ? 'Inbox zero — nothing awaiting your reply.' : `No threads in "${stateConfig[viewFilter]?.label || viewFilter}".`}
           </div>
@@ -3512,118 +3495,21 @@ function MarketingSection() {
 // DATA: LISTING SHOWING INTELLIGENCE
 // (Parsed from BrokerBay emails via Gmail API)
 // ─────────────────────────────────────────────
-// LIVE listings — parsed from BrokerBay emails (you are listing agent)
-const activeListings = [
-  {
-    id: "lst-1", address: "612 Bay Street, Midland, ON", mls: "L4R 1L6", price: "—",
-    daysOnMarket: "—", seller: { name: "Jonathan Wallace (Listing Agent)", phone: "—" },
-    sellerClient: { name: "— (update in FUB)", phone: "—", fubId: "—" },
-    photo: null, status: "active", live: true,
-  },
-  {
-    id: "lst-2", address: "481 Islandview Lane, Midland, ON", mls: "L4R 5H4", price: "—",
-    daysOnMarket: "—", seller: { name: "Jonathan Wallace (Listing Agent)", phone: "—" },
-    sellerClient: { name: "— (update in FUB)", phone: "—", fubId: "—" },
-    photo: null, status: "active", live: true,
-  },
-  {
-    id: "lst-3", address: "282 Robins Point Road", mls: "L0K 2A0", price: "—",
-    daysOnMarket: "—", seller: { name: "Jonathan Wallace (Listing Agent)", phone: "—" },
-    sellerClient: { name: "— (update in FUB)", phone: "—", fubId: "—" },
-    photo: null, status: "active", live: true,
-  },
-];
+// Active listings — populated from live BrokerBay/FUB data
+const activeListings = [];
 
-// LIVE — parsed from actual BrokerBay emails in Gmail (Apr 14–16)
-const showingIntelligence = [
-  // 612 Bay Street — YOUR LISTING
-  { id: "si-1", listingId: "lst-1", address: "612 Bay Street, Midland", date: "Apr 14", time: "—", end: "—",
-    buyerAgent: "Rhys Williams (Keller Williams Experience Realty)", buyerAgentPhone: "705-720-2200", buyerAgentEmail: "rhys@torrogroup.ca",
-    status: "confirmed", feedbackStatus: "n/a", live: true,
-    feedback: null,
-    sellerNotified: false, sellerNotifiedAt: null,
-    emailSource: "info@mg.brokerbay.com", emailSubject: "Showing Request - 612 Bay Street", parsedAt: "Apr 14, 4:07 PM",
-    followUpSentAt: null, followUpType: null,
-    notes: "Initial request — required listing agent confirmation.",
-  },
-  { id: "si-2", listingId: "lst-1", address: "612 Bay Street, Midland", date: "Fri, Apr 17", time: "11:15 AM", end: "12:15 PM",
-    buyerAgent: "Caitlin Danielle Renton (Renton Realty)", buyerAgentPhone: "647-273-9850", buyerAgentEmail: "caitlinrenton@outlook.com",
-    status: "cancelled", feedbackStatus: "n/a", live: true,
-    feedback: null,
-    sellerNotified: false, sellerNotifiedAt: null,
-    emailSource: "info@mg.brokerbay.com", emailSubject: "Showing Cancelled - 612 Bay Street", parsedAt: "Apr 17, 10:30 AM",
-    followUpSentAt: null, followUpType: null,
-    notes: "CANCELLED by Caitlin Renton. Matched by address (612 Bay Street) + time (11:15 AM) + agent (Caitlin Danielle Renton).",
-  },
-  { id: "si-3", listingId: "lst-1", address: "612 Bay Street, Midland", date: "Sun, Apr 19", time: "12:30 PM", end: "1:30 PM",
-    buyerAgent: "Rhys Williams (Keller Williams Experience Realty)", buyerAgentPhone: "705-720-2200", buyerAgentEmail: "rhys@torrogroup.ca",
-    status: "confirmed", feedbackStatus: "n/a", live: true,
-    feedback: null,
-    sellerNotified: false, sellerNotifiedAt: null,
-    emailSource: "info@mg.brokerbay.com", emailSubject: "Showing Confirmed - 612 Bay Street", parsedAt: "Apr 15, 9:49 AM",
-    followUpSentAt: null, followUpType: null,
-    notes: "Second showing request from Rhys — strong buyer interest signal.",
-  },
-  // 481 Islandview Lane — YOUR LISTING
-  { id: "si-4", listingId: "lst-2", address: "481 Islandview Lane, Midland", date: "Fri, Apr 17", time: "2:00 PM", end: "3:00 PM",
-    buyerAgent: "Jordan Iles (Real Broker Ontario Ltd.)", buyerAgentPhone: "888-311-1172", buyerAgentEmail: "jiles@teamjordan.ca",
-    status: "confirmed", feedbackStatus: "n/a", live: true,
-    feedback: null,
-    sellerNotified: false, sellerNotifiedAt: null,
-    emailSource: "info@mg.brokerbay.com", emailSubject: "Showing Confirmed - 481 Islandview Lane", parsedAt: "Apr 16, 10:55 AM",
-    followUpSentAt: null, followUpType: null,
-    notes: "Request came in at 9:10 AM, confirmed at 10:55 AM same day.",
-  },
-  // 282 Robins Point Road — YOUR LISTING (CONFIRMED)
-  { id: "si-5", listingId: "lst-3", address: "282 Robins Point Road", date: "Wed, Apr 22", time: "9:30 AM", end: "10:30 AM",
-    buyerAgent: "Nick Cuong Chuong (LPT Realty)", buyerAgentPhone: "—", buyerAgentEmail: "—",
-    status: "confirmed", feedbackStatus: "n/a", live: true,
-    feedback: null,
-    sellerNotified: false, sellerNotifiedAt: null,
-    emailSource: "info@mg.brokerbay.com", emailSubject: "Showing Confirmed - 282 Robins Point Road", parsedAt: "Apr 17, 3:45 PM",
-    followUpSentAt: null, followUpType: null,
-    notes: "Home Inspection showing — CONFIRMED. Notify sellers about upcoming inspection.",
-  },
-];
+// Showing intelligence — populated from live BrokerBay email parsing
+const showingIntelligence = [];
 
 // ─────────────────────────────────────────────
 // DATA: OUTSTANDING FEEDBACK (you need to give)
 // LIVE — parsed from BrokerBay feedback request emails
 // ─────────────────────────────────────────────
-const outstandingFeedback = [
-  {
-    id: "fb-1", address: "45 Brule Street, Penetanguishene", date: "Yesterday, Apr 16", time: "12:30 PM — 1:30 PM",
-    listingAgent: "Peggy Hill / Christine Hanna", brokerage: "Re/Max Hallmark Peggy Hill Group Realty",
-    listingAgentEmail: "info@peggyhill.com", listingAgentPhone: "(705) 739-4455",
-    status: "outstanding", live: true, role: "buyer_agent",
-    emailReceivedAt: "Yesterday, 2:31 PM",
-    feedbackUrl: "https://edge.brokerbay.com/#/my_business/showing/69e0071d5decc06c3285a17e?redirectTo=calendar",
-    notes: "You showed this property yesterday. Feedback survey link was sent to jonathan@faristeam.ca.",
-  },
-];
+// Outstanding feedback — populated from live BrokerBay email parsing
+const outstandingFeedback = [];
 
-// DRAFT — AI-generated follow-up messages (clearly marked)
-const followUpQueue = [
-  // fq-1 and fq-2 REMOVED — 612 Bay St showing (Caitlin Renton) was cancelled via BrokerBay
-  {
-    id: "fq-3", showingId: "si-4", address: "481 Islandview Lane, Midland", type: "seller_sms",
-    recipient: "Seller (update name in FUB)", phone: "—",
-    scheduledFor: "Fri, Apr 17 — 5:00 PM", status: "draft", draft: true,
-    message: "Hi — the showing at 481 Islandview Lane finished this afternoon. Jordan Iles from Real Broker Ontario brought a buyer through. We're chasing feedback now and will update you as soon as we have it. — Jonathan",
-  },
-  {
-    id: "fq-4", showingId: "si-4", address: "481 Islandview Lane, Midland", type: "agent_email",
-    recipient: "Jordan Iles (Real Broker Ontario Ltd.)", phone: "888-311-1172",
-    scheduledFor: "Fri, Apr 17 — 5:00 PM", status: "draft", draft: true,
-    message: "Hi Jordan — thanks for showing 481 Islandview Lane today. Would love to hear what your buyers thought. Any feedback on the property, price, or features? Thanks! — Jonathan Wallace",
-  },
-  {
-    id: "fq-5", showingId: "si-3", address: "612 Bay Street, Midland", type: "seller_sms",
-    recipient: "Seller (update name in FUB)", phone: "—",
-    scheduledFor: "Sun, Apr 19 — 3:30 PM", status: "draft", draft: true,
-    message: "Hi — Rhys Williams from Keller Williams just finished showing 612 Bay Street. This is his second visit, which is a strong sign. Chasing feedback now. — Jonathan",
-  },
-];
+// Follow-up queue — populated from live showing data when connected
+const followUpQueue = [];
 
 // ─────────────────────────────────────────────
 // P&L SECTION — Split Theory Financial Model (All 4 Tabs)
