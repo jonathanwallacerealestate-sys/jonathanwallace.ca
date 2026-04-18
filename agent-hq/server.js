@@ -896,17 +896,63 @@ app.get('/api/gmail/brokerbay', async (req, res) => {
       }
     }
 
+    // ── CROSS-REFERENCE ──
+    // Match confirmations/cancellations against requests using:
+    //   address (normalized) + showingTime + agentName
+    // Requests that have a matching confirmation → resolved
+    // Requests that have a matching cancellation → cancelled
+    const normalize = (s) => (s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    const makeKey = (entry) => {
+      const addr = normalize(entry.address);
+      const time = normalize(entry.showingTime || entry.showingDate || '');
+      const agent = normalize(entry.agentName || '');
+      return `${addr}|${time}|${agent}`;
+    };
+
+    // Build lookup sets from confirmations and cancellations
+    const confirmedKeys = new Set(showings.confirmed.map(makeKey));
+    const cancelledKeys = new Set(showings.cancelled.map(makeKey));
+
+    // Also match by address + agent (in case time format differs between emails)
+    const makeLooseKey = (entry) => {
+      const addr = normalize(entry.address);
+      const agent = normalize(entry.agentName || '');
+      return `${addr}|${agent}`;
+    };
+    const confirmedLooseKeys = new Set(showings.confirmed.map(makeLooseKey));
+    const cancelledLooseKeys = new Set(showings.cancelled.map(makeLooseKey));
+
+    // Tag requests with their resolution status
+    const resolvedRequests = [];
+    const activeRequests = [];
+    for (const req of showings.requested) {
+      const key = makeKey(req);
+      const looseKey = makeLooseKey(req);
+      if (cancelledKeys.has(key) || cancelledLooseKeys.has(looseKey)) {
+        resolvedRequests.push({ ...req, resolution: 'cancelled', matchedBy: 'address+time+agent' });
+      } else if (confirmedKeys.has(key) || confirmedLooseKeys.has(looseKey)) {
+        resolvedRequests.push({ ...req, resolution: 'confirmed', matchedBy: 'address+time+agent' });
+      } else {
+        activeRequests.push(req);
+      }
+    }
+
     res.json({
       status: 'ok',
       summary: {
         totalEmails: messages.length,
         confirmedShowings: showings.confirmed.length,
         cancelledShowings: showings.cancelled.length,
-        requestedShowings: showings.requested.length,
+        requestedShowings: activeRequests.length,
+        resolvedRequests: resolvedRequests.length,
         modifiedShowings: showings.modified.length,
         feedbackRequests: feedbackRequests.length,
       },
-      showings,
+      showings: {
+        ...showings,
+        requested: activeRequests,
+        resolved: resolvedRequests,
+      },
       feedbackRequests,
       other,
     });

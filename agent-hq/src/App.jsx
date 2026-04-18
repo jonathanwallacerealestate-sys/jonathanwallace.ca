@@ -51,7 +51,6 @@ const emailInbox = [
 // NOTE: Google Calendar MCP integration needs reconnection.
 // Showing only BrokerBay-confirmed events as LIVE data for now.
 const todayCalendar = [
-  { time: "11:15 AM", end: "12:15 PM", title: "Showing — 612 Bay St, Midland", type: "showing", color: "#10b981", icon: CheckCircle2, source: "brokerbay", live: true },
   { time: "2:00 PM", end: "3:00 PM", title: "Showing — 481 Islandview Lane, Midland", type: "showing", color: "#10b981", icon: CheckCircle2, source: "brokerbay", live: true },
 ];
 const gcalConnectionStatus = { connected: false, reason: "Google Calendar integration needs refresh — reconnect to pull full calendar." };
@@ -66,11 +65,11 @@ const brokerBayShowings = [
     buyerName: "—", sellerName: "Peggy Hill / Christine Hanna (Re/Max Hallmark Peggy Hill Group)",
     notes: "Modified from 3:30 PM → 12:30 PM. Feedback requested by listing agent.", lockboxCode: "4610",
     source: "brokerbay", live: true, role: "buyer_agent" },
-  // TODAY — your listing 612 Bay St
-  { id: "bb-2", time: "11:15 AM", end: "12:15 PM", date: "Today", property: "612 Bay Street, Midland", mls: "—", status: "confirmed",
+  // TODAY — your listing 612 Bay St (CANCELLED via BrokerBay email)
+  { id: "bb-2", time: "11:15 AM", end: "12:15 PM", date: "Today", property: "612 Bay Street, Midland", mls: "—", status: "cancelled",
     requestedBy: "Caitlin Danielle Renton (Renton Realty)", buyerAgent: "Caitlin Danielle Renton",
     buyerName: "—", sellerName: "Your Listing",
-    notes: "Caitlin Renton — caitlinrenton@outlook.com — 647-273-9850. Renton Realty office: 905-822-7737.", lockboxCode: "—",
+    notes: "CANCELLED — Caitlin Renton cancelled this showing. Originally confirmed for 11:15 AM.", lockboxCode: "—",
     source: "brokerbay", live: true, role: "listing_agent" },
   // TODAY — your listing 481 Islandview Lane
   { id: "bb-3", time: "2:00 PM", end: "3:00 PM", date: "Today", property: "481 Islandview Lane, Midland", mls: "—", status: "confirmed",
@@ -97,9 +96,10 @@ const brokerBaySyncStatus = {
   lastSync: "Just now — pulled from Gmail",
   calendarFeedUrl: "webcal://edge.brokerbay.com/ical/agent/jw-9482.ics",
   googleCalendarLinked: true,
-  totalShowingsThisWeek: 5,
-  confirmedCount: 4,
+  totalShowingsThisWeek: 4,
+  confirmedCount: 3,
   completedCount: 1,
+  cancelledCount: 1,
   pendingCount: 0,
 };
 
@@ -436,7 +436,7 @@ function MorningBriefing() {
             <span style={{ fontSize: 12, fontWeight: 700, color: "#92400e" }}>Showings</span>
             <span style={{ fontSize: 9, fontWeight: 700, color: "#fff", background: "#10b981", padding: "1px 5px", borderRadius: 3 }}>LIVE</span>
           </div>
-          {brokerBayShowings.filter(s => s.date === "Today").slice(0, 3).map((s, i) => (
+          {brokerBayShowings.filter(s => s.date === "Today" && s.status !== "cancelled").slice(0, 3).map((s, i) => (
             <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
               <div style={{ width: 3, height: 20, borderRadius: 2, background: s.status === "completed" ? "#2563eb" : s.status === "confirmed" ? "#059669" : "#d97706", flexShrink: 0 }} />
               <div style={{ flex: 1, minWidth: 0 }}>
@@ -1451,13 +1451,13 @@ function CalendarSection() {
       )}
 
       {/* Showings merged into calendar view */}
-      {brokerBayShowings.filter(s => s.date === "Today").length > 0 && (
+      {brokerBayShowings.filter(s => s.date === "Today" && s.status !== "cancelled").length > 0 && (
         <div style={{ marginTop: 12 }}>
           <div style={{ fontSize: 11, fontWeight: 700, color: "#e11d48", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
             <MapPin size={11} color="#e11d48" /> Today's Showings
             <span style={{ fontSize: 9, fontWeight: 700, color: "#fff", background: "#10b981", padding: "1px 5px", borderRadius: 3 }}>LIVE</span>
           </div>
-          {brokerBayShowings.filter(s => s.date === "Today").map((s, i) => (
+          {brokerBayShowings.filter(s => s.date === "Today" && s.status !== "cancelled").map((s, i) => (
             <div key={i} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 12px", borderRadius: 10, background: "#fef2f2", border: "1px solid #fecdd3", marginBottom: 4 }}>
               <div style={{ width: 3, height: 36, borderRadius: 2, background: "#e11d48", flexShrink: 0 }} />
               <div style={{ width: 30, height: 30, borderRadius: 8, background: "#e11d4815", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
@@ -1516,10 +1516,10 @@ function ShowingsSection() {
       {/* Quick stats */}
       <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
         {[
-          { label: "Listings", val: listingShowings.length, color: "#8b5cf6", bg: "#f5f3ff" },
-          { label: "Buyer", val: buyerShowings.length, color: "#059669", bg: "#ecfdf5" },
+          { label: "Listings", val: listingShowings.filter(s => s.status !== "cancelled").length, color: "#8b5cf6", bg: "#f5f3ff" },
+          { label: "Buyer", val: buyerShowings.filter(s => s.status !== "cancelled").length, color: "#059669", bg: "#ecfdf5" },
           { label: "Confirmed", val: brokerBaySyncStatus.confirmedCount, color: "#2563eb", bg: "#eff6ff" },
-          { label: "Pending", val: brokerBaySyncStatus.pendingCount, color: "#d97706", bg: "#fffbeb" },
+          { label: "Cancelled", val: brokerBaySyncStatus.cancelledCount || 0, color: "#dc2626", bg: "#fef2f2" },
         ].map(s => (
           <div key={s.label} style={{ flex: 1, padding: "10px 12px", borderRadius: 10, background: s.bg, textAlign: "center" }}>
             <div style={{ fontSize: 20, fontWeight: 700, color: s.color }}>{s.val}</div>
@@ -2513,12 +2513,12 @@ const showingIntelligence = [
   },
   { id: "si-2", listingId: "lst-1", address: "612 Bay Street, Midland", date: "Fri, Apr 17", time: "11:15 AM", end: "12:15 PM",
     buyerAgent: "Caitlin Danielle Renton (Renton Realty)", buyerAgentPhone: "647-273-9850", buyerAgentEmail: "caitlinrenton@outlook.com",
-    status: "confirmed", feedbackStatus: "n/a", live: true,
+    status: "cancelled", feedbackStatus: "n/a", live: true,
     feedback: null,
     sellerNotified: false, sellerNotifiedAt: null,
-    emailSource: "info@mg.brokerbay.com", emailSubject: "Showing Confirmed - 612 Bay Street", parsedAt: "Apr 16, 8:19 AM",
+    emailSource: "info@mg.brokerbay.com", emailSubject: "Showing Cancelled - 612 Bay Street", parsedAt: "Apr 17, 10:30 AM",
     followUpSentAt: null, followUpType: null,
-    notes: "Renton Realty office: 905-822-7737.",
+    notes: "CANCELLED by Caitlin Renton. Matched by address (612 Bay Street) + time (11:15 AM) + agent (Caitlin Danielle Renton).",
   },
   { id: "si-3", listingId: "lst-1", address: "612 Bay Street, Midland", date: "Sun, Apr 19", time: "12:30 PM", end: "1:30 PM",
     buyerAgent: "Rhys Williams (Keller Williams Experience Realty)", buyerAgentPhone: "705-720-2200", buyerAgentEmail: "rhys@torrogroup.ca",
@@ -2569,18 +2569,7 @@ const outstandingFeedback = [
 
 // DRAFT — AI-generated follow-up messages (clearly marked)
 const followUpQueue = [
-  {
-    id: "fq-1", showingId: "si-2", address: "612 Bay Street, Midland", type: "seller_sms",
-    recipient: "Seller (update name in FUB)", phone: "—",
-    scheduledFor: "Fri, Apr 17 — 2:15 PM", status: "draft", draft: true,
-    message: "Hi — just letting you know the showing at 612 Bay Street wrapped up. Caitlin Renton from Renton Realty brought her buyers through. We're following up for feedback now and will share what they thought as soon as we hear back. — Jonathan",
-  },
-  {
-    id: "fq-2", showingId: "si-2", address: "612 Bay Street, Midland", type: "agent_email",
-    recipient: "Caitlin Danielle Renton (Renton Realty)", phone: "647-273-9850",
-    scheduledFor: "Fri, Apr 17 — 2:15 PM", status: "draft", draft: true,
-    message: "Hi Caitlin — thanks for showing 612 Bay Street today. Would love to get your buyers' feedback when you have a moment. Any thoughts on the property, layout, or price point? Appreciate it! — Jonathan Wallace",
-  },
+  // fq-1 and fq-2 REMOVED — 612 Bay St showing (Caitlin Renton) was cancelled via BrokerBay
   {
     id: "fq-3", showingId: "si-4", address: "481 Islandview Lane, Midland", type: "seller_sms",
     recipient: "Seller (update name in FUB)", phone: "—",
