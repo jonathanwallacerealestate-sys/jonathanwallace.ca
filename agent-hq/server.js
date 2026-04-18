@@ -1274,7 +1274,9 @@ app.get('/api/gmail/brokerbay', async (req, res) => {
 
     // ── AUTO-CREATE REALTOR CONTACTS IN FUB ──
     // Fire-and-forget: don't block the response
-    const agentsToProcess = [...showings.confirmed, ...activeRequests, ...showings.modified];
+    // Prioritize REQUEST emails — they have the agent's cell phone
+    // Confirmed emails typically only have the brokerage office number
+    const agentsToProcess = [...activeRequests, ...showings.requested, ...showings.modified, ...showings.confirmed];
     const realtorResults = [];
     if (FUB_API_KEY) {
       // Process in background — don't await, just kick it off
@@ -1282,7 +1284,7 @@ app.get('/api/gmail/brokerbay', async (req, res) => {
         for (const s of agentsToProcess) {
           if (s.agentName) {
             try {
-              const result = await ensureRealtorInFub(s.agentName, s.agentEmail, s.agentPhone, s.brokerage, s.address);
+              const result = await ensureRealtorInFub(s.agentName, s.agentEmail, s.agentPhone, s.brokeragePhone, s.brokerage, s.address);
               if (result) realtorResults.push(result);
             } catch (err) {
               console.error(`[BB→FUB] Background error for ${s.agentName}:`, err.message);
@@ -2336,13 +2338,27 @@ function parseBrokerBayShowingEmail(body, subject) {
   const typeMatch = body.match(/Type:\s*([^\n<]+)/i);
   if (typeMatch) info.showingType = typeMatch[1].trim();
 
-  // Agent phone
-  const phoneMatch = body.match(/Phone:\s*([^\n<]+)/i) || body.match(/Tel:\s*([^\n<]+)/i) || body.match(/Cell:\s*([^\n<]+)/i);
-  if (phoneMatch) info.agentPhone = phoneMatch[1].trim();
-  if (!info.agentPhone) {
-    // Fallback: grab a phone number near agent name context
-    const phonePattern = body.match(/\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}/);
-    if (phonePattern) info.agentPhone = phonePattern[0];
+  // Agent phones — cell (personal) comes first, brokerage phone second
+  // BrokerBay emails typically list two numbers: the agent's cell and the brokerage office
+  const allPhones = body.match(/\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}/g) || [];
+  // Deduplicate
+  const uniquePhones = [...new Set(allPhones.map(p => p.replace(/[\s.-]/g, '')))];
+  const uniquePhonesRaw = uniquePhones.map(norm => allPhones.find(p => p.replace(/[\s.-]/g, '') === norm));
+
+  // First phone = agent cell (most important — direct line), second = brokerage office
+  info.agentPhone = uniquePhonesRaw[0] || null;        // Cell / direct
+  info.brokeragePhone = uniquePhonesRaw[1] || null;    // Office
+
+  // Also try labeled fields for more accuracy
+  const cellMatch = body.match(/Cell:\s*([^\n<]+)/i) || body.match(/Mobile:\s*([^\n<]+)/i);
+  if (cellMatch) {
+    const cellNum = cellMatch[1].trim().match(/\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}/);
+    if (cellNum) info.agentPhone = cellNum[0];
+  }
+  const officeMatch = body.match(/Office:\s*([^\n<]+)/i) || body.match(/Brokerage Phone:\s*([^\n<]+)/i);
+  if (officeMatch) {
+    const officeNum = officeMatch[1].trim().match(/\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}/);
+    if (officeNum) info.brokeragePhone = officeNum[0];
   }
 
   // Agent email
@@ -2374,7 +2390,7 @@ function saveBbAgentsProcessed() {
   try { fs.writeFileSync(BB_AGENTS_PROCESSED_PATH, JSON.stringify(bbAgentsProcessed, null, 2)); } catch {}
 }
 
-async function ensureRealtorInFub(agentName, agentEmail, agentPhone, brokerage, sourceAddress) {
+async function ensureRealtorInFub(agentName, agentEmail, agentPhone, brokeragePhone, brokerage, sourceAddress) {
   if (!FUB_API_KEY || !agentName) return null;
 
   // Create a dedup key from name (normalized)
@@ -2426,7 +2442,10 @@ async function ensureRealtorInFub(agentName, agentEmail, agentPhone, brokerage, 
       stage: 'Real Estate Agent',
       source: 'BrokerBay Showing',
       tags: ['Realtor', 'Agent', 'BrokerBay Import', 'Agent HQ Import'],
-      phones: agentPhone ? [{ value: agentPhone, type: 'Work' }] : [],
+      phones: [
+        ...(agentPhone ? [{ value: agentPhone, type: 'Mobile' }] : []),
+        ...(brokeragePhone ? [{ value: brokeragePhone, type: 'Work' }] : []),
+      ],
       emails: agentEmail ? [{ value: agentEmail }] : [],
     };
     if (brokerage) newPerson.company = brokerage;
