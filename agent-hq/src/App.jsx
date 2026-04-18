@@ -976,6 +976,10 @@ function TeamJordanImport() {
       const res = await fetch('/api/tj/status');
       const data = await res.json();
       setStatus(data);
+      // Restore pending candidates if page reloads during review
+      if (data.status === 'review' && data.pendingCandidates?.length > 0 && candidates.length === 0) {
+        setCandidates(data.pendingCandidates.map(c => ({ ...c, approved: true })));
+      }
     } catch {}
   };
 
@@ -1060,7 +1064,7 @@ function TeamJordanImport() {
       const res = await fetch('/api/tj/approve', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ approvedIds: approved.map(c => c.msgId) }),
+        body: JSON.stringify({ approved: approved.map(c => ({ msgId: c.msgId, type: c.type })) }),
       });
       const data = await res.json();
       if (data.error) { setSetupError(data.error); setImporting(false); return; }

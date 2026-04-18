@@ -2364,30 +2364,7 @@ app.post('/api/tj/scan', async (req, res) => {
         continue;
       }
 
-      // Cross-reference against FUB
-      const existing = await findPersonInFub(contactEmail, contactName);
-      if (existing) {
-        skipped.push({ msgId, name: contactName, email: contactEmail, reason: 'Already in FUB', fubId: existing.id });
-        // Still add notes for existing contacts
-        if (parsed.noteWorthy.length > 0) {
-          try {
-            await fetch(`${FUB_BASE}/notes`, {
-              method: 'POST', headers: fubHeaders(),
-              body: JSON.stringify({
-                personId: existing.id,
-                body: `<p><strong>Team Jordan Archive:</strong></p><p>${parsed.noteWorthy.join(' | ')}</p><p><em>Email: ${parsed.subject} (${parsed.date})</em></p>`,
-                isHtml: true,
-              }),
-            });
-            state.notesAdded++;
-          } catch {}
-        }
-        state.processedEmailIds[msgId] = 'existing';
-        state.leadsSkippedExisting++;
-        scannedCount++;
-        continue;
-      }
-
+      // NOTE: FUB cross-reference moved to approve step to keep scan fast
       // --- BUILD CANDIDATE FOR REVIEW ---
       const nameParts = (contactName || 'Unknown').split(/\s+/);
       const firstName = nameParts[0] || 'Unknown';
@@ -2427,7 +2404,6 @@ app.post('/api/tj/scan', async (req, res) => {
       });
 
       scannedCount++;
-      await new Promise(r => setTimeout(r, 100)); // rate limit Gmail reads
 
     } catch (err) {
       skipped.push({ msgId, reason: `Error: ${err.message}` });
@@ -2458,11 +2434,14 @@ app.post('/api/tj/approve', async (req, res) => {
   if (!FUB_API_KEY) return res.json({ error: 'FUB not configured' });
 
   const state = loadTjState();
-  const { approvedIds } = req.body; // array of msgIds the user approved
+  const { approved } = req.body; // array of { msgId, type } objects
 
-  if (!approvedIds || !Array.isArray(approvedIds)) {
-    return res.json({ error: 'Missing approvedIds array', success: false });
+  if (!approved || !Array.isArray(approved)) {
+    return res.json({ error: 'Missing approved array', success: false });
   }
+
+  const approvedMap = {};
+  for (const a of approved) { approvedMap[a.msgId] = a.type; }
 
   const candidates = state.pendingCandidates || [];
   if (candidates.length === 0) {
@@ -2475,9 +2454,9 @@ app.post('/api/tj/approve', async (req, res) => {
   const results = { imported: 0, rejected: 0, errors: 0 };
 
   for (const candidate of candidates) {
-    const isApproved = approvedIds.includes(candidate.msgId);
+    const approvedType = approvedMap[candidate.msgId];
 
-    if (!isApproved) {
+    if (!approvedType) {
       // User rejected this one — mark as skipped
       state.processedEmailIds[candidate.msgId] = 'rejected';
       state.emailsSkipped++;
@@ -2486,10 +2465,39 @@ app.post('/api/tj/approve', async (req, res) => {
       continue;
     }
 
-    // Build FUB person object
-    const { firstName, lastName, email, phone, type, realtorSource, brokerage, lawFirm, workAddress, noteWorthy, additionalEmails, additionalPhones, names } = candidate;
+    // Build FUB person object — use TYPE from approval (user may have changed it via dropdown)
+    const { firstName, lastName, email, phone, realtorSource, brokerage, lawFirm, workAddress, noteWorthy, additionalEmails, additionalPhones, names } = candidate;
+    const type = approvedType; // from the user's approval, not the auto-detected type
     const isRealtor = type === 'realtor';
     const isLawyer = type === 'lawyer';
+
+    // Cross-reference against FUB (moved here from scan for speed)
+    try {
+      const existing = await findPersonInFub(email, `${firstName} ${lastName}`.trim());
+      if (existing) {
+        // Already in FUB — add notes if applicable, skip creation
+        if (noteWorthy.length > 0 && !isLawyer) {
+          try {
+            await fetch(`${FUB_BASE}/notes`, {
+              method: 'POST', headers: fubHeaders(),
+              body: JSON.stringify({
+                personId: existing.id,
+                body: `<p><strong>Team Jordan Archive:</strong></p><p>${noteWorthy.join(' | ')}</p><p><em>Email: ${candidate.subject} (${candidate.date})</em></p>`,
+                isHtml: true,
+              }),
+            });
+            state.notesAdded++;
+          } catch {}
+        }
+        state.processedEmailIds[candidate.msgId] = 'existing';
+        state.leadsSkippedExisting++;
+        state.processedCount++;
+        results.skippedExisting = (results.skippedExisting || 0) + 1;
+        continue;
+      }
+    } catch (err) {
+      console.error('[TJ] FUB lookup error:', err.message);
+    }
 
     let newPerson;
     if (isLawyer) {
@@ -2627,6 +2635,7 @@ app.get('/api/tj/status', (req, res) => {
     hasMore: !!state.nextPageToken,
     stageId: state.stageId,
     labelName: state.labelName,
+    pendingCandidates: state.pendingCandidates || [],
   });
 });
 
