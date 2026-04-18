@@ -537,6 +537,208 @@ app.get('/api/calendar/list', async (req, res) => {
   }
 });
 
+// ─────────────────────────────────────────────
+// QUICK LINKS — Self-healing URL registry
+// Server-managed links with automatic health checks.
+// Dead links get removed, updated paths get corrected.
+// ─────────────────────────────────────────────
+const QUICKLINKS_PATH = path.join(__dirname, '.quicklinks.json');
+
+const DEFAULT_QUICKLINKS = [
+  { id: 'cal-list', group: 'Calendar', label: 'All Calendars', url: '/api/calendar/list', desc: 'See every calendar being pulled (primary + Outlook)' },
+  { id: 'cal-events', group: 'Calendar', label: "Today's Events", url: '/api/calendar/events', desc: 'All events from all calendars for today' },
+  { id: 'cal-upcoming', group: 'Calendar', label: 'Upcoming 7 Days', url: '/api/calendar/upcoming', desc: 'Next week of events across all calendars' },
+  { id: 'cal-status', group: 'Calendar', label: 'Connection Status', url: '/api/calendar/status', desc: 'Google OAuth connection health check' },
+  { id: 'ea-triage', group: 'Email EA', label: 'EA Triage', url: '/api/ea/triage', desc: 'Full email thread state dashboard (live sweep)' },
+  { id: 'ea-sweep', group: 'Email EA', label: 'Sweep Status', url: '/api/ea/sweep-status', desc: 'Hourly auto-sweep schedule and recent logs' },
+  { id: 'ea-outlook', group: 'Email EA', label: 'Outlook Sent Data', url: '/api/ea/outlook-sent', desc: 'Scraped Outlook sent emails and corrections' },
+  { id: 'ea-stuck', group: 'Email EA', label: 'Stuck Queue', url: '/api/ea/stuck', desc: 'Pending "Claude stuck, needs answer" items' },
+  { id: 'ea-fub-diag', group: 'Email EA', label: 'FUB Sent Diagnostic', url: '/api/ea/fub-sent-diagnostic', desc: 'Tests all FUB email tracking API paths' },
+  { id: 'gmail-status', group: 'Gmail', label: 'Gmail Status', url: '/api/gmail/status', desc: 'Gmail connection and token status' },
+  { id: 'gmail-inbox', group: 'Gmail', label: 'Inbox', url: '/api/gmail/inbox', desc: 'Recent inbox emails with AI categorization' },
+  { id: 'gmail-sent', group: 'Gmail', label: 'Sent', url: '/api/gmail/sent', desc: 'Recent sent emails for follow-up tracking' },
+  { id: 'gmail-bb', group: 'Gmail', label: 'BrokerBay Emails', url: '/api/gmail/brokerbay', desc: 'All BrokerBay emails: showings, feedback, confirmations' },
+  { id: 'gmail-activity', group: 'Gmail', label: 'Activity Timeline', url: '/api/gmail/activity', desc: 'Combined email activity timeline' },
+  { id: 'gmail-labels', group: 'Gmail', label: 'Labels', url: '/api/gmail/labels', desc: 'All Gmail labels (debug)' },
+  { id: 'fub-status', group: 'Follow Up Boss', label: 'FUB Status', url: '/api/fub/status', desc: 'FUB API connection check' },
+  { id: 'fub-calls', group: 'Follow Up Boss', label: 'Call List', url: '/api/fub/calllist', desc: 'Daily scored call list' },
+  { id: 'fub-stages', group: 'Follow Up Boss', label: 'Stages', url: '/api/fub/stages', desc: 'All FUB pipeline stages' },
+  { id: 'fub-leadscan', group: 'Follow Up Boss', label: 'Lead Scan', url: '/api/fub/leads/scan', desc: 'Scan Gmail for new FUB lead emails' },
+  { id: 'fub-processed', group: 'Follow Up Boss', label: 'Processed Leads', url: '/api/fub/leads/processed', desc: 'Already-imported lead history' },
+  { id: 'fub-listings', group: 'Follow Up Boss', label: 'Listing Appointments', url: '/api/fub/listing-appointments', desc: 'Contacts tagged "Listing Appointment"' },
+  { id: 'tj-setup', group: 'Team Jordan Import', label: 'TJ Setup', url: '/api/tj/setup', desc: 'Create stage + find Gmail label' },
+  { id: 'tj-status', group: 'Team Jordan Import', label: 'TJ Status', url: '/api/tj/status', desc: 'Import progress and stats' },
+  { id: 'lf-list', group: 'Listing Form', label: 'All Listings', url: '/api/listing-form/list', desc: 'All saved listing forms' },
+  { id: 'sys-tasks', group: 'System', label: 'Tasks State', url: '/api/tasks', desc: 'Saved priorities and backlog state' },
+  { id: 'sys-auth', group: 'System', label: 'Google Auth', url: '/api/auth/google', desc: 'Start Google OAuth flow (reconnect)' },
+];
+
+let quickLinks = [];
+let quickLinksHealth = { lastCheck: null, deadRemoved: 0, totalChecks: 0 };
+
+function loadQuickLinks() {
+  try {
+    if (fs.existsSync(QUICKLINKS_PATH)) {
+      const saved = JSON.parse(fs.readFileSync(QUICKLINKS_PATH, 'utf8'));
+      quickLinks = saved.links || [];
+      quickLinksHealth = saved.health || quickLinksHealth;
+      // Merge any new defaults that don't exist yet
+      for (const def of DEFAULT_QUICKLINKS) {
+        if (!quickLinks.find(l => l.id === def.id)) {
+          quickLinks.push({ ...def, status: 'unknown', lastChecked: null });
+        }
+      }
+    } else {
+      quickLinks = DEFAULT_QUICKLINKS.map(l => ({ ...l, status: 'unknown', lastChecked: null }));
+    }
+  } catch {
+    quickLinks = DEFAULT_QUICKLINKS.map(l => ({ ...l, status: 'unknown', lastChecked: null }));
+  }
+}
+
+function saveQuickLinks() {
+  try {
+    fs.writeFileSync(QUICKLINKS_PATH, JSON.stringify({ links: quickLinks, health: quickLinksHealth }, null, 2));
+  } catch {}
+}
+
+loadQuickLinks();
+
+// Health check: hit each internal URL, mark alive/dead, remove dead after 3 consecutive failures
+async function checkQuickLinksHealth() {
+  console.log(`[QuickLinks] Running health check on ${quickLinks.length} links...`);
+  let removed = 0;
+  const survivors = [];
+
+  for (const link of quickLinks) {
+    // Skip external URLs and auth URLs (they redirect)
+    if (link.url.startsWith('http') || link.url === '/api/auth/google') {
+      link.status = 'alive';
+      link.lastChecked = new Date().toISOString();
+      link.failCount = 0;
+      survivors.push(link);
+      continue;
+    }
+
+    try {
+      // Use Express's built-in routing to test — make a local HTTP request
+      const testUrl = `http://localhost:${PORT}${link.url}`;
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 8000);
+      const resp = await fetch(testUrl, { signal: controller.signal });
+      clearTimeout(timeout);
+
+      if (resp.ok || resp.status === 401) {
+        // 401 is fine — means the route exists but needs auth (e.g., Gmail when disconnected)
+        link.status = 'alive';
+        link.failCount = 0;
+        link.lastChecked = new Date().toISOString();
+        survivors.push(link);
+      } else if (resp.status === 404) {
+        // Route doesn't exist
+        link.failCount = (link.failCount || 0) + 1;
+        link.status = 'dead';
+        link.lastChecked = new Date().toISOString();
+        if (link.failCount >= 3) {
+          console.log(`[QuickLinks] Removing dead link: ${link.label} (${link.url}) — failed ${link.failCount} times`);
+          removed++;
+        } else {
+          survivors.push(link);
+        }
+      } else {
+        // Other errors (500, etc.) — keep but mark as unhealthy
+        link.status = 'error';
+        link.failCount = (link.failCount || 0) + 1;
+        link.lastChecked = new Date().toISOString();
+        if (link.failCount >= 5) {
+          console.log(`[QuickLinks] Removing persistently erroring link: ${link.label} (${link.url})`);
+          removed++;
+        } else {
+          survivors.push(link);
+        }
+      }
+    } catch (e) {
+      // Network error or timeout — mark but don't remove immediately
+      link.status = 'error';
+      link.failCount = (link.failCount || 0) + 1;
+      link.lastChecked = new Date().toISOString();
+      survivors.push(link);
+    }
+  }
+
+  quickLinks = survivors;
+  quickLinksHealth.lastCheck = new Date().toISOString();
+  quickLinksHealth.deadRemoved += removed;
+  quickLinksHealth.totalChecks++;
+  saveQuickLinks();
+  console.log(`[QuickLinks] Health check complete: ${survivors.length} alive, ${removed} removed`);
+  return { alive: survivors.length, removed };
+}
+
+// Run health check on startup (after server is listening) and every 6 hours
+setTimeout(() => checkQuickLinksHealth(), 30 * 1000);
+setInterval(() => checkQuickLinksHealth(), 6 * 60 * 60 * 1000);
+
+// GET /api/quicklinks — Return all active links grouped
+app.get('/api/quicklinks', (req, res) => {
+  // Group by category
+  const groups = {};
+  for (const link of quickLinks) {
+    if (!groups[link.group]) groups[link.group] = [];
+    groups[link.group].push({
+      id: link.id,
+      label: link.label,
+      url: link.url,
+      desc: link.desc,
+      status: link.status,
+      lastChecked: link.lastChecked,
+    });
+  }
+  res.json({
+    groups,
+    health: quickLinksHealth,
+    totalLinks: quickLinks.length,
+  });
+});
+
+// POST /api/quicklinks — Add or update a link
+app.post('/api/quicklinks', (req, res) => {
+  const { id, group, label, url, desc } = req.body;
+  if (!id || !url || !label) return res.json({ success: false, error: 'id, url, and label required' });
+
+  const existing = quickLinks.find(l => l.id === id);
+  if (existing) {
+    // Update existing
+    if (group) existing.group = group;
+    existing.label = label;
+    existing.url = url;
+    if (desc) existing.desc = desc;
+    existing.status = 'unknown';
+    existing.failCount = 0;
+    existing.lastChecked = null;
+  } else {
+    // Add new
+    quickLinks.push({ id, group: group || 'Custom', label, url, desc: desc || '', status: 'unknown', lastChecked: null, failCount: 0 });
+  }
+  saveQuickLinks();
+  res.json({ success: true, totalLinks: quickLinks.length });
+});
+
+// DELETE /api/quicklinks/:id — Manually remove a link
+app.delete('/api/quicklinks/:id', (req, res) => {
+  const before = quickLinks.length;
+  quickLinks = quickLinks.filter(l => l.id !== req.params.id);
+  saveQuickLinks();
+  res.json({ success: true, removed: before - quickLinks.length, totalLinks: quickLinks.length });
+});
+
+// POST /api/quicklinks/health-check — Manually trigger health check
+app.post('/api/quicklinks/health-check', async (req, res) => {
+  const result = await checkQuickLinksHealth();
+  res.json({ success: true, ...result, health: quickLinksHealth });
+});
+
+// ─────────────────────────────────────────────
 // API: Task State Persistence
 // ─────────────────────────────────────────────
 const TASKS_PATH = path.join(__dirname, '.task-state.json');
