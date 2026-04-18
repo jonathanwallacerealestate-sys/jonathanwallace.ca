@@ -16,7 +16,10 @@ const PORT = process.env.PORT || 3000;
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || '';
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || '';
 const REDIRECT_URI = process.env.GOOGLE_REDIRECT_URI || `http://localhost:${PORT}/api/auth/callback`;
-const SCOPES = ['https://www.googleapis.com/auth/calendar.readonly'];
+const SCOPES = [
+  'https://www.googleapis.com/auth/calendar.readonly',
+  'https://www.googleapis.com/auth/gmail.readonly',
+];
 const TOKEN_PATH = path.join(__dirname, '.gcal-tokens.json');
 
 const oauth2Client = new google.auth.OAuth2(GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, REDIRECT_URI);
@@ -457,6 +460,120 @@ app.post('/api/tasks', (req, res) => {
   saveTaskState({ priorities, backlog, doneCount, doneIds, savedAt: new Date().toISOString() });
   res.json({ status: 'saved' });
 });
+
+// ─────────────────────────────────────────────
+// BrokerBay Feedback Email Scanner
+// Scans Gmail for "Showing Feedback" emails from BrokerBay,
+// extracts the feedback URLs, and returns them with address info
+// ─────────────────────────────────────────────
+app.get('/api/feedback/pending', async (req, res) => {
+  if (!tokens) {
+    return res.json({ status: 'disconnected', feedbacks: [] });
+  }
+  try {
+    const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
+
+    // Search for BrokerBay feedback request emails (last 14 days)
+    const listRes = await gmail.users.messages.list({
+      userId: 'me',
+      q: 'from:noreply@brokerbay.com subject:"Showing Feedback" newer_than:14d',
+      maxResults: 20,
+    });
+
+    const messages = listRes.data.messages || [];
+    const feedbacks = [];
+
+    for (const msg of messages) {
+      try {
+        const detail = await gmail.users.messages.get({
+          userId: 'me',
+          id: msg.id,
+          format: 'full',
+        });
+
+        const headers = detail.data.payload.headers || [];
+        const subject = headers.find(h => h.name === 'Subject')?.value || '';
+        const dateHeader = headers.find(h => h.name === 'Date')?.value || '';
+
+        // Extract address from subject: "Showing Feedback - 45 Brule Street"
+        const addressMatch = subject.match(/Showing Feedback\s*[-–—]\s*(.+)/i);
+        const address = addressMatch ? addressMatch[1].trim() : subject;
+
+        // Extract feedback URL from email body
+        let feedbackUrl = '';
+        const body = getEmailBody(detail.data.payload);
+        if (body) {
+          // Look for BrokerBay feedback link pattern
+          const urlMatch = body.match(/https:\/\/edge\.brokerbay\.com\/#\/my_business\/showing\/[a-f0-9]+\?redirectTo=calendar/i);
+          if (urlMatch) {
+            feedbackUrl = urlMatch[0];
+          } else {
+            // Try alternative pattern — just the showing ID URL
+            const altMatch = body.match(/https:\/\/edge\.brokerbay\.com[^\s"'<>]+showing\/[a-f0-9]+[^\s"'<>]*/i);
+            if (altMatch) {
+              feedbackUrl = altMatch[0];
+            }
+          }
+        }
+
+        if (feedbackUrl) {
+          // Extract showing ID from URL
+          const idMatch = feedbackUrl.match(/showing\/([a-f0-9]+)/);
+          const showingId = idMatch ? idMatch[1] : '';
+
+          feedbacks.push({
+            messageId: msg.id,
+            address,
+            subject,
+            date: dateHeader,
+            feedbackUrl,
+            showingId,
+          });
+        }
+      } catch (msgErr) {
+        console.error(`[Feedback] Error processing message ${msg.id}:`, msgErr.message);
+      }
+    }
+
+    res.json({ status: 'ok', feedbacks });
+  } catch (err) {
+    console.error('[Feedback] Gmail scan error:', err.message);
+    res.json({ status: 'error', error: err.message, feedbacks: [] });
+  }
+});
+
+// Helper: extract plain text body from Gmail message payload
+function getEmailBody(payload) {
+  if (!payload) return '';
+
+  // Direct body
+  if (payload.body?.data) {
+    return Buffer.from(payload.body.data, 'base64url').toString('utf-8');
+  }
+
+  // Multipart — search parts recursively
+  if (payload.parts) {
+    for (const part of payload.parts) {
+      // Prefer text/html for URL extraction
+      if (part.mimeType === 'text/html' && part.body?.data) {
+        return Buffer.from(part.body.data, 'base64url').toString('utf-8');
+      }
+      // Recurse into multipart
+      if (part.parts) {
+        const nested = getEmailBody(part);
+        if (nested) return nested;
+      }
+    }
+    // Fall back to text/plain
+    for (const part of payload.parts) {
+      if (part.mimeType === 'text/plain' && part.body?.data) {
+        return Buffer.from(part.body.data, 'base64url').toString('utf-8');
+      }
+    }
+  }
+
+  return '';
+}
 
 // ─────────────────────────────────────────────
 // SPA Fallback — serve index.html for all other routes

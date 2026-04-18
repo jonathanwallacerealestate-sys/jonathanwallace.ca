@@ -522,7 +522,7 @@ function OutstandingFeedbackBar() {
           </div>
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
             <span style={{ fontSize: 9, fontWeight: 700, color: "#fff", background: "#10b981", padding: "2px 6px", borderRadius: 3 }}>LIVE</span>
-            <button style={{ padding: "6px 14px", borderRadius: 8, border: "none", background: "#e11d48", color: "#fff", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>
+            <button onClick={() => fb.feedbackUrl && window.open(fb.feedbackUrl, '_blank')} style={{ padding: "6px 14px", borderRadius: 8, border: "none", background: "#e11d48", color: "#fff", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>
               Leave Feedback
             </button>
             <button onClick={() => setDismissed(prev => ({ ...prev, [fb.id]: true }))} style={{ padding: "6px 10px", borderRadius: 8, border: "1px solid #e5e7eb", background: "#fff", color: "#9ca3af", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>
@@ -1971,6 +1971,7 @@ const outstandingFeedback = [
     listingAgentEmail: "info@peggyhill.com", listingAgentPhone: "(705) 739-4455",
     status: "outstanding", live: true, role: "buyer_agent",
     emailReceivedAt: "Yesterday, 2:31 PM",
+    feedbackUrl: "https://edge.brokerbay.com/#/my_business/showing/69e0071d5decc06c3285a17e?redirectTo=calendar",
     notes: "You showed this property yesterday. Feedback survey link was sent to jonathan@faristeam.ca.",
   },
 ];
@@ -3825,18 +3826,30 @@ function SellersSection() {
                     {fb.notes}
                   </div>
 
-                  {/* Voice-to-text feedback input */}
-                  <div style={{ padding: 14, borderRadius: 10, border: "2px dashed #d1d5db", background: "#fafafa", textAlign: "center" }}>
-                    <MessageCircle size={20} color="#6b7280" style={{ margin: "0 auto 6px" }} />
-                    <div style={{ fontSize: 12, fontWeight: 600, color: "#374151", marginBottom: 4 }}>Record Your Feedback</div>
-                    <div style={{ fontSize: 11, color: "#9ca3af", marginBottom: 10 }}>Use voice-to-text to dictate your showing feedback. AI will format and submit it through BrokerBay.</div>
+                  {/* BrokerBay feedback link */}
+                  <div style={{ padding: 14, borderRadius: 10, border: fb.feedbackUrl ? "2px solid #e11d48" : "2px dashed #d1d5db", background: fb.feedbackUrl ? "#fff1f2" : "#fafafa", textAlign: "center" }}>
+                    <ExternalLink size={20} color={fb.feedbackUrl ? "#e11d48" : "#6b7280"} style={{ margin: "0 auto 6px" }} />
+                    <div style={{ fontSize: 12, fontWeight: 600, color: "#374151", marginBottom: 4 }}>
+                      {fb.feedbackUrl ? "Submit Feedback on BrokerBay" : "Feedback Link Not Available"}
+                    </div>
+                    <div style={{ fontSize: 11, color: "#9ca3af", marginBottom: 10 }}>
+                      {fb.feedbackUrl
+                        ? "Click below to open the BrokerBay feedback form for this showing. Fill out interest level, price opinion, and condition."
+                        : "Waiting for BrokerBay feedback email. The link will appear here once the email is received."}
+                    </div>
                     <div style={{ display: "flex", gap: 8, justifyContent: "center" }}>
-                      <button style={{ padding: "8px 20px", borderRadius: 8, border: "none", background: "#e11d48", color: "#fff", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
-                        Start Dictating
-                      </button>
-                      <button style={{ padding: "8px 20px", borderRadius: 8, border: "1px solid #e5e7eb", background: "#fff", color: "#374151", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
-                        Type Instead
-                      </button>
+                      {fb.feedbackUrl ? (
+                        <button
+                          onClick={() => window.open(fb.feedbackUrl, '_blank')}
+                          style={{ padding: "8px 24px", borderRadius: 8, border: "none", background: "#e11d48", color: "#fff", fontSize: 12, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}
+                        >
+                          <ExternalLink size={13} /> Open in BrokerBay
+                        </button>
+                      ) : (
+                        <button style={{ padding: "8px 20px", borderRadius: 8, border: "1px solid #e5e7eb", background: "#fff", color: "#9ca3af", fontSize: 12, fontWeight: 600, cursor: "not-allowed" }} disabled>
+                          Awaiting Email...
+                        </button>
+                      )}
                     </div>
                   </div>
                 </div>
