@@ -164,6 +164,7 @@ const sidebarItems = [
   { id: "calls", label: "Call List", icon: Phone, badge: 10 },
   { id: "emails", label: "Emails", icon: Mail, badge: 12 },
   { id: "crm", label: "Follow Up Boss", icon: Users, badge: null },
+  { id: "tj-import", label: "TJ Import", icon: Archive, badge: null },
   { id: "calendar", label: "Calendar", icon: Calendar, badge: 6 },
   { id: "showings", label: "Showings", icon: MapPin, badge: 5 },
   { id: "leadgen", label: "Lead Gen", icon: Target, badge: null },
@@ -955,6 +956,188 @@ function FeedbackCard({ fb }) {
 // ─────────────────────────────────────────────
 // LEAD AUTO-IMPORT BAR
 // ─────────────────────────────────────────────
+// ─────────────────────────────────────────────
+// TEAM JORDAN BATCH IMPORT DASHBOARD
+// ─────────────────────────────────────────────
+function TeamJordanImport() {
+  const [status, setStatus] = useState(null);
+  const [setting, setSetting] = useState(false);
+  const [processing, setProcessing] = useState(false);
+  const [autoRunning, setAutoRunning] = useState(false);
+  const autoRef = useRef(null);
+
+  const fetchStatus = async () => {
+    try {
+      const res = await fetch('/api/tj/status');
+      const data = await res.json();
+      setStatus(data);
+    } catch {}
+  };
+
+  useEffect(() => { fetchStatus(); }, []);
+
+  // Clean up auto-run on unmount
+  useEffect(() => () => { if (autoRef.current) clearTimeout(autoRef.current); }, []);
+
+  const runSetup = async () => {
+    setSetting(true);
+    try {
+      const res = await fetch('/api/tj/setup');
+      const data = await res.json();
+      setStatus(prev => ({ ...prev, ...data.state, progress: data.state ? { processed: data.state.processedCount, total: data.state.totalMessages, percent: 0, leadsCreated: 0, leadsSkippedExisting: 0, notesAdded: 0, emailsSkipped: 0, errors: 0 } : prev?.progress }));
+      await fetchStatus();
+    } catch {}
+    setSetting(false);
+  };
+
+  const runBatch = async () => {
+    setProcessing(true);
+    try {
+      const res = await fetch('/api/tj/process', { method: 'POST' });
+      const data = await res.json();
+      if (data.progress) setStatus(prev => ({ ...prev, ...data.progress, progress: data.progress, recentActivity: prev?.recentActivity }));
+      await fetchStatus();
+    } catch {}
+    setProcessing(false);
+  };
+
+  const startAutoRun = () => {
+    setAutoRunning(true);
+    const runNext = async () => {
+      try {
+        const res = await fetch('/api/tj/process', { method: 'POST' });
+        const data = await res.json();
+        await fetchStatus();
+        if (data.progress && data.progress.status !== 'complete' && data.progress.processed < data.progress.total) {
+          autoRef.current = setTimeout(runNext, 2000); // 2s gap between batches
+        } else {
+          setAutoRunning(false);
+        }
+      } catch {
+        setAutoRunning(false);
+      }
+    };
+    runNext();
+  };
+
+  const stopAutoRun = () => {
+    setAutoRunning(false);
+    if (autoRef.current) clearTimeout(autoRef.current);
+  };
+
+  const p = status?.progress || {};
+  const pct = p.percent || 0;
+
+  return (
+    <Card>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <Inbox size={16} color="#8b5cf6" />
+          <span style={{ fontSize: 15, fontWeight: 700, color: "#111827" }}>Team Jordan Archive Import</span>
+          {status?.status === 'complete' && <span style={{ fontSize: 9, fontWeight: 700, color: "#fff", background: "#10b981", padding: "1px 5px", borderRadius: 3 }}>COMPLETE</span>}
+          {status?.status === 'processing' && <span style={{ fontSize: 9, fontWeight: 700, color: "#fff", background: "#f59e0b", padding: "1px 5px", borderRadius: 3 }}>RUNNING</span>}
+        </div>
+      </div>
+
+      {/* Setup phase */}
+      {(!status || status.status === 'idle' || !status.progress?.total) && (
+        <div style={{ padding: "16px 0" }}>
+          <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 12 }}>
+            Scan the <strong>jonathan@teamjordan.ca / All Mail</strong> label in Gmail, cross-reference against Follow Up Boss, and import new leads under "Old Team Jordan Leads" stage.
+          </div>
+          <button onClick={runSetup} disabled={setting} style={{
+            display: "flex", alignItems: "center", gap: 6, background: "#8b5cf6", color: "#fff", border: "none", borderRadius: 8,
+            padding: "8px 18px", fontSize: 13, fontWeight: 600, cursor: setting ? "wait" : "pointer",
+          }}>
+            {setting ? <><RefreshCw size={13} style={{ animation: "spin 1s linear infinite" }} /> Scanning label...</> : <><Search size={13} /> Set Up Import</>}
+          </button>
+        </div>
+      )}
+
+      {/* Progress phase */}
+      {status?.progress?.total > 0 && (
+        <>
+          {/* Progress bar */}
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+              <span style={{ fontSize: 12, fontWeight: 600, color: "#374151" }}>{p.processed?.toLocaleString()} / {p.total?.toLocaleString()} emails processed</span>
+              <span style={{ fontSize: 12, fontWeight: 700, color: "#8b5cf6" }}>{pct}%</span>
+            </div>
+            <div style={{ height: 8, background: "#f3f4f6", borderRadius: 4, overflow: "hidden" }}>
+              <div style={{ height: "100%", width: `${pct}%`, background: "linear-gradient(90deg, #8b5cf6, #6366f1)", borderRadius: 4, transition: "width 0.5s ease" }} />
+            </div>
+          </div>
+
+          {/* Stats grid */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr 1fr", gap: 8, marginBottom: 16 }}>
+            {[
+              { label: "Leads Created", value: p.leadsCreated || 0, color: "#10b981" },
+              { label: "Realtors Found", value: p.realtorsCreated || 0, color: "#f59e0b" },
+              { label: "Already in FUB", value: p.leadsSkippedExisting || 0, color: "#2563eb" },
+              { label: "Notes Added", value: p.notesAdded || 0, color: "#8b5cf6" },
+              { label: "Skipped / Errors", value: (p.emailsSkipped || 0) + (p.errors || 0), color: "#6b7280" },
+            ].map(s => (
+              <div key={s.label} style={{ textAlign: "center", padding: 10, background: "#fafafa", borderRadius: 8 }}>
+                <div style={{ fontSize: 20, fontWeight: 800, color: s.color }}>{s.value.toLocaleString()}</div>
+                <div style={{ fontSize: 10, color: "#9ca3af", marginTop: 2 }}>{s.label}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* Controls */}
+          <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+            {!autoRunning ? (
+              <>
+                <button onClick={runBatch} disabled={processing || status?.status === 'complete'} style={{
+                  display: "flex", alignItems: "center", gap: 4, background: "#8b5cf6", color: "#fff", border: "none", borderRadius: 6,
+                  padding: "7px 14px", fontSize: 12, fontWeight: 600, cursor: processing ? "wait" : "pointer",
+                }}>
+                  {processing ? <><RefreshCw size={12} style={{ animation: "spin 1s linear infinite" }} /> Processing batch...</> : <><Play size={12} /> Run Next Batch ({TJ_BATCH_SIZE})</>}
+                </button>
+                <button onClick={startAutoRun} disabled={status?.status === 'complete'} style={{
+                  display: "flex", alignItems: "center", gap: 4, background: "#059669", color: "#fff", border: "none", borderRadius: 6,
+                  padding: "7px 14px", fontSize: 12, fontWeight: 600, cursor: "pointer",
+                }}>
+                  <Zap size={12} /> Auto-Run All
+                </button>
+              </>
+            ) : (
+              <button onClick={stopAutoRun} style={{
+                display: "flex", alignItems: "center", gap: 4, background: "#ef4444", color: "#fff", border: "none", borderRadius: 6,
+                padding: "7px 14px", fontSize: 12, fontWeight: 600, cursor: "pointer",
+              }}>
+                <Square size={12} /> Stop Auto-Run
+              </button>
+            )}
+            {status?.lastProcessedAt && (
+              <span style={{ fontSize: 11, color: "#9ca3af", alignSelf: "center" }}>Last batch: {new Date(status.lastProcessedAt).toLocaleTimeString()}</span>
+            )}
+          </div>
+
+          {/* Recent activity */}
+          {status?.recentActivity?.length > 0 && (
+            <div style={{ borderTop: "1px solid #f3f4f6", paddingTop: 12 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: "#6b7280", marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.05em" }}>Recent Imports</div>
+              {status.recentActivity.slice(0, 8).map((a, i) => (
+                <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4, fontSize: 12 }}>
+                  <CheckCircle2 size={11} color={a.isRealtor ? "#f59e0b" : "#10b981"} />
+                  <strong style={{ color: "#111827" }}>{a.name}</strong>
+                  {a.isRealtor && <span style={{ fontSize: 9, fontWeight: 700, color: "#fff", background: "#f59e0b", padding: "1px 5px", borderRadius: 3 }}>REALTOR</span>}
+                  {a.email && <span style={{ color: "#9ca3af" }}>{a.email}</span>}
+                  {a.noteWorthy?.length > 0 && <span style={{ fontSize: 10, color: "#8b5cf6" }}>{a.noteWorthy.join(' · ')}</span>}
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+    </Card>
+  );
+}
+
+// Constant for frontend to reference
+const TJ_BATCH_SIZE = 100;
+
 function LeadImportBar() {
   const [scanning, setScanning] = useState(false);
   const [lastResult, setLastResult] = useState(() => {
@@ -5000,6 +5183,7 @@ function SectionContent({ section }) {
     case "calendar": return <CalendarSection />;
     case "showings": return <ShowingsSection />;
     case "crm": return <PlaceholderSection title="Follow Up Boss — Deal Pipeline" icon={Users} />;
+    case "tj-import": return <TeamJordanImport />;
     case "leadgen": return <PlaceholderSection title="Lead Gen" icon={Target} />;
     case "pnl": return <PnlSection />;
     case "personal": return <PlaceholderSection title="Personal" icon={User} />;

@@ -1879,6 +1879,586 @@ app.get('/api/fub/leads/processed', (req, res) => {
   res.json({ count: 0, ids: [] });
 });
 
+// ─────────────────────────────────────────────
+// TEAM JORDAN BATCH IMPORT — 38K emails → FUB
+// ─────────────────────────────────────────────
+
+const TJ_STATE_PATH = path.join(__dirname, '.tj-import-state.json');
+const TJ_BATCH_SIZE = 100;
+
+// Load/save import state
+function loadTjState() {
+  try {
+    if (fs.existsSync(TJ_STATE_PATH)) return JSON.parse(fs.readFileSync(TJ_STATE_PATH, 'utf8'));
+  } catch {}
+  return {
+    status: 'idle', // idle | scanning_ids | processing | paused | complete
+    labelId: null,
+    totalMessages: 0,
+    messageIds: [],       // all message IDs from the label
+    processedCount: 0,
+    currentBatch: 0,
+    leadsCreated: 0,
+    realtorsCreated: 0,
+    leadsSkippedExisting: 0,
+    notesAdded: 0,
+    emailsSkipped: 0,
+    errors: [],
+    lastProcessedAt: null,
+    stageId: null,        // FUB stage ID for "Old Team Jordan Leads"
+    processedEmailIds: {}, // email ID → result ('created'|'existing'|'skipped'|'error')
+    recentActivity: [],   // last 20 actions for the dashboard
+  };
+}
+
+function saveTjState(state) {
+  try { fs.writeFileSync(TJ_STATE_PATH, JSON.stringify(state)); } catch (e) { console.error('[TJ] Save state error:', e); }
+}
+
+// Parse any email for lead-like contact info
+function parseEmailForContact(headers, body) {
+  const from = headers.find(h => h.name.toLowerCase() === 'from')?.value || '';
+  const to = headers.find(h => h.name.toLowerCase() === 'to')?.value || '';
+  const subject = headers.find(h => h.name.toLowerCase() === 'subject')?.value || '';
+  const date = headers.find(h => h.name.toLowerCase() === 'date')?.value || '';
+
+  const result = {
+    fromName: null, fromEmail: null,
+    toName: null, toEmail: null,
+    subject, date,
+    phones: [],
+    emails: [],
+    names: [],
+    yspAmount: null,
+    closingDate: null,
+    propertyAddress: null,
+    mlsNumber: null,
+    dealValue: null,
+    noteWorthy: [],
+  };
+
+  // Parse From
+  const fromMatch = from.match(/^"?([^"<]+)"?\s*<?([^>]+@[^>]+)>?/);
+  if (fromMatch) {
+    result.fromName = fromMatch[1].trim().replace(/"/g, '');
+    result.fromEmail = fromMatch[2].trim();
+  } else {
+    const emailOnly = from.match(/([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/);
+    if (emailOnly) result.fromEmail = emailOnly[1];
+  }
+
+  // Parse To
+  const toMatch = to.match(/^"?([^"<]+)"?\s*<?([^>]+@[^>]+)>?/);
+  if (toMatch) {
+    result.toName = toMatch[1].trim().replace(/"/g, '');
+    result.toEmail = toMatch[2].trim();
+  }
+
+  // Extract all emails from body
+  const bodyEmails = body.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g) || [];
+  const systemEmails = ['followupboss.com', 'faristeam.ca', 'teamjordan.ca', 'noreply', 'mailer-daemon', 'postmaster', 'google.com', 'googleapis.com'];
+  result.emails = [...new Set(bodyEmails)].filter(e => !systemEmails.some(s => e.toLowerCase().includes(s)));
+
+  // Add from/to emails
+  if (result.fromEmail && !systemEmails.some(s => result.fromEmail.toLowerCase().includes(s))) {
+    result.emails = [result.fromEmail, ...result.emails.filter(e => e !== result.fromEmail)];
+  }
+
+  // Extract phone numbers
+  const phones = body.match(/\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}/g) || [];
+  result.phones = [...new Set(phones)];
+
+  // YSP amount
+  const yspMatch = body.match(/YSP[:\s]*\$?([\d,]+\.?\d*)/i) || body.match(/yield spread[:\s]*\$?([\d,]+\.?\d*)/i);
+  if (yspMatch) result.yspAmount = yspMatch[1].replace(/,/g, '');
+
+  // Closing date
+  const closingMatch = body.match(/clos(?:ing|e)\s*date[:\s]*([A-Za-z]+\s+\d{1,2},?\s*\d{4}|\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})/i);
+  if (closingMatch) result.closingDate = closingMatch[1].trim();
+
+  // Property address patterns
+  const addrMatch = body.match(/(?:property|address|listing|home|house)[:\s]*(\d+\s+[A-Za-z\s]+(?:St|Street|Ave|Avenue|Rd|Road|Dr|Drive|Cres|Crescent|Blvd|Boulevard|Lane|Ln|Way|Court|Ct|Place|Pl|Trail|Tr)[.,]?\s*[A-Za-z\s]*)/i);
+  if (addrMatch) result.propertyAddress = addrMatch[1].trim().slice(0, 100);
+
+  // MLS number
+  const mlsMatch = body.match(/MLS[#:\s]*([A-Z0-9]{6,12})/i);
+  if (mlsMatch) result.mlsNumber = mlsMatch[1];
+
+  // Deal value / purchase price / sale price
+  const priceMatch = body.match(/(?:purchase|sale|list|asking)\s*price[:\s]*\$?([\d,]+)/i) || body.match(/\$([\d,]{6,})/);
+  if (priceMatch) result.dealValue = priceMatch[1].replace(/,/g, '');
+
+  // Names (look for "Client:", "Buyer:", "Seller:", etc.)
+  const namePatterns = [
+    /(?:client|buyer|seller|purchaser|vendor)[:\s]+([A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,3})/g,
+    /(?:Dear|Hi|Hello)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)/g,
+  ];
+  for (const pat of namePatterns) {
+    let m;
+    while ((m = pat.exec(body)) !== null) {
+      const name = m[1].trim();
+      if (name.length > 2 && name.length < 50 && !result.names.includes(name)) {
+        result.names.push(name);
+      }
+    }
+  }
+
+  // Detect if this is a realtor/agent
+  result.isRealtor = false;
+  result.brokerage = null;
+  result.isShowingRequest = false;
+  result.isBrokerBuyRequest = false;
+  const realtorKeywords = /\b(realtor|real estate agent|sales representative|broker|salesperson|realty|brokerage|keller williams|re\/max|remax|royal lepage|century 21|coldwell banker|sutton|right at home|homelife|exp realty|real broker|ipro realty|chestnut park|sotheby|faris team|lpt realty|harvey kalles|bosley|forest hill|engel|volkers|homeward|mcgee|justo|sage|peerage|spring|fair square|peak|macdonald)\b/i;
+  const brokerageMatch = body.match(/(?:brokerage|office|company)[:\s]*([^\n<]{5,60})/i);
+  if (brokerageMatch) result.brokerage = brokerageMatch[1].trim();
+
+  // Detect showing requests — strongest realtor signal
+  const showingPatterns = /\b(showing request|request(?:ing|ed)?\s+(?:a\s+)?showing|schedule\s+(?:a\s+)?showing|book\s+(?:a\s+)?showing|showing\s+confirmation|showing\s+time|showing\s+appointment|would like to (?:view|show)|buyer.*(?:wants?|would like)\s+to\s+(?:see|view|visit))\b/i;
+  if (showingPatterns.test(body) || showingPatterns.test(subject)) {
+    result.isShowingRequest = true;
+    result.isRealtor = true;
+  }
+
+  // Detect broker buy requests — also strong realtor signal
+  const brokerBuyPatterns = /\b(broker(?:age)?\s+buy\s+request|buyer\s+agent|buying\s+agent|cooperating\s+(?:agent|broker(?:age)?)|buyer(?:'s|s)?\s+(?:rep|representative|agent)|co-op(?:erating)?\s+commission|buyer\s+(?:side|end)\s+(?:commission|fee)|BCS|co-op\s+%|commission\s+offered)\b/i;
+  if (brokerBuyPatterns.test(body) || brokerBuyPatterns.test(subject)) {
+    result.isBrokerBuyRequest = true;
+    result.isRealtor = true;
+  }
+
+  // Extract agent cell phone from showing requests / broker buy requests (often listed inline)
+  if (result.isShowingRequest || result.isBrokerBuyRequest) {
+    // Look for "Cell:" or "Mobile:" or "Phone:" patterns near the agent info
+    const cellMatch = body.match(/(?:cell|mobile|direct|phone)[:\s]*\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}/i);
+    if (cellMatch) {
+      const cellNum = cellMatch[0].match(/\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}/);
+      if (cellNum && !result.phones.includes(cellNum[0])) {
+        result.phones.unshift(cellNum[0]); // put cell first
+      }
+    }
+  }
+
+  // Check email signature area and subject for realtor indicators
+  if (realtorKeywords.test(body) || realtorKeywords.test(subject)) {
+    result.isRealtor = true;
+    // Try to extract brokerage name more aggressively
+    if (!result.brokerage) {
+      const brokerNames = body.match(/(Keller Williams[^,\n<]*|RE\/MAX[^,\n<]*|Royal LePage[^,\n<]*|Century 21[^,\n<]*|Coldwell Banker[^,\n<]*|Sutton[^,\n<]*|Right At Home[^,\n<]*|HomeLife[^,\n<]*|eXp Realty[^,\n<]*|Real Broker[^,\n<]*|iPro Realty[^,\n<]*|Chestnut Park[^,\n<]*|Sotheby[^,\n<]*|LPT Realty[^,\n<]*|Harvey Kalles[^,\n<]*|Bosley[^,\n<]*|Forest Hill[^,\n<]*|Engel[^,\n<]*|Sage[^,\n<]*|Peak[^,\n<]*|MacDonald[^,\n<]*)/i);
+      if (brokerNames) result.brokerage = brokerNames[1].trim();
+    }
+  }
+  // Also flag if from address contains realty-like domains
+  if (result.fromEmail && /realty|realestate|realtor|remax|royallepage|century21|coldwell|sutton|kw\.com|kwrealty|chestnutpark|sotheby|harveykalles|bosley|foresthillre/i.test(result.fromEmail)) {
+    result.isRealtor = true;
+  }
+
+  // Build noteworthy items
+  if (result.yspAmount) result.noteWorthy.push(`YSP: $${result.yspAmount}`);
+  if (result.closingDate) result.noteWorthy.push(`Closing: ${result.closingDate}`);
+  if (result.propertyAddress) result.noteWorthy.push(`Property: ${result.propertyAddress}`);
+  if (result.mlsNumber) result.noteWorthy.push(`MLS#: ${result.mlsNumber}`);
+  if (result.dealValue) result.noteWorthy.push(`Deal Value: $${result.dealValue}`);
+  if (result.brokerage) result.noteWorthy.push(`Brokerage: ${result.brokerage}`);
+
+  return result;
+}
+
+// Check if an email/name already exists in FUB, return the person if found
+async function findPersonInFub(email, name) {
+  // Try email first (most reliable)
+  if (email) {
+    try {
+      const resp = await fetch(`${FUB_BASE}/people?email=${encodeURIComponent(email)}&limit=1`, { headers: fubHeaders() });
+      if (resp.ok) {
+        const data = await resp.json();
+        if (data.people && data.people.length > 0) return data.people[0];
+      }
+    } catch {}
+  }
+  // Try name search as fallback
+  if (name && name.includes(' ')) {
+    try {
+      const resp = await fetch(`${FUB_BASE}/people?name=${encodeURIComponent(name)}&limit=3`, { headers: fubHeaders() });
+      if (resp.ok) {
+        const data = await resp.json();
+        if (data.people && data.people.length > 0) {
+          // Exact name match only
+          const exact = data.people.find(p =>
+            `${p.firstName} ${p.lastName}`.toLowerCase() === name.toLowerCase()
+          );
+          if (exact) return exact;
+        }
+      }
+    } catch {}
+  }
+  return null;
+}
+
+// STEP 1: GET /api/tj/setup — Create the stage and scan the label for message IDs
+app.get('/api/tj/setup', async (req, res) => {
+  if (!FUB_API_KEY) return res.json({ error: 'FUB_API_KEY not configured' });
+  if (!tokens) return res.json({ error: 'Gmail not connected' });
+
+  const state = loadTjState();
+  const results = { stageCreated: false, labelFound: false, messageCount: 0 };
+
+  // 1) Create "Old Team Jordan Leads" stage in FUB if needed
+  if (!state.stageId) {
+    try {
+      // First check if it already exists
+      const stagesResp = await fetch(`${FUB_BASE}/stages?limit=50`, { headers: fubHeaders() });
+      if (stagesResp.ok) {
+        const stagesData = await stagesResp.json();
+        const existing = (stagesData.stages || []).find(s => s.name.toLowerCase().includes('old team jordan'));
+        if (existing) {
+          state.stageId = existing.id;
+          results.stageCreated = false;
+          console.log(`[TJ] Found existing stage: ${existing.name} (ID: ${existing.id})`);
+        }
+      }
+
+      if (!state.stageId) {
+        const createResp = await fetch(`${FUB_BASE}/stages`, {
+          method: 'POST',
+          headers: fubHeaders(),
+          body: JSON.stringify({ name: 'Old Team Jordan Leads', description: 'Legacy leads imported from jonathan@teamjordan.ca email archive' }),
+        });
+        if (createResp.ok) {
+          const created = await createResp.json();
+          state.stageId = created.id;
+          results.stageCreated = true;
+          console.log(`[TJ] Created stage: Old Team Jordan Leads (ID: ${created.id})`);
+        } else {
+          const errText = await createResp.text();
+          console.error(`[TJ] Stage create failed: ${errText}`);
+          // If stage creation fails (maybe API doesn't support it), use a fallback
+          results.stageError = errText;
+        }
+      }
+    } catch (err) {
+      console.error('[TJ] Stage setup error:', err);
+    }
+  }
+
+  // 2) Find the Gmail label
+  try {
+    const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
+    const labelsResp = await gmail.users.labels.list({ userId: 'me' });
+    const labels = labelsResp.data.labels || [];
+
+    // The label from the URL is: jonathan@teamjordan.ca/All Mail
+    const targetLabel = labels.find(l =>
+      l.name.includes('jonathan@teamjordan.ca') && l.name.includes('All Mail')
+    ) || labels.find(l =>
+      l.name.toLowerCase().includes('teamjordan') && l.name.toLowerCase().includes('all mail')
+    ) || labels.find(l =>
+      l.name.includes('jonathan@teamjordan.ca')
+    );
+
+    if (targetLabel) {
+      state.labelId = targetLabel.id;
+      results.labelFound = true;
+      results.labelName = targetLabel.name;
+      console.log(`[TJ] Found label: ${targetLabel.name} (ID: ${targetLabel.id})`);
+
+      // 3) Count messages (don't fetch all IDs yet — that's step 2)
+      if (state.status === 'idle' || state.messageIds.length === 0) {
+        state.status = 'scanning_ids';
+        saveTjState(state);
+
+        // Fetch all message IDs in pages
+        let allIds = [];
+        let pageToken = null;
+        let page = 0;
+
+        do {
+          const listParams = { userId: 'me', labelIds: [targetLabel.id], maxResults: 500 };
+          if (pageToken) listParams.pageToken = pageToken;
+
+          const listResp = await gmail.users.messages.list(listParams);
+          const messages = listResp.data.messages || [];
+          allIds.push(...messages.map(m => m.id));
+          pageToken = listResp.data.nextPageToken;
+          page++;
+
+          // Update progress
+          console.log(`[TJ] Scanned page ${page}: ${allIds.length} IDs so far...`);
+
+          // Safety: cap at 50K to avoid runaway
+          if (allIds.length >= 50000) break;
+        } while (pageToken);
+
+        state.messageIds = allIds;
+        state.totalMessages = allIds.length;
+        state.status = 'paused'; // Ready to start processing
+        results.messageCount = allIds.length;
+
+        console.log(`[TJ] Total messages found: ${allIds.length}`);
+      }
+    } else {
+      results.labelFound = false;
+      results.availableLabels = labels.filter(l => l.name.includes('jordan') || l.name.includes('team')).map(l => l.name);
+    }
+  } catch (err) {
+    console.error('[TJ] Gmail label scan error:', err);
+    results.gmailError = err.message;
+  }
+
+  saveTjState(state);
+  res.json({ success: true, state: { ...state, messageIds: undefined, processedEmailIds: undefined }, ...results });
+});
+
+// STEP 2: POST /api/tj/process — Process next batch of emails
+app.post('/api/tj/process', async (req, res) => {
+  if (!FUB_API_KEY || !tokens) return res.json({ error: 'Not configured' });
+
+  const state = loadTjState();
+  if (!state.labelId || state.messageIds.length === 0) {
+    return res.json({ error: 'Run /api/tj/setup first', success: false });
+  }
+
+  state.status = 'processing';
+  saveTjState(state);
+
+  const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
+  const batchStart = state.processedCount;
+  const batchEnd = Math.min(batchStart + TJ_BATCH_SIZE, state.messageIds.length);
+  const batchIds = state.messageIds.slice(batchStart, batchEnd);
+
+  const batchResults = { processed: 0, created: 0, skippedExisting: 0, skippedNoContact: 0, notesAdded: 0, errors: 0 };
+
+  for (const msgId of batchIds) {
+    // Skip if already processed
+    if (state.processedEmailIds[msgId]) {
+      batchResults.processed++;
+      state.processedCount++;
+      continue;
+    }
+
+    try {
+      // Fetch the email
+      const full = await gmail.users.messages.get({ userId: 'me', id: msgId, format: 'full' });
+      const headers = full.data.payload.headers;
+      const body = getEmailBody(full.data.payload);
+
+      const parsed = parseEmailForContact(headers, body);
+
+      // Determine the primary contact email (not teamjordan or system)
+      const contactEmail = parsed.emails[0] || null;
+      const contactName = parsed.fromName || (parsed.names.length > 0 ? parsed.names[0] : null);
+
+      // Skip if no usable contact info
+      if (!contactEmail && !contactName) {
+        state.processedEmailIds[msgId] = 'skipped';
+        state.emailsSkipped++;
+        batchResults.skippedNoContact++;
+        batchResults.processed++;
+        state.processedCount++;
+        continue;
+      }
+
+      // Cross-reference against FUB
+      const existing = await findPersonInFub(contactEmail, contactName);
+
+      if (existing) {
+        const existingStage = (existing.stage || '').toLowerCase();
+        const isActive = ['active client', 'a - hot 1-3 months', 'b - warm 3-6 months', 'firm', 'past client'].some(s => existingStage.includes(s.toLowerCase()));
+
+        if (isActive) {
+          // Already an active or past client — skip creation but add notes if valuable
+          state.processedEmailIds[msgId] = 'existing';
+          state.leadsSkippedExisting++;
+          batchResults.skippedExisting++;
+        } else {
+          // Exists but not active — add valuable notes if we have them
+          if (parsed.noteWorthy.length > 0) {
+            try {
+              await fetch(`${FUB_BASE}/notes`, {
+                method: 'POST',
+                headers: fubHeaders(),
+                body: JSON.stringify({
+                  personId: existing.id,
+                  body: `<p><strong>Team Jordan Archive:</strong></p><p>${parsed.noteWorthy.join(' | ')}</p><p><em>Email: ${parsed.subject} (${parsed.date})</em></p>`,
+                  isHtml: true,
+                }),
+              });
+              state.notesAdded++;
+              batchResults.notesAdded++;
+            } catch {}
+          }
+          state.processedEmailIds[msgId] = 'existing';
+          state.leadsSkippedExisting++;
+          batchResults.skippedExisting++;
+        }
+
+        batchResults.processed++;
+        state.processedCount++;
+        continue;
+      }
+
+      // New contact — create in FUB
+      const nameParts = (contactName || 'Unknown').split(/\s+/);
+      const firstName = nameParts[0] || 'Unknown';
+      const lastName = nameParts.slice(1).join(' ') || '';
+
+      // Determine if this is a realtor or a lead
+      const isRealtor = parsed.isRealtor;
+      const newPerson = {
+        firstName,
+        lastName,
+        stage: isRealtor ? 'Real Estate Agent' : 'Old Team Jordan Leads',
+        source: 'Team Jordan Email Archive',
+        emails: contactEmail ? [{ value: contactEmail }] : [],
+        phones: parsed.phones.length > 0 ? [{ value: parsed.phones[0], type: 'Mobile' }] : [],
+        tags: isRealtor
+          ? ['Realtor', 'Agent', 'Team Jordan Import', 'Agent HQ Import']
+          : ['Team Jordan Import', 'Agent HQ Import'],
+      };
+      // Add brokerage as company if realtor
+      if (isRealtor && parsed.brokerage) {
+        newPerson.company = parsed.brokerage;
+      }
+
+      try {
+        const createResp = await fetch(`${FUB_BASE}/people`, {
+          method: 'POST',
+          headers: fubHeaders(),
+          body: JSON.stringify(newPerson),
+        });
+
+        if (createResp.ok) {
+          const created = await createResp.json();
+
+          // Add notes with all the valuable data
+          const noteLines = [
+            `<p><strong>Imported from Team Jordan Email Archive</strong></p>`,
+            `<p>Original email: "${parsed.subject}" (${parsed.date})</p>`,
+          ];
+          if (parsed.noteWorthy.length > 0) noteLines.push(`<p><strong>Deal Info:</strong> ${parsed.noteWorthy.join(' | ')}</p>`);
+          if (parsed.emails.length > 1) noteLines.push(`<p>Additional emails: ${parsed.emails.slice(1).join(', ')}</p>`);
+          if (parsed.phones.length > 1) noteLines.push(`<p>Additional phones: ${parsed.phones.slice(1).join(', ')}</p>`);
+          if (parsed.names.length > 0) noteLines.push(`<p>Names referenced: ${parsed.names.join(', ')}</p>`);
+
+          try {
+            await fetch(`${FUB_BASE}/notes`, {
+              method: 'POST',
+              headers: fubHeaders(),
+              body: JSON.stringify({
+                personId: created.id,
+                body: noteLines.join(''),
+                subject: 'Team Jordan Import — Agent HQ',
+                isHtml: true,
+              }),
+            });
+            state.notesAdded++;
+            batchResults.notesAdded++;
+          } catch {}
+
+          state.processedEmailIds[msgId] = 'created';
+          if (isRealtor) {
+            state.realtorsCreated++;
+          } else {
+            state.leadsCreated++;
+          }
+          batchResults.created++;
+
+          // Track recent activity
+          state.recentActivity.unshift({
+            action: 'created',
+            type: isRealtor ? 'realtor' : 'lead',
+            isRealtor,
+            name: `${firstName} ${lastName}`.trim(),
+            email: contactEmail,
+            fubId: created.id,
+            brokerage: parsed.brokerage,
+            at: new Date().toISOString(),
+            noteWorthy: parsed.noteWorthy,
+          });
+          if (state.recentActivity.length > 20) state.recentActivity = state.recentActivity.slice(0, 20);
+        } else {
+          const errText = await createResp.text();
+          state.processedEmailIds[msgId] = 'error';
+          state.errors.push({ msgId, error: errText.slice(0, 200) });
+          batchResults.errors++;
+        }
+      } catch (err) {
+        state.processedEmailIds[msgId] = 'error';
+        state.errors.push({ msgId, error: err.message });
+        batchResults.errors++;
+      }
+
+      batchResults.processed++;
+      state.processedCount++;
+
+      // Rate limit: small delay between creates to avoid hammering FUB
+      await new Promise(r => setTimeout(r, 200));
+
+    } catch (err) {
+      state.processedEmailIds[msgId] = 'error';
+      state.errors.push({ msgId, error: err.message });
+      batchResults.errors++;
+      state.processedCount++;
+      batchResults.processed++;
+    }
+  }
+
+  state.currentBatch++;
+  state.lastProcessedAt = new Date().toISOString();
+  state.status = state.processedCount >= state.totalMessages ? 'complete' : 'paused';
+
+  // Keep errors list manageable
+  if (state.errors.length > 100) state.errors = state.errors.slice(-100);
+
+  saveTjState(state);
+
+  res.json({
+    success: true,
+    batch: state.currentBatch,
+    batchResults,
+    progress: {
+      processed: state.processedCount,
+      total: state.totalMessages,
+      percent: Math.round((state.processedCount / state.totalMessages) * 100),
+      leadsCreated: state.leadsCreated,
+      realtorsCreated: state.realtorsCreated || 0,
+      leadsSkippedExisting: state.leadsSkippedExisting,
+      notesAdded: state.notesAdded,
+      emailsSkipped: state.emailsSkipped,
+      errors: state.errors.length,
+      status: state.status,
+    },
+  });
+});
+
+// GET /api/tj/status — check import progress
+app.get('/api/tj/status', (req, res) => {
+  const state = loadTjState();
+  res.json({
+    status: state.status,
+    progress: {
+      processed: state.processedCount,
+      total: state.totalMessages,
+      percent: state.totalMessages > 0 ? Math.round((state.processedCount / state.totalMessages) * 100) : 0,
+      leadsCreated: state.leadsCreated,
+      realtorsCreated: state.realtorsCreated || 0,
+      leadsSkippedExisting: state.leadsSkippedExisting,
+      notesAdded: state.notesAdded,
+      emailsSkipped: state.emailsSkipped,
+      errors: state.errors.length,
+    },
+    recentActivity: state.recentActivity,
+    lastProcessedAt: state.lastProcessedAt,
+    currentBatch: state.currentBatch,
+    stageId: state.stageId,
+  });
+});
+
+// POST /api/tj/reset — reset the import (start over)
+app.post('/api/tj/reset', (req, res) => {
+  try { fs.unlinkSync(TJ_STATE_PATH); } catch {}
+  res.json({ success: true, message: 'Import state reset' });
+});
+
 // POST /api/fub/log-call — log a call + note in Follow Up Boss
 app.post('/api/fub/log-call', async (req, res) => {
   if (!FUB_API_KEY) return res.json({ error: 'FUB_API_KEY not configured', success: false });
