@@ -1064,7 +1064,7 @@ function TeamJordanImport() {
       const res = await fetch('/api/tj/approve', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ approved: approved.map(c => ({ msgId: c.msgId, type: c.type })) }),
+        body: JSON.stringify({ approved: approved.map(c => ({ msgId: c.msgId, type: c.type, firstName: c.firstName, lastName: c.lastName })) }),
       });
       const data = await res.json();
       if (data.error) { setSetupError(data.error); setImporting(false); return; }
@@ -1081,8 +1081,12 @@ function TeamJordanImport() {
 
   const p = status?.progress || {};
   const approvedCount = candidates.filter(c => c.approved).length;
-  const typeColor = { realtor: '#f59e0b', lawyer: '#6366f1', lead: '#10b981' };
-  const typeLabel = { realtor: 'REALTOR', lawyer: 'LAWYER', lead: 'LEAD' };
+  const typeColor = { realtor: '#f59e0b', lawyer: '#6366f1', lead: '#10b981', active_client: '#2563eb', past_client: '#7c3aed' };
+
+  // Edit candidate fields
+  const updateCandidate = (msgId, field, value) => {
+    setCandidates(prev => prev.map(c => c.msgId === msgId ? { ...c, [field]: value } : c));
+  };
 
   return (
     <Card>
@@ -1198,12 +1202,13 @@ function TeamJordanImport() {
                 <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
                   <thead>
                     <tr style={{ background: "#f9fafb", borderBottom: "1px solid #e5e7eb" }}>
-                      <th style={{ padding: "8px 10px", textAlign: "left", fontWeight: 600, color: "#6b7280", width: 36 }}></th>
-                      <th style={{ padding: "8px 6px", textAlign: "left", fontWeight: 600, color: "#6b7280" }}>Name</th>
-                      <th style={{ padding: "8px 6px", textAlign: "left", fontWeight: 600, color: "#6b7280" }}>Email</th>
-                      <th style={{ padding: "8px 6px", textAlign: "left", fontWeight: 600, color: "#6b7280" }}>Phone</th>
-                      <th style={{ padding: "8px 6px", textAlign: "center", fontWeight: 600, color: "#6b7280", width: 90 }}>Type</th>
-                      <th style={{ padding: "8px 6px", textAlign: "left", fontWeight: 600, color: "#6b7280" }}>Details</th>
+                      <th style={{ padding: "8px 10px", textAlign: "left", fontWeight: 600, color: "#6b7280", width: 32 }}></th>
+                      <th style={{ padding: "8px 3px", textAlign: "left", fontWeight: 600, color: "#6b7280" }}>First</th>
+                      <th style={{ padding: "8px 3px", textAlign: "left", fontWeight: 600, color: "#6b7280" }}>Last</th>
+                      <th style={{ padding: "8px 3px", textAlign: "left", fontWeight: 600, color: "#6b7280" }}>Email</th>
+                      <th style={{ padding: "8px 3px", textAlign: "left", fontWeight: 600, color: "#6b7280" }}>Phone</th>
+                      <th style={{ padding: "8px 3px", textAlign: "center", fontWeight: 600, color: "#6b7280", width: 110 }}>Type</th>
+                      <th style={{ padding: "8px 3px", textAlign: "left", fontWeight: 600, color: "#6b7280" }}>Details</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1212,21 +1217,32 @@ function TeamJordanImport() {
                         <td style={{ padding: "6px 10px", textAlign: "center" }}>
                           <input type="checkbox" checked={c.approved} onChange={() => toggleCandidate(c.msgId)} style={{ cursor: "pointer", width: 15, height: 15 }} />
                         </td>
-                        <td style={{ padding: "6px", fontWeight: 600, color: "#111827" }}>{c.firstName} {c.lastName}</td>
-                        <td style={{ padding: "6px", color: "#6b7280", maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.email}</td>
-                        <td style={{ padding: "6px", color: "#6b7280" }}>{c.phone || '—'}</td>
-                        <td style={{ padding: "6px", textAlign: "center" }}>
+                        <td style={{ padding: "4px 3px" }}>
+                          <input value={c.firstName} onChange={e => updateCandidate(c.msgId, 'firstName', e.target.value)}
+                            style={{ width: 70, fontSize: 12, fontWeight: 600, color: "#111827", border: "1px solid #e5e7eb", borderRadius: 4, padding: "3px 5px", background: "#fff" }}
+                            placeholder="First" />
+                        </td>
+                        <td style={{ padding: "4px 3px" }}>
+                          <input value={c.lastName} onChange={e => updateCandidate(c.msgId, 'lastName', e.target.value)}
+                            style={{ width: 80, fontSize: 12, fontWeight: 600, color: "#111827", border: "1px solid #e5e7eb", borderRadius: 4, padding: "3px 5px", background: "#fff" }}
+                            placeholder="Last" />
+                        </td>
+                        <td style={{ padding: "4px 3px", color: "#6b7280", fontSize: 11, maxWidth: 170, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.email}</td>
+                        <td style={{ padding: "4px 3px", color: "#6b7280", fontSize: 11 }}>{c.phone || '—'}</td>
+                        <td style={{ padding: "4px 3px", textAlign: "center" }}>
                           <select value={c.type} onChange={e => changeCandidateType(c.msgId, e.target.value)}
-                            style={{ fontSize: 10, fontWeight: 700, padding: "2px 6px", borderRadius: 4, border: "none",
-                              background: typeColor[c.type] || '#6b7280', color: "#fff", cursor: "pointer", appearance: "auto" }}>
+                            style={{ fontSize: 10, fontWeight: 700, padding: "2px 4px", borderRadius: 4, border: "none",
+                              background: typeColor[c.type] || '#6b7280', color: "#fff", cursor: "pointer" }}>
                             <option value="lead">LEAD</option>
+                            <option value="active_client">ACTIVE CLIENT</option>
+                            <option value="past_client">PAST CLIENT</option>
                             <option value="realtor">REALTOR</option>
                             <option value="lawyer">LAWYER</option>
                           </select>
                         </td>
-                        <td style={{ padding: "6px", fontSize: 10, color: "#9ca3af", maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                          {c.brokerage && `Brokerage: ${c.brokerage}`}
-                          {c.lawFirm && `Firm: ${c.lawFirm}`}
+                        <td style={{ padding: "4px 3px", fontSize: 10, color: "#9ca3af", maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          {c.brokerage && `${c.brokerage}`}
+                          {c.lawFirm && `${c.lawFirm}`}
                           {c.realtorSource && ` (${c.realtorSource})`}
                           {!c.brokerage && !c.lawFirm && !c.realtorSource && c.subject}
                         </td>

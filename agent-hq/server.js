@@ -1984,8 +1984,10 @@ function parseEmailForContact(headers, body) {
     result.emails = [result.fromEmail, ...result.emails.filter(e => e !== result.fromEmail)];
   }
 
-  // Extract phone numbers
-  const phones = body.match(/\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}/g) || [];
+  // Extract phone numbers (filter out owner's number)
+  const ownerPhones = ['7054332525'];
+  const phones = (body.match(/\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}/g) || [])
+    .filter(p => !ownerPhones.includes(p.replace(/\D/g, '')));
   result.phones = [...new Set(phones)];
 
   // YSP amount
@@ -2480,7 +2482,7 @@ app.post('/api/tj/approve', async (req, res) => {
   }
 
   const approvedMap = {};
-  for (const a of approved) { approvedMap[a.msgId] = a.type; }
+  for (const a of approved) { approvedMap[a.msgId] = { type: a.type, firstName: a.firstName, lastName: a.lastName }; }
 
   const candidates = state.pendingCandidates || [];
   if (candidates.length === 0) {
@@ -2493,9 +2495,9 @@ app.post('/api/tj/approve', async (req, res) => {
   const results = { imported: 0, rejected: 0, errors: 0 };
 
   for (const candidate of candidates) {
-    const approvedType = approvedMap[candidate.msgId];
+    const approvedData = approvedMap[candidate.msgId];
 
-    if (!approvedType) {
+    if (!approvedData) {
       // User rejected this one — mark as skipped
       state.processedEmailIds[candidate.msgId] = 'rejected';
       state.emailsSkipped++;
@@ -2504,15 +2506,28 @@ app.post('/api/tj/approve', async (req, res) => {
       continue;
     }
 
-    // Build FUB person object — use TYPE from approval (user may have changed it via dropdown)
-    const { firstName, lastName, email, phone, realtorSource, brokerage, lawFirm, workAddress, noteWorthy, additionalEmails, additionalPhones, names } = candidate;
-    const type = approvedType; // from the user's approval, not the auto-detected type
+    // Use edited names from the user (they may have corrected them in the UI)
+    const firstName = approvedData.firstName || candidate.firstName;
+    const lastName = approvedData.lastName || candidate.lastName;
+    const { email, phone, realtorSource, brokerage, lawFirm, workAddress, noteWorthy, additionalEmails, additionalPhones, names } = candidate;
+    const type = approvedData.type; // from the user's dropdown selection
     const isRealtor = type === 'realtor';
     const isLawyer = type === 'lawyer';
 
-    // Cross-reference against FUB (moved here from scan for speed)
+    // Cross-reference against FUB by email AND phone (moved here from scan for speed)
     try {
-      const existing = await findPersonInFub(email, `${firstName} ${lastName}`.trim());
+      let existing = await findPersonInFub(email, `${firstName} ${lastName}`.trim());
+      // Also check by phone if no email match
+      if (!existing && phone) {
+        try {
+          const phoneClean = phone.replace(/\D/g, '');
+          const phoneResp = await fetch(`${FUB_BASE}/people?phone=${encodeURIComponent(phoneClean)}&limit=1`, { headers: fubHeaders() });
+          if (phoneResp.ok) {
+            const phoneData = await phoneResp.json();
+            if (phoneData.people && phoneData.people.length > 0) existing = phoneData.people[0];
+          }
+        } catch {}
+      }
       if (existing) {
         // Already in FUB — add notes if applicable, skip creation
         if (noteWorthy.length > 0 && !isLawyer) {
@@ -2538,38 +2553,27 @@ app.post('/api/tj/approve', async (req, res) => {
       console.error('[TJ] FUB lookup error:', err.message);
     }
 
-    let newPerson;
-    if (isLawyer) {
-      newPerson = {
-        firstName, lastName,
-        stage: 'Lawyer',
-        source: 'Team Jordan Email Archive',
-        emails: email ? [{ value: email }] : [],
-        phones: phone ? [{ value: phone, type: 'Work' }] : [],
-        tags: ['Lawyer', 'Team Jordan Import', 'Agent HQ Import'],
-      };
-      if (lawFirm) newPerson.company = lawFirm;
-      if (workAddress) newPerson.addresses = [{ value: workAddress, type: 'Work' }];
-    } else if (isRealtor) {
-      newPerson = {
-        firstName, lastName,
-        stage: 'Real Estate Agent',
-        source: 'Team Jordan Email Archive',
-        emails: email ? [{ value: email }] : [],
-        phones: phone ? [{ value: phone, type: 'Mobile' }] : [],
-        tags: ['Realtor', 'Agent', 'Team Jordan Import', 'Agent HQ Import'],
-      };
-      if (brokerage) newPerson.company = brokerage;
-    } else {
-      newPerson = {
-        firstName, lastName,
-        stage: 'Old Team Jordan Leads',
-        source: 'Team Jordan Email Archive',
-        emails: email ? [{ value: email }] : [],
-        phones: phone ? [{ value: phone, type: 'Mobile' }] : [],
-        tags: ['Team Jordan Import', 'Agent HQ Import'],
-      };
-    }
+    // Map type to FUB stage and tags
+    const typeConfig = {
+      lawyer:        { stage: 'Lawyer',              tags: ['Lawyer', 'Team Jordan Import', 'Agent HQ Import'] },
+      realtor:       { stage: 'Real Estate Agent',   tags: ['Realtor', 'Agent', 'Team Jordan Import', 'Agent HQ Import'] },
+      active_client: { stage: 'Active Client',       tags: ['Active Client', 'Team Jordan Import', 'Agent HQ Import'] },
+      past_client:   { stage: 'Past Client',         tags: ['Past Client', 'Team Jordan Import', 'Agent HQ Import'] },
+      lead:          { stage: 'Old Team Jordan Leads', tags: ['Team Jordan Import', 'Agent HQ Import'] },
+    };
+    const config = typeConfig[type] || typeConfig.lead;
+
+    let newPerson = {
+      firstName, lastName,
+      stage: config.stage,
+      source: 'Team Jordan Email Archive',
+      emails: email ? [{ value: email }] : [],
+      phones: phone ? [{ value: phone, type: isLawyer ? 'Work' : 'Mobile' }] : [],
+      tags: config.tags,
+    };
+    if (isLawyer && lawFirm) newPerson.company = lawFirm;
+    if (isLawyer && workAddress) newPerson.addresses = [{ value: workAddress, type: 'Work' }];
+    if (isRealtor && brokerage) newPerson.company = brokerage;
 
     try {
       const createResp = await fetch(`${FUB_BASE}/people`, {
