@@ -964,6 +964,7 @@ function TeamJordanImport() {
   const [setting, setSetting] = useState(false);
   const [processing, setProcessing] = useState(false);
   const [autoRunning, setAutoRunning] = useState(false);
+  const [setupError, setSetupError] = useState(null);
   const autoRef = useRef(null);
 
   const fetchStatus = async () => {
@@ -981,12 +982,27 @@ function TeamJordanImport() {
 
   const runSetup = async () => {
     setSetting(true);
+    setSetupError(null);
     try {
       const res = await fetch('/api/tj/setup');
       const data = await res.json();
-      setStatus(prev => ({ ...prev, ...data.state, progress: data.state ? { processed: data.state.processedCount, total: data.state.totalMessages, percent: 0, leadsCreated: 0, leadsSkippedExisting: 0, notesAdded: 0, emailsSkipped: 0, errors: 0 } : prev?.progress }));
+      if (data.error) {
+        setSetupError(data.error);
+        setSetting(false);
+        return;
+      }
+      if (!data.state?.totalMessages && !data.labelFound) {
+        setSetupError(data.availableLabels?.length > 0
+          ? `Gmail label not found. Similar labels: ${data.availableLabels.join(', ')}`
+          : 'Gmail label "jonathan@teamjordan.ca/All Mail" not found. Check that the label exists in Gmail.');
+        setSetting(false);
+        return;
+      }
+      setStatus(prev => ({ ...prev, ...data.state, progress: data.state ? { processed: data.state.processedCount, total: data.state.totalMessages, percent: 0, leadsCreated: 0, realtorsCreated: 0, leadsSkippedExisting: 0, notesAdded: 0, emailsSkipped: 0, errors: 0 } : prev?.progress }));
       await fetchStatus();
-    } catch {}
+    } catch (err) {
+      setSetupError('Network error — could not reach the server.');
+    }
     setSetting(false);
   };
 
@@ -1045,6 +1061,20 @@ function TeamJordanImport() {
           <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 12 }}>
             Scan the <strong>jonathan@teamjordan.ca / All Mail</strong> label in Gmail, cross-reference against Follow Up Boss, and import new leads under "Old Team Jordan Leads" stage.
           </div>
+          {setupError && (
+            <div style={{ background: "#fef2f2", border: "1px solid #fca5a5", borderRadius: 8, padding: "10px 14px", marginBottom: 12, fontSize: 12 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                <AlertTriangle size={13} color="#ef4444" />
+                <strong style={{ color: "#dc2626" }}>Setup Error</strong>
+              </div>
+              <div style={{ color: "#991b1b" }}>{setupError}</div>
+              {setupError.includes('Gmail not connected') && (
+                <div style={{ marginTop: 6, color: "#6b7280", fontSize: 11 }}>
+                  Go to <strong>Calendar</strong> section and reconnect Google to fix this. The GOOGLE_REFRESH_TOKEN env variable may also need to be set in Railway.
+                </div>
+              )}
+            </div>
+          )}
           <button onClick={runSetup} disabled={setting} style={{
             display: "flex", alignItems: "center", gap: 6, background: "#8b5cf6", color: "#fff", border: "none", borderRadius: 8,
             padding: "8px 18px", fontSize: 13, fontWeight: 600, cursor: setting ? "wait" : "pointer",
