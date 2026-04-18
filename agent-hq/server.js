@@ -2290,6 +2290,7 @@ app.post('/api/tj/scan', async (req, res) => {
   // 2) Parse each email and categorize
   const candidates = []; // contacts ready for approval
   const skipped = [];    // auto-filtered out (with reason)
+  const seenEmails = new Set(); // deduplicate contacts by email within this batch
   let scannedCount = 0;
 
   for (const msgId of batchIds) {
@@ -2384,6 +2385,17 @@ app.post('/api/tj/scan', async (req, res) => {
         contactType = 'lawyer';
       }
 
+      // Deduplicate: skip if we've already seen this email in this batch or a previous batch
+      const emailKey = contactEmail.toLowerCase();
+      if (seenEmails.has(emailKey)) {
+        skipped.push({ msgId, name: contactName, email: contactEmail, reason: 'Duplicate (already in this batch)' });
+        state.processedEmailIds[msgId] = 'skipped';
+        state.emailsSkipped++;
+        scannedCount++;
+        continue;
+      }
+      seenEmails.add(emailKey);
+
       candidates.push({
         msgId,
         firstName, lastName,
@@ -2400,7 +2412,7 @@ app.post('/api/tj/scan', async (req, res) => {
         additionalEmails: parsed.emails.slice(1),
         additionalPhones: parsed.phones.slice(1),
         names: parsed.names,
-        approved: true, // default to approved; user unchecks to reject
+        approved: true,
       });
 
       scannedCount++;
