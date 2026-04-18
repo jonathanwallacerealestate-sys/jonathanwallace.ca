@@ -1913,6 +1913,16 @@ function EmailEASection() {
   const [selectedThread, setSelectedThread] = useState(null);
   const [viewFilter, setViewFilter] = useState('awaiting_you');
   const [refreshing, setRefreshing] = useState(false);
+  const [sweepStatus, setSweepStatus] = useState(null);
+
+  // Fetch sweep schedule status on mount
+  useEffect(() => {
+    fetch('/api/ea/sweep-status').then(r => r.json()).then(setSweepStatus).catch(() => {});
+    const iv = setInterval(() => {
+      fetch('/api/ea/sweep-status').then(r => r.json()).then(setSweepStatus).catch(() => {});
+    }, 5 * 60 * 1000); // refresh every 5 min
+    return () => clearInterval(iv);
+  }, []);
 
   const handleRefresh = async () => {
     setRefreshing(true);
@@ -1949,6 +1959,18 @@ function EmailEASection() {
           {refreshing ? 'Sweeping...' : 'Sweep Now'}
         </button>
       </div>
+
+      {/* Scheduled sweep status line */}
+      {sweepStatus?.lastSweep && (
+        <div style={{ fontSize: 10, color: "#9ca3af", marginBottom: 10, display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 3 }}>
+            <span style={{ width: 6, height: 6, borderRadius: "50%", background: sweepStatus.lastSweep.status === 'success' ? '#10b981' : '#ef4444', display: "inline-block" }} />
+            Auto-sweep: {sweepStatus.scheduledHours?.join(' & ')}
+          </span>
+          <span>Last: {sweepStatus.lastSweep.time ? new Date(sweepStatus.lastSweep.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'never'}</span>
+          {sweepStatus.lastSweep.stateChanges > 0 && <span style={{ color: "#f59e0b", fontWeight: 600 }}>{sweepStatus.lastSweep.stateChanges} updates</span>}
+        </div>
+      )}
 
       {/* State filter tabs */}
       <div style={{ display: "flex", gap: 6, marginBottom: 14, flexWrap: "wrap" }}>

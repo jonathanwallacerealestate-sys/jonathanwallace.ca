@@ -1550,6 +1550,251 @@ function countThreadStates(threads) {
   return counts;
 }
 
+// ─────────────────────────────────────────────
+// SCHEDULED EA SWEEP — 7AM & 5PM EST daily
+// Automatic background sweep that re-runs the full EA triage to catch
+// CC-forwarded Outlook replies, reconcile thread states, and keep
+// Agent HQ accurate even when the dashboard isn't open.
+// ─────────────────────────────────────────────
+let scheduledSweepLog = [];
+const MAX_SWEEP_LOG = 50;
+
+async function runScheduledSweep(trigger = 'scheduled') {
+  const startTime = Date.now();
+  console.log(`[EA Sweep] Starting ${trigger} sweep at ${new Date().toISOString()}`);
+
+  if (!tokens) {
+    const entry = { time: new Date().toISOString(), trigger, status: 'skipped', reason: 'no_tokens', duration: 0 };
+    scheduledSweepLog.unshift(entry);
+    if (scheduledSweepLog.length > MAX_SWEEP_LOG) scheduledSweepLog.pop();
+    console.log(`[EA Sweep] Skipped — no Google tokens`);
+    return entry;
+  }
+
+  try {
+    const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
+    const days = 14;
+
+    // Step 1: Fetch inbox threads
+    const inboxRes = await gmail.users.threads.list({
+      userId: 'me',
+      q: `in:inbox newer_than:${days}d`,
+      maxResults: 80,
+    });
+    const inboxThreads = inboxRes.data.threads || [];
+
+    // Step 2: Fetch sent threads
+    const sentRes = await gmail.users.threads.list({
+      userId: 'me',
+      q: `in:sent newer_than:${days}d`,
+      maxResults: 50,
+    });
+    const sentThreadIds = new Set((sentRes.data.threads || []).map(t => t.id));
+
+    // Step 2b: CC-forwarded Outlook replies
+    const ccForwardRes = await gmail.users.messages.list({
+      userId: 'me',
+      q: `from:jonathan@faristeam.ca newer_than:${days}d`,
+      maxResults: 100,
+    });
+    const ccForwardCount = (ccForwardRes.data.messages || []).length;
+
+    // Step 3: Process threads (same logic as /api/ea/triage)
+    const processedThreads = {};
+    let stateChanges = 0;
+    const prevThreads = { ...eaThreadCache.threads };
+
+    for (const thread of inboxThreads) {
+      try {
+        const detail = await gmail.users.threads.get({
+          userId: 'me',
+          id: thread.id,
+          format: 'metadata',
+          metadataHeaders: ['From', 'To', 'Subject', 'Date', 'Cc'],
+        });
+
+        const messages = detail.data.messages || [];
+        if (messages.length === 0) continue;
+
+        const firstMsg = messages[0];
+        const lastMsg = messages[messages.length - 1];
+        const firstHeaders = firstMsg.payload?.headers || [];
+        const lastHeaders = lastMsg.payload?.headers || [];
+
+        const subject = firstHeaders.find(h => h.name === 'Subject')?.value || '(no subject)';
+        const lastFrom = lastHeaders.find(h => h.name === 'From')?.value || '';
+        const lastDate = lastHeaders.find(h => h.name === 'Date')?.value || '';
+        const lastFromEmail = extractEmail(lastFrom);
+        const lastSenderType = classifySenderType(lastFromEmail);
+        const firstFrom = firstHeaders.find(h => h.name === 'From')?.value || '';
+        const lastSnippet = lastMsg.snippet || '';
+        const lastLabels = lastMsg.labelIds || [];
+        const category = categorizeEmail(lastFrom, subject, lastSnippet, lastLabels);
+        const priority = classifyThreadPriority(lastFromEmail, subject, category);
+        const archiveRule = shouldAutoArchive(lastFromEmail, subject);
+
+        let state = 'awaiting_you';
+        const isFromJonathan = JONATHAN_EMAILS.some(j => lastFromEmail.includes(j));
+        const existingState = eaThreadCache.threads[thread.id];
+
+        const jonathanSentInThread = messages.some(msg => {
+          const msgFrom = (msg.payload?.headers || []).find(h => h.name === 'From')?.value || '';
+          const msgFromEmail = extractEmail(msgFrom);
+          return JONATHAN_EMAILS.some(j => msgFromEmail.includes(j));
+        });
+        const inSentFolder = sentThreadIds.has(thread.id);
+        const jonathanHasReplied = isFromJonathan || (jonathanSentInThread && !isFromJonathan);
+
+        if (existingState?.state === 'snoozed') {
+          const snoozeUntil = existingState.snoozeUntil ? new Date(existingState.snoozeUntil) : null;
+          if (snoozeUntil && snoozeUntil <= new Date()) {
+            state = 'awaiting_you';
+          } else {
+            state = 'snoozed';
+          }
+        } else if (existingState?.state === 'closed' && !existingState?.autoArchiveRule) {
+          state = 'closed';
+        } else if (archiveRule) {
+          state = 'closed';
+        } else if (isFromJonathan || jonathanHasReplied || inSentFolder) {
+          const lastSnippetLower = lastSnippet.toLowerCase();
+          if (isFromJonathan && (lastSnippetLower.includes('thank') || lastSnippetLower.includes('confirmed') ||
+              lastSnippetLower.includes('sounds good') || lastSnippetLower.includes('all set'))) {
+            state = 'closed';
+          } else {
+            state = 'awaiting_them';
+          }
+        } else {
+          state = 'awaiting_you';
+        }
+
+        // Track state changes from previous sweep
+        const prevState = prevThreads[thread.id]?.state;
+        if (prevState && prevState !== state) {
+          stateChanges++;
+          console.log(`[EA Sweep] Thread ${thread.id} state changed: ${prevState} → ${state} (${subject.substring(0, 40)})`);
+        }
+
+        const participants = new Set();
+        messages.forEach(msg => {
+          const from = (msg.payload?.headers || []).find(h => h.name === 'From')?.value || '';
+          const to = (msg.payload?.headers || []).find(h => h.name === 'To')?.value || '';
+          if (from) participants.add(extractEmail(from));
+          if (to) to.split(',').forEach(e => participants.add(extractEmail(e.trim())));
+        });
+
+        processedThreads[thread.id] = {
+          id: thread.id,
+          subject,
+          from: firstFrom,
+          lastFrom,
+          lastFromEmail,
+          lastSenderType,
+          lastSnippet,
+          lastDate,
+          timestamp: lastDate ? new Date(lastDate).getTime() : 0,
+          messageCount: messages.length,
+          state,
+          priority,
+          category,
+          isRead: !lastLabels.includes('UNREAD'),
+          participants: [...participants],
+          autoArchiveRule: archiveRule ? archiveRule.action : null,
+          linkedProperty: null,
+          outlookCcDetected: jonathanSentInThread && !isFromJonathan,
+          inSentFolder: inSentFolder,
+        };
+      } catch (e) {
+        console.error(`[EA Sweep] Error processing thread ${thread.id}:`, e.message);
+      }
+    }
+
+    // Save updated cache
+    eaThreadCache = {
+      threads: processedThreads,
+      lastSweep: new Date().toISOString(),
+      sweepCount: (eaThreadCache.sweepCount || 0) + 1,
+    };
+    saveEaThreads();
+
+    const duration = Date.now() - startTime;
+    const counts = countThreadStates(Object.values(processedThreads));
+    const entry = {
+      time: new Date().toISOString(),
+      trigger,
+      status: 'success',
+      duration,
+      threadsProcessed: Object.keys(processedThreads).length,
+      ccForwardsFound: ccForwardCount,
+      stateChanges,
+      counts,
+    };
+    scheduledSweepLog.unshift(entry);
+    if (scheduledSweepLog.length > MAX_SWEEP_LOG) scheduledSweepLog.pop();
+    console.log(`[EA Sweep] Complete: ${entry.threadsProcessed} threads, ${ccForwardCount} CC forwards, ${stateChanges} state changes, ${duration}ms`);
+    return entry;
+  } catch (err) {
+    const duration = Date.now() - startTime;
+    const entry = { time: new Date().toISOString(), trigger, status: 'error', error: err.message, duration };
+    scheduledSweepLog.unshift(entry);
+    if (scheduledSweepLog.length > MAX_SWEEP_LOG) scheduledSweepLog.pop();
+    console.error(`[EA Sweep] Error:`, err.message);
+    return entry;
+  }
+}
+
+// Schedule checker — runs every minute, fires sweep at 7AM and 5PM EST
+let lastScheduledHour = -1;
+const SWEEP_HOURS_EST = [7, 17]; // 7AM and 5PM Eastern
+
+function checkScheduledSweep() {
+  // Get current hour in Eastern Time
+  const now = new Date();
+  const estString = now.toLocaleString('en-US', { timeZone: 'America/Toronto', hour: 'numeric', hour12: false });
+  const currentHourEST = parseInt(estString);
+  const currentMinute = now.getMinutes();
+
+  // Fire at :00 of each scheduled hour (within first 2 minutes to avoid double-fire)
+  if (SWEEP_HOURS_EST.includes(currentHourEST) && currentMinute < 2 && lastScheduledHour !== currentHourEST) {
+    lastScheduledHour = currentHourEST;
+    console.log(`[EA Sweep] Triggering scheduled ${currentHourEST === 7 ? 'morning' : 'evening'} sweep`);
+    runScheduledSweep(`scheduled_${currentHourEST === 7 ? '7am' : '5pm'}`);
+  }
+
+  // Reset tracker when we move past the scheduled hour
+  if (!SWEEP_HOURS_EST.includes(currentHourEST)) {
+    lastScheduledHour = -1;
+  }
+}
+
+// Check every 60 seconds
+setInterval(checkScheduledSweep, 60 * 1000);
+
+// Also run a sweep on startup (after a short delay for tokens to load)
+setTimeout(() => {
+  console.log('[EA Sweep] Running startup sweep...');
+  runScheduledSweep('startup');
+}, 15 * 1000);
+
+// GET /api/ea/sweep-status — View scheduled sweep status and logs
+app.get('/api/ea/sweep-status', (req, res) => {
+  const now = new Date();
+  const estString = now.toLocaleString('en-US', { timeZone: 'America/Toronto' });
+  res.json({
+    currentTimeEST: estString,
+    scheduledHours: SWEEP_HOURS_EST.map(h => `${h}:00 EST`),
+    lastSweep: scheduledSweepLog[0] || null,
+    totalSweeps: scheduledSweepLog.length,
+    recentLogs: scheduledSweepLog.slice(0, 10),
+  });
+});
+
+// POST /api/ea/sweep-now — Manually trigger a sweep
+app.post('/api/ea/sweep-now', async (req, res) => {
+  const result = await runScheduledSweep('manual');
+  res.json(result);
+});
+
 // POST /api/ea/thread/:threadId/state — Manually update thread state (snooze, close, etc.)
 app.post('/api/ea/thread/:threadId/state', (req, res) => {
   const { threadId } = req.params;
