@@ -2151,12 +2151,20 @@ app.get('/api/tj/setup', async (req, res) => {
     const labelsResp = await gmail.users.labels.list({ userId: 'me' });
     const labels = labelsResp.data.labels || [];
 
+    // Log all labels for debugging
+    console.log(`[TJ] All Gmail labels (${labels.length}):`, labels.map(l => l.name).join(' | '));
+
+    // Broad matching — the label could be named differently than expected
     const targetLabel = labels.find(l =>
-      l.name.includes('jonathan@teamjordan.ca') && l.name.includes('All Mail')
+      l.name.includes('jonathan@teamjordan.ca') && l.name.toLowerCase().includes('all mail')
     ) || labels.find(l =>
       l.name.toLowerCase().includes('teamjordan') && l.name.toLowerCase().includes('all mail')
     ) || labels.find(l =>
       l.name.includes('jonathan@teamjordan.ca')
+    ) || labels.find(l =>
+      l.name.toLowerCase().includes('teamjordan')
+    ) || labels.find(l =>
+      l.name.toLowerCase().includes('team jordan')
     );
 
     if (targetLabel) {
@@ -2168,7 +2176,8 @@ app.get('/api/tj/setup', async (req, res) => {
       console.log(`[TJ] Found label: ${targetLabel.name} (ID: ${targetLabel.id})`);
     } else {
       results.labelFound = false;
-      results.availableLabels = labels.filter(l => l.name.includes('jordan') || l.name.includes('team')).map(l => l.name);
+      // Return ALL labels so we can debug
+      results.availableLabels = labels.map(l => l.name).filter(n => !n.startsWith('CATEGORY_') && n !== 'CHAT' && n !== 'SPAM' && n !== 'TRASH' && n !== 'DRAFT' && n !== 'SENT' && n !== 'INBOX' && n !== 'STARRED' && n !== 'UNREAD' && n !== 'IMPORTANT');
     }
   } catch (err) {
     console.error('[TJ] Gmail label scan error:', err);

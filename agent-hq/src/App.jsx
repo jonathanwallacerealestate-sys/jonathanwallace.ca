@@ -993,8 +993,8 @@ function TeamJordanImport() {
       }
       if (!data.ready && !data.labelFound) {
         setSetupError(data.availableLabels?.length > 0
-          ? `Gmail label not found. Similar labels: ${data.availableLabels.join(', ')}`
-          : 'Gmail label "jonathan@teamjordan.ca/All Mail" not found. Check that the label exists in Gmail.');
+          ? `Gmail label not found. Available labels: ${data.availableLabels.join(', ')}`
+          : 'Gmail label "jonathan@teamjordan.ca/All Mail" not found. No custom labels found in this Gmail account.');
         setSetting(false);
         return;
       }
