@@ -1001,7 +1001,7 @@ function TeamJordanImport() {
       setStatus(prev => ({
         ...prev,
         status: data.state?.status || 'ready',
-        progress: { processed: 0, total: 0, leadsCreated: 0, realtorsCreated: 0, leadsSkippedExisting: 0, notesAdded: 0, emailsSkipped: 0, errors: 0, ...data.state?.progress },
+        progress: { processed: 0, total: 0, leadsCreated: 0, realtorsCreated: 0, lawyersCreated: 0, leadsSkippedExisting: 0, notesAdded: 0, emailsSkipped: 0, errors: 0, ...data.state?.progress },
         currentBatch: data.state?.currentBatch || 0,
         hasMore: true,
         labelName: data.labelName,
@@ -1121,10 +1121,11 @@ function TeamJordanImport() {
           </div>
 
           {/* Stats grid */}
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr 1fr", gap: 8, marginBottom: 16 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr 1fr 1fr", gap: 8, marginBottom: 16 }}>
             {[
               { label: "Leads Created", value: p.leadsCreated || 0, color: "#10b981" },
               { label: "Realtors Found", value: p.realtorsCreated || 0, color: "#f59e0b" },
+              { label: "Lawyers Found", value: p.lawyersCreated || 0, color: "#6366f1" },
               { label: "Already in FUB", value: p.leadsSkippedExisting || 0, color: "#2563eb" },
               { label: "Notes Added", value: p.notesAdded || 0, color: "#8b5cf6" },
               { label: "Skipped / Errors", value: (p.emailsSkipped || 0) + (p.errors || 0), color: "#6b7280" },
@@ -1191,9 +1192,10 @@ function TeamJordanImport() {
               <div style={{ fontSize: 11, fontWeight: 700, color: "#6b7280", marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.05em" }}>Recent Imports</div>
               {status.recentActivity.slice(0, 8).map((a, i) => (
                 <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4, fontSize: 12 }}>
-                  <CheckCircle2 size={11} color={a.isRealtor ? "#f59e0b" : "#10b981"} />
+                  <CheckCircle2 size={11} color={a.isRealtor ? "#f59e0b" : a.isLawyer ? "#6366f1" : "#10b981"} />
                   <strong style={{ color: "#111827" }}>{a.name}</strong>
                   {a.isRealtor && <span style={{ fontSize: 9, fontWeight: 700, color: "#fff", background: "#f59e0b", padding: "1px 5px", borderRadius: 3 }}>REALTOR</span>}
+                  {a.isLawyer && <span style={{ fontSize: 9, fontWeight: 700, color: "#fff", background: "#6366f1", padding: "1px 5px", borderRadius: 3 }}>LAWYER</span>}
                   {a.email && <span style={{ color: "#9ca3af" }}>{a.email}</span>}
                   {a.noteWorthy?.length > 0 && <span style={{ fontSize: 10, color: "#8b5cf6" }}>{a.noteWorthy.join(' · ')}</span>}
                 </div>

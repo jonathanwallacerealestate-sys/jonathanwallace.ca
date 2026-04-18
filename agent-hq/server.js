@@ -1919,6 +1919,7 @@ function loadTjState() {
     currentBatch: 0,
     leadsCreated: 0,
     realtorsCreated: 0,
+    lawyersCreated: 0,
     leadsSkippedExisting: 0,
     notesAdded: 0,
     emailsSkipped: 0,
@@ -2021,6 +2022,31 @@ function parseEmailForContact(headers, body) {
       }
     }
   }
+
+  // Detect if this is a lawyer
+  result.isLawyer = false;
+  result.lawFirm = null;
+  result.workAddress = null;
+  const lawyerKeywords = /\b(lawyer|attorney|barrister|solicitor|counsel|law\s+(?:firm|office|offices|clerk|corporation)|legal\s+(?:counsel|services|assistant)|LLB|J\.?D\.?|LL\.?M\.?|notary\s+public|paralegal)\b/i;
+  const lawFirmPatterns = /\b(law\s+(?:firm|office|offices|corporation|professional\s+corporation)|LLP|barristers?\s+(?:and|&)\s+solicitors?|professional\s+corporation|legal\s+services)\b/i;
+  if (lawyerKeywords.test(body) || lawyerKeywords.test(subject)) {
+    result.isLawyer = true;
+    // Try to extract law firm name
+    const firmMatch = body.match(/(?:firm|office|law\s+offices?\s+of)[:\s]*([^\n<]{5,80})/i);
+    if (firmMatch) result.lawFirm = firmMatch[1].trim().replace(/[|,].*$/, '').trim();
+    if (!result.lawFirm) {
+      const llpMatch = body.match(/([A-Z][A-Za-z&,.\s]+(?:LLP|Law|Legal|Barristers|Professional Corporation))/);
+      if (llpMatch) result.lawFirm = llpMatch[1].trim();
+    }
+  }
+  // Also flag if from address contains law-related domains
+  if (result.fromEmail && /law|legal|barrister|solicitor|counsel/i.test(result.fromEmail)) {
+    result.isLawyer = true;
+  }
+
+  // Extract work/office address from signature (used for lawyers)
+  const workAddrMatch = body.match(/(\d+[\s\w]*(?:Street|St|Avenue|Ave|Road|Rd|Drive|Dr|Boulevard|Blvd|Highway|Hwy|Suite|Ste|Unit|Floor)[.,]?\s*(?:#?\s*\d+[.,]?\s*)?[A-Za-z\s]*(?:,\s*(?:ON|Ontario))?(?:[,\s]*[A-Z]\d[A-Z]\s*\d[A-Z]\d)?)/i);
+  if (workAddrMatch) result.workAddress = workAddrMatch[1].trim().slice(0, 150);
 
   // Detect if this is a realtor/agent
   result.isRealtor = false;
@@ -2281,7 +2307,67 @@ app.post('/api/tj/process', async (req, res) => {
       const contactEmail = parsed.emails[0] || null;
       const contactName = parsed.fromName || (parsed.names.length > 0 ? parsed.names[0] : null);
 
+      // --- EXCLUSION FILTERS ---
+      // 1) Internal team domains: only allow through if they're a realtor (signature says Realtor/Sales Representative)
+      const internalDomains = ['teamjordan.ca', 'faristeam.ca'];
+      if (parsed.fromEmail && internalDomains.some(d => parsed.fromEmail.toLowerCase().includes(d))) {
+        // Check if this person is actually a realtor based on their signature
+        const internalRealtorCheck = /\b(realtor|sales\s+representative)\b/i;
+        if (!internalRealtorCheck.test(body)) {
+          state.processedEmailIds[msgId] = 'skipped';
+          state.emailsSkipped++;
+          batchResults.skippedNoContact++;
+          batchResults.processed++;
+          state.processedCount++;
+          continue;
+        }
+        // If they ARE a realtor, let them through — they'll be flagged as realtor by parseEmailForContact
+      }
+
+      // 2) Skip automation / system / notification senders
+      const systemSenders = [
+        'zapier', 'noreply', 'no-reply', 'mailer-daemon', 'postmaster',
+        'notifications', 'notification', 'alerts', 'alert', 'donotreply',
+        'do-not-reply', 'automated', 'auto-', 'system', 'admin@',
+        'support@', 'info@', 'hello@', 'contact@', 'feedback@',
+        'newsletter', 'marketing@', 'sales@', 'billing@',
+        'followupboss', 'google.com', 'googleapis.com',
+        'mailchimp', 'sendgrid', 'hubspot', 'salesforce',
+        'realtor.ca', 'mls.ca', 'crea.ca',
+      ];
+      const fromLower = (parsed.fromEmail || '').toLowerCase() + ' ' + (parsed.fromName || '').toLowerCase();
+      if (systemSenders.some(s => fromLower.includes(s))) {
+        state.processedEmailIds[msgId] = 'skipped';
+        state.emailsSkipped++;
+        batchResults.skippedNoContact++;
+        batchResults.processed++;
+        state.processedCount++;
+        continue;
+      }
+
+      // 3) Skip non-person names (internal roles, offices, generic accounts)
+      const nonPersonPatterns = /\b(coordinator|office|brokerage|admin|administrator|listings?\s+(?:coordinator|dept|department)|deals?\s+(?:coordinator|dept|department)|media\s+coordinator|team\s+jordan|reception|front\s+desk|accounting|bookkeep|operations|marketing\s+(?:dept|team|coordinator)|support\s+team|customer\s+service|it\s+(?:dept|department))\b/i;
+      if (contactName && nonPersonPatterns.test(contactName)) {
+        state.processedEmailIds[msgId] = 'skipped';
+        state.emailsSkipped++;
+        batchResults.skippedNoContact++;
+        batchResults.processed++;
+        state.processedCount++;
+        continue;
+      }
+
+      // 4) Skip if no usable contact info at all
       if (!contactEmail && !contactName) {
+        state.processedEmailIds[msgId] = 'skipped';
+        state.emailsSkipped++;
+        batchResults.skippedNoContact++;
+        batchResults.processed++;
+        state.processedCount++;
+        continue;
+      }
+
+      // 5) Skip if contact only has a name but no email (too unreliable for FUB import)
+      if (!contactEmail) {
         state.processedEmailIds[msgId] = 'skipped';
         state.emailsSkipped++;
         batchResults.skippedNoContact++;
@@ -2322,6 +2408,7 @@ app.post('/api/tj/process', async (req, res) => {
       const firstName = nameParts[0] || 'Unknown';
       const lastName = nameParts.slice(1).join(' ') || '';
       const isRealtor = parsed.isRealtor;
+      const isLawyer = parsed.isLawyer && !isRealtor; // realtor takes priority
 
       // For realtors: determine source type and strip property-specific data
       let realtorSource = null;
@@ -2337,17 +2424,48 @@ app.post('/api/tj/process', async (req, res) => {
         ? parsed.noteWorthy.filter(n => !n.startsWith('Property:') && !n.startsWith('MLS#:') && !n.startsWith('Deal Value:') && !n.startsWith('Closing:') && !n.startsWith('YSP:'))
         : parsed.noteWorthy;
 
-      const newPerson = {
-        firstName, lastName,
-        stage: isRealtor ? 'Real Estate Agent' : 'Old Team Jordan Leads',
-        source: 'Team Jordan Email Archive',
-        emails: contactEmail ? [{ value: contactEmail }] : [],
-        phones: parsed.phones.length > 0 ? [{ value: parsed.phones[0], type: 'Mobile' }] : [],
-        tags: isRealtor
-          ? ['Realtor', 'Agent', 'Team Jordan Import', 'Agent HQ Import']
-          : ['Team Jordan Import', 'Agent HQ Import'],
-      };
-      if (isRealtor && parsed.brokerage) newPerson.company = parsed.brokerage;
+      // Build the new person object based on contact type
+      let newPerson;
+      let contactType; // 'realtor' | 'lawyer' | 'lead'
+
+      if (isLawyer) {
+        // LAWYERS: first name, last name, phone, email, work address, law firm — NO notes
+        contactType = 'lawyer';
+        newPerson = {
+          firstName, lastName,
+          stage: 'Lawyer',
+          source: 'Team Jordan Email Archive',
+          emails: contactEmail ? [{ value: contactEmail }] : [],
+          phones: parsed.phones.length > 0 ? [{ value: parsed.phones[0], type: 'Work' }] : [],
+          tags: ['Lawyer', 'Team Jordan Import', 'Agent HQ Import'],
+        };
+        if (parsed.lawFirm) newPerson.company = parsed.lawFirm;
+        // Import work address if available from signature
+        if (parsed.workAddress) {
+          newPerson.addresses = [{ value: parsed.workAddress, type: 'Work' }];
+        }
+      } else if (isRealtor) {
+        contactType = 'realtor';
+        newPerson = {
+          firstName, lastName,
+          stage: 'Real Estate Agent',
+          source: 'Team Jordan Email Archive',
+          emails: contactEmail ? [{ value: contactEmail }] : [],
+          phones: parsed.phones.length > 0 ? [{ value: parsed.phones[0], type: 'Mobile' }] : [],
+          tags: ['Realtor', 'Agent', 'Team Jordan Import', 'Agent HQ Import'],
+        };
+        if (parsed.brokerage) newPerson.company = parsed.brokerage;
+      } else {
+        contactType = 'lead';
+        newPerson = {
+          firstName, lastName,
+          stage: 'Old Team Jordan Leads',
+          source: 'Team Jordan Email Archive',
+          emails: contactEmail ? [{ value: contactEmail }] : [],
+          phones: parsed.phones.length > 0 ? [{ value: parsed.phones[0], type: 'Mobile' }] : [],
+          tags: ['Team Jordan Import', 'Agent HQ Import'],
+        };
+      }
 
       try {
         const createResp = await fetch(`${FUB_BASE}/people`, {
@@ -2359,34 +2477,39 @@ app.post('/api/tj/process', async (req, res) => {
         if (createResp.ok) {
           const created = await createResp.json();
 
-          const noteLines = [
-            `<p><strong>Imported from Team Jordan Email Archive</strong></p>`,
-          ];
-          if (isRealtor && realtorSource) noteLines.push(`<p><strong>Source:</strong> ${realtorSource}</p>`);
-          noteLines.push(`<p>Original email: "${parsed.subject}" (${parsed.date})</p>`);
-          if (noteWorthyForContact.length > 0) noteLines.push(`<p><strong>${isRealtor ? 'Agent Info' : 'Deal Info'}:</strong> ${noteWorthyForContact.join(' | ')}</p>`);
-          if (parsed.emails.length > 1) noteLines.push(`<p>Additional emails: ${parsed.emails.slice(1).join(', ')}</p>`);
-          if (parsed.phones.length > 1) noteLines.push(`<p>Additional phones: ${parsed.phones.slice(1).join(', ')}</p>`);
-          if (!isRealtor && parsed.names.length > 0) noteLines.push(`<p>Names referenced: ${parsed.names.join(', ')}</p>`);
+          // LAWYERS get NO notes — just contact info
+          if (!isLawyer) {
+            const noteLines = [
+              `<p><strong>Imported from Team Jordan Email Archive</strong></p>`,
+            ];
+            if (isRealtor && realtorSource) noteLines.push(`<p><strong>Source:</strong> ${realtorSource}</p>`);
+            noteLines.push(`<p>Original email: "${parsed.subject}" (${parsed.date})</p>`);
+            if (noteWorthyForContact.length > 0) noteLines.push(`<p><strong>${isRealtor ? 'Agent Info' : 'Deal Info'}:</strong> ${noteWorthyForContact.join(' | ')}</p>`);
+            if (parsed.emails.length > 1) noteLines.push(`<p>Additional emails: ${parsed.emails.slice(1).join(', ')}</p>`);
+            if (parsed.phones.length > 1) noteLines.push(`<p>Additional phones: ${parsed.phones.slice(1).join(', ')}</p>`);
+            if (!isRealtor && parsed.names.length > 0) noteLines.push(`<p>Names referenced: ${parsed.names.join(', ')}</p>`);
 
-          try {
-            await fetch(`${FUB_BASE}/notes`, {
-              method: 'POST', headers: fubHeaders(),
-              body: JSON.stringify({ personId: created.id, body: noteLines.join(''), subject: 'Team Jordan Import — Agent HQ', isHtml: true }),
-            });
-            state.notesAdded++;
-            batchResults.notesAdded++;
-          } catch {}
+            try {
+              await fetch(`${FUB_BASE}/notes`, {
+                method: 'POST', headers: fubHeaders(),
+                body: JSON.stringify({ personId: created.id, body: noteLines.join(''), subject: 'Team Jordan Import — Agent HQ', isHtml: true }),
+              });
+              state.notesAdded++;
+              batchResults.notesAdded++;
+            } catch {}
+          }
 
           state.processedEmailIds[msgId] = 'created';
-          if (isRealtor) { state.realtorsCreated++; } else { state.leadsCreated++; }
+          if (isRealtor) { state.realtorsCreated++; }
+          else if (isLawyer) { state.lawyersCreated = (state.lawyersCreated || 0) + 1; }
+          else { state.leadsCreated++; }
           batchResults.created++;
 
           state.recentActivity.unshift({
-            action: 'created', type: isRealtor ? 'realtor' : 'lead', isRealtor,
+            action: 'created', type: contactType, isRealtor, isLawyer,
             name: `${firstName} ${lastName}`.trim(), email: contactEmail,
-            fubId: created.id, brokerage: parsed.brokerage,
-            at: new Date().toISOString(), noteWorthy: parsed.noteWorthy,
+            fubId: created.id, brokerage: parsed.brokerage, lawFirm: parsed.lawFirm,
+            at: new Date().toISOString(), noteWorthy: isLawyer ? [] : parsed.noteWorthy,
           });
           if (state.recentActivity.length > 20) state.recentActivity = state.recentActivity.slice(0, 20);
         } else {
@@ -2446,6 +2569,7 @@ function buildTjProgress(state) {
     percent: state.totalMessages > 0 ? Math.min(Math.round((state.processedCount / state.totalMessages) * 100), 99) : 0,
     leadsCreated: state.leadsCreated,
     realtorsCreated: state.realtorsCreated || 0,
+    lawyersCreated: state.lawyersCreated || 0,
     leadsSkippedExisting: state.leadsSkippedExisting,
     notesAdded: state.notesAdded,
     emailsSkipped: state.emailsSkipped,
