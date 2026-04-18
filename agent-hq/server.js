@@ -697,6 +697,455 @@ function getEmailBody(payload) {
 }
 
 // ─────────────────────────────────────────────
+// GMAIL INTEGRATION — Full Email Intelligence
+// Scans inbox, sent mail, BrokerBay showings, cancellations
+// Cross-references everything for the dashboard
+// ─────────────────────────────────────────────
+
+// Cache for Gmail data (refresh every 5 minutes)
+let gmailCache = { data: null, timestamp: 0 };
+const GMAIL_CACHE_TTL = 5 * 60 * 1000;
+
+// GET /api/gmail/status — Check Gmail connection
+app.get('/api/gmail/status', (req, res) => {
+  if (!tokens) {
+    return res.json({ connected: false, reason: 'Not authenticated. Connect Google account first.' });
+  }
+  res.json({ connected: true, scopes: SCOPES });
+});
+
+// GET /api/gmail/inbox — Recent inbox emails with AI categorization
+app.get('/api/gmail/inbox', async (req, res) => {
+  if (!tokens) return res.json({ status: 'disconnected', emails: [] });
+
+  const maxResults = parseInt(req.query.max) || 25;
+  const q = req.query.q || 'in:inbox newer_than:7d';
+
+  try {
+    const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
+    const listRes = await gmail.users.messages.list({ userId: 'me', q, maxResults });
+    const messages = listRes.data.messages || [];
+    const emails = [];
+
+    for (const msg of messages) {
+      try {
+        const detail = await gmail.users.messages.get({ userId: 'me', id: msg.id, format: 'metadata',
+          metadataHeaders: ['From', 'To', 'Subject', 'Date', 'Reply-To'],
+        });
+        const headers = detail.data.payload.headers || [];
+        const from = headers.find(h => h.name === 'From')?.value || '';
+        const to = headers.find(h => h.name === 'To')?.value || '';
+        const subject = headers.find(h => h.name === 'Subject')?.value || '';
+        const date = headers.find(h => h.name === 'Date')?.value || '';
+        const snippet = detail.data.snippet || '';
+        const labelIds = detail.data.labelIds || [];
+
+        // Categorize the email
+        const category = categorizeEmail(from, subject, snippet, labelIds);
+
+        emails.push({
+          id: msg.id,
+          threadId: detail.data.threadId,
+          from: parseEmailSender(from),
+          fromEmail: extractEmail(from),
+          to,
+          subject,
+          snippet,
+          date,
+          timestamp: parseInt(detail.data.internalDate),
+          labels: labelIds,
+          category,
+          isRead: !labelIds.includes('UNREAD'),
+          isStarred: labelIds.includes('STARRED'),
+        });
+      } catch (e) {
+        console.error(`[Gmail] Error fetching message ${msg.id}:`, e.message);
+      }
+    }
+
+    res.json({ status: 'ok', count: emails.length, emails });
+  } catch (err) {
+    console.error('[Gmail] Inbox scan error:', err.message);
+    res.json({ status: 'error', error: err.message, emails: [] });
+  }
+});
+
+// GET /api/gmail/sent — Recent sent emails for tracking follow-ups
+app.get('/api/gmail/sent', async (req, res) => {
+  if (!tokens) return res.json({ status: 'disconnected', emails: [] });
+
+  const maxResults = parseInt(req.query.max) || 30;
+  const days = parseInt(req.query.days) || 14;
+
+  try {
+    const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
+    const listRes = await gmail.users.messages.list({
+      userId: 'me',
+      q: `in:sent newer_than:${days}d`,
+      maxResults,
+    });
+    const messages = listRes.data.messages || [];
+    const emails = [];
+
+    for (const msg of messages) {
+      try {
+        const detail = await gmail.users.messages.get({ userId: 'me', id: msg.id, format: 'metadata',
+          metadataHeaders: ['From', 'To', 'Subject', 'Date', 'Cc', 'Bcc'],
+        });
+        const headers = detail.data.payload.headers || [];
+        const to = headers.find(h => h.name === 'To')?.value || '';
+        const subject = headers.find(h => h.name === 'Subject')?.value || '';
+        const date = headers.find(h => h.name === 'Date')?.value || '';
+        const cc = headers.find(h => h.name === 'Cc')?.value || '';
+        const snippet = detail.data.snippet || '';
+
+        // Determine what type of sent email this is
+        const sentType = categorizeSentEmail(to, subject, snippet);
+
+        emails.push({
+          id: msg.id,
+          threadId: detail.data.threadId,
+          to: parseEmailSender(to),
+          toEmail: extractEmail(to),
+          cc,
+          subject,
+          snippet,
+          date,
+          timestamp: parseInt(detail.data.internalDate),
+          sentType,
+        });
+      } catch (e) {
+        console.error(`[Gmail] Error fetching sent message ${msg.id}:`, e.message);
+      }
+    }
+
+    res.json({ status: 'ok', count: emails.length, emails });
+  } catch (err) {
+    console.error('[Gmail] Sent mail scan error:', err.message);
+    res.json({ status: 'error', error: err.message, emails: [] });
+  }
+});
+
+// GET /api/gmail/brokerbay — All BrokerBay emails: showings, confirmations, cancellations, feedback
+app.get('/api/gmail/brokerbay', async (req, res) => {
+  if (!tokens) return res.json({ status: 'disconnected', data: {} });
+
+  try {
+    const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
+    const days = parseInt(req.query.days) || 30;
+
+    // Search for all BrokerBay emails
+    const listRes = await gmail.users.messages.list({
+      userId: 'me',
+      q: `from:brokerbay.com newer_than:${days}d`,
+      maxResults: 50,
+    });
+    const messages = listRes.data.messages || [];
+
+    const showings = { confirmed: [], cancelled: [], requested: [], modified: [] };
+    const feedbackRequests = [];
+    const other = [];
+
+    for (const msg of messages) {
+      try {
+        const detail = await gmail.users.messages.get({ userId: 'me', id: msg.id, format: 'full' });
+        const headers = detail.data.payload.headers || [];
+        const subject = headers.find(h => h.name === 'Subject')?.value || '';
+        const date = headers.find(h => h.name === 'Date')?.value || '';
+        const body = getEmailBody(detail.data.payload);
+
+        const emailData = { messageId: msg.id, subject, date, timestamp: parseInt(detail.data.internalDate) };
+
+        // Classify BrokerBay email type
+        const subjectLower = subject.toLowerCase();
+
+        if (subjectLower.includes('showing confirmed') || subjectLower.includes('showing accepted')) {
+          const addr = extractAddressFromSubject(subject, 'Showing Confirmed');
+          const showingDetails = parseBrokerBayShowingEmail(body, subject);
+          showings.confirmed.push({ ...emailData, address: addr, ...showingDetails });
+        }
+        else if (subjectLower.includes('showing cancelled') || subjectLower.includes('showing canceled') || subjectLower.includes('cancellation')) {
+          const addr = extractAddressFromSubject(subject, 'Showing Cancel');
+          const showingDetails = parseBrokerBayShowingEmail(body, subject);
+          showings.cancelled.push({ ...emailData, address: addr, ...showingDetails });
+        }
+        else if (subjectLower.includes('showing request') || subjectLower.includes('new showing')) {
+          const addr = extractAddressFromSubject(subject, 'Showing Request');
+          const showingDetails = parseBrokerBayShowingEmail(body, subject);
+          showings.requested.push({ ...emailData, address: addr, ...showingDetails });
+        }
+        else if (subjectLower.includes('showing modified') || subjectLower.includes('time change') || subjectLower.includes('reschedule')) {
+          const addr = extractAddressFromSubject(subject, 'Showing Modified');
+          const showingDetails = parseBrokerBayShowingEmail(body, subject);
+          showings.modified.push({ ...emailData, address: addr, ...showingDetails });
+        }
+        else if (subjectLower.includes('showing feedback') || subjectLower.includes('feedback request')) {
+          const addr = extractAddressFromSubject(subject, 'Showing Feedback');
+          let feedbackUrl = '';
+          if (body) {
+            const urlMatch = body.match(/https:\/\/edge\.brokerbay\.com[^\s"'<>]*showing\/[a-f0-9]+[^\s"'<>]*/i);
+            if (urlMatch) feedbackUrl = urlMatch[0];
+          }
+          feedbackRequests.push({ ...emailData, address: addr, feedbackUrl });
+        }
+        else {
+          other.push(emailData);
+        }
+      } catch (e) {
+        console.error(`[BrokerBay] Error processing message ${msg.id}:`, e.message);
+      }
+    }
+
+    res.json({
+      status: 'ok',
+      summary: {
+        totalEmails: messages.length,
+        confirmedShowings: showings.confirmed.length,
+        cancelledShowings: showings.cancelled.length,
+        requestedShowings: showings.requested.length,
+        modifiedShowings: showings.modified.length,
+        feedbackRequests: feedbackRequests.length,
+      },
+      showings,
+      feedbackRequests,
+      other,
+    });
+  } catch (err) {
+    console.error('[BrokerBay] Scan error:', err.message);
+    res.json({ status: 'error', error: err.message, data: {} });
+  }
+});
+
+// GET /api/gmail/thread/:threadId — Get full thread for cross-referencing
+app.get('/api/gmail/thread/:threadId', async (req, res) => {
+  if (!tokens) return res.json({ status: 'disconnected' });
+
+  try {
+    const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
+    const thread = await gmail.users.threads.get({
+      userId: 'me',
+      id: req.params.threadId,
+      format: 'metadata',
+      metadataHeaders: ['From', 'To', 'Subject', 'Date'],
+    });
+
+    const messages = (thread.data.messages || []).map(msg => {
+      const headers = msg.payload.headers || [];
+      return {
+        id: msg.id,
+        from: parseEmailSender(headers.find(h => h.name === 'From')?.value || ''),
+        to: headers.find(h => h.name === 'To')?.value || '',
+        subject: headers.find(h => h.name === 'Subject')?.value || '',
+        date: headers.find(h => h.name === 'Date')?.value || '',
+        snippet: msg.snippet,
+        timestamp: parseInt(msg.internalDate),
+        labels: msg.labelIds || [],
+      };
+    });
+
+    res.json({ status: 'ok', threadId: req.params.threadId, messageCount: messages.length, messages });
+  } catch (err) {
+    console.error('[Gmail] Thread fetch error:', err.message);
+    res.json({ status: 'error', error: err.message });
+  }
+});
+
+// GET /api/gmail/activity — Combined email activity timeline
+// Cross-references inbox + sent to show a full communication picture
+app.get('/api/gmail/activity', async (req, res) => {
+  if (!tokens) return res.json({ status: 'disconnected', activity: [] });
+
+  const days = parseInt(req.query.days) || 7;
+
+  try {
+    const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
+
+    // Fetch inbox and sent in parallel
+    const [inboxRes, sentRes] = await Promise.all([
+      gmail.users.messages.list({ userId: 'me', q: `in:inbox newer_than:${days}d`, maxResults: 30 }),
+      gmail.users.messages.list({ userId: 'me', q: `in:sent newer_than:${days}d`, maxResults: 30 }),
+    ]);
+
+    const allMsgIds = [
+      ...(inboxRes.data.messages || []).map(m => ({ ...m, direction: 'received' })),
+      ...(sentRes.data.messages || []).map(m => ({ ...m, direction: 'sent' })),
+    ];
+
+    const activity = [];
+    for (const msg of allMsgIds) {
+      try {
+        const detail = await gmail.users.messages.get({ userId: 'me', id: msg.id, format: 'metadata',
+          metadataHeaders: ['From', 'To', 'Subject', 'Date'],
+        });
+        const headers = detail.data.payload.headers || [];
+        const from = headers.find(h => h.name === 'From')?.value || '';
+        const to = headers.find(h => h.name === 'To')?.value || '';
+        const subject = headers.find(h => h.name === 'Subject')?.value || '';
+        const date = headers.find(h => h.name === 'Date')?.value || '';
+
+        activity.push({
+          id: msg.id,
+          threadId: detail.data.threadId,
+          direction: msg.direction,
+          from: parseEmailSender(from),
+          fromEmail: extractEmail(from),
+          to: parseEmailSender(to),
+          toEmail: extractEmail(to),
+          subject,
+          snippet: detail.data.snippet,
+          date,
+          timestamp: parseInt(detail.data.internalDate),
+          labels: detail.data.labelIds || [],
+        });
+      } catch (e) { /* skip failed messages */ }
+    }
+
+    // Sort by timestamp descending
+    activity.sort((a, b) => b.timestamp - a.timestamp);
+
+    // Deduplicate by threadId — group into conversations
+    const threads = {};
+    for (const a of activity) {
+      if (!threads[a.threadId]) {
+        threads[a.threadId] = { threadId: a.threadId, subject: a.subject, messages: [], lastTimestamp: a.timestamp };
+      }
+      threads[a.threadId].messages.push(a);
+      if (a.timestamp > threads[a.threadId].lastTimestamp) {
+        threads[a.threadId].lastTimestamp = a.timestamp;
+      }
+    }
+
+    // Build cross-reference: who have you been emailing and who owes you a reply?
+    const contacts = {};
+    for (const a of activity) {
+      const contactEmail = a.direction === 'sent' ? a.toEmail : a.fromEmail;
+      const contactName = a.direction === 'sent' ? a.to : a.from;
+      if (!contactEmail || contactEmail.includes('noreply') || contactEmail.includes('notification')) continue;
+
+      if (!contacts[contactEmail]) {
+        contacts[contactEmail] = { name: contactName, email: contactEmail, lastSent: null, lastReceived: null, threadIds: new Set() };
+      }
+      if (a.direction === 'sent' && (!contacts[contactEmail].lastSent || a.timestamp > contacts[contactEmail].lastSent)) {
+        contacts[contactEmail].lastSent = a.timestamp;
+      }
+      if (a.direction === 'received' && (!contacts[contactEmail].lastReceived || a.timestamp > contacts[contactEmail].lastReceived)) {
+        contacts[contactEmail].lastReceived = a.timestamp;
+      }
+      contacts[contactEmail].threadIds.add(a.threadId);
+    }
+
+    // Find contacts awaiting reply (you received but haven't replied)
+    const awaitingReply = Object.values(contacts)
+      .filter(c => c.lastReceived && (!c.lastSent || c.lastReceived > c.lastSent))
+      .map(c => ({ name: c.name, email: c.email, lastReceived: c.lastReceived, threads: c.threadIds.size }))
+      .sort((a, b) => b.lastReceived - a.lastReceived);
+
+    // Find contacts you've emailed but haven't heard back from
+    const waitingOn = Object.values(contacts)
+      .filter(c => c.lastSent && (!c.lastReceived || c.lastSent > c.lastReceived))
+      .map(c => ({ name: c.name, email: c.email, lastSent: c.lastSent, threads: c.threadIds.size }))
+      .sort((a, b) => b.lastSent - a.lastSent);
+
+    res.json({
+      status: 'ok',
+      totalActivity: activity.length,
+      uniqueThreads: Object.keys(threads).length,
+      awaitingReply: awaitingReply.slice(0, 15),
+      waitingOn: waitingOn.slice(0, 15),
+      recentActivity: activity.slice(0, 50),
+    });
+  } catch (err) {
+    console.error('[Gmail] Activity scan error:', err.message);
+    res.json({ status: 'error', error: err.message, activity: [] });
+  }
+});
+
+// ─── Helper Functions ───
+
+function parseEmailSender(from) {
+  // "Jonathan Wallace <jonathan@example.com>" → "Jonathan Wallace"
+  const match = from.match(/^"?([^"<]+)"?\s*</);
+  if (match) return match[1].trim();
+  // Just an email address
+  return from.split('@')[0];
+}
+
+function extractEmail(from) {
+  const match = from.match(/<([^>]+)>/);
+  if (match) return match[1].toLowerCase();
+  if (from.includes('@')) return from.trim().toLowerCase();
+  return '';
+}
+
+function categorizeEmail(from, subject, snippet, labels) {
+  const fromLower = from.toLowerCase();
+  const subjectLower = subject.toLowerCase();
+
+  if (fromLower.includes('brokerbay')) return 'brokerbay';
+  if (fromLower.includes('followupboss') || fromLower.includes('fub')) return 'crm_lead';
+  if (fromLower.includes('sisu')) return 'deal_tracker';
+  if (fromLower.includes('realm')) return 'listing_alert';
+  if (fromLower.includes('make.com')) return 'automation';
+  if (fromLower.includes('faristeam') || fromLower.includes('faris')) return 'team';
+  if (subjectLower.includes('offer') || subjectLower.includes('agreement')) return 'transaction';
+  if (subjectLower.includes('showing')) return 'showing';
+  if (subjectLower.includes('listing') || subjectLower.includes('mls')) return 'listing';
+  if (labels.includes('IMPORTANT')) return 'important';
+  return 'general';
+}
+
+function categorizeSentEmail(to, subject, snippet) {
+  const subjectLower = subject.toLowerCase();
+  const toLower = to.toLowerCase();
+
+  if (subjectLower.includes('showing') || subjectLower.includes('feedback')) return 'showing_related';
+  if (subjectLower.includes('offer') || subjectLower.includes('agreement') || subjectLower.includes('deal')) return 'transaction';
+  if (subjectLower.includes('listing') || subjectLower.includes('mls') || subjectLower.includes('market')) return 'listing';
+  if (subjectLower.includes('follow up') || subjectLower.includes('checking in') || subjectLower.includes('touching base')) return 'follow_up';
+  if (toLower.includes('client') || subjectLower.includes('buyer') || subjectLower.includes('seller')) return 'client';
+  return 'general';
+}
+
+function extractAddressFromSubject(subject, prefix) {
+  // "Showing Confirmed - 45 Brule Street" → "45 Brule Street"
+  const patterns = [
+    new RegExp(prefix + '\\s*[-–—:]\\s*(.+)', 'i'),
+    /[-–—:]\s*(.+)/,
+  ];
+  for (const p of patterns) {
+    const m = subject.match(p);
+    if (m) return m[1].trim();
+  }
+  return subject;
+}
+
+function parseBrokerBayShowingEmail(body, subject) {
+  if (!body) return {};
+  const info = {};
+
+  // Try to extract showing date/time
+  const dateMatch = body.match(/Date:\s*([^\n<]+)/i);
+  if (dateMatch) info.showingDate = dateMatch[1].trim();
+
+  const timeMatch = body.match(/Time:\s*([^\n<]+)/i);
+  if (timeMatch) info.showingTime = timeMatch[1].trim();
+
+  // Agent name
+  const agentMatch = body.match(/Agent:\s*([^\n<]+)/i) || body.match(/requested by\s*([^\n<]+)/i);
+  if (agentMatch) info.agentName = agentMatch[1].trim();
+
+  // Brokerage
+  const brokerageMatch = body.match(/Brokerage:\s*([^\n<]+)/i) || body.match(/from\s+([\w\s]+(?:Realty|Real Estate|RE\/MAX|Keller|Century|Royal|Sutton)[^\n<]*)/i);
+  if (brokerageMatch) info.brokerage = brokerageMatch[1].trim();
+
+  // Type (regular, home inspection, etc.)
+  const typeMatch = body.match(/Type:\s*([^\n<]+)/i);
+  if (typeMatch) info.showingType = typeMatch[1].trim();
+
+  return info;
+}
+
+// ─────────────────────────────────────────────
 // SPA Fallback — serve index.html for all other routes
 // ─────────────────────────────────────────────
 app.get('*', (req, res) => {

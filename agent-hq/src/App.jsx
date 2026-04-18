@@ -887,6 +887,221 @@ function EmailEASection() {
 }
 
 // ─────────────────────────────────────────────
+// HOOK: Live Gmail Activity
+// Scans inbox, sent mail, BrokerBay emails — cross-references everything
+// ─────────────────────────────────────────────
+function useGmailActivity() {
+  const [gmailStatus, setGmailStatus] = useState({ connected: false });
+  const [activity, setActivity] = useState(null);
+  const [brokerBay, setBrokerBay] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        // Check Gmail connection status
+        const statusRes = await fetch('/api/gmail/status');
+        const statusData = await statusRes.json();
+        setGmailStatus(statusData);
+
+        if (!statusData.connected) {
+          setLoading(false);
+          return;
+        }
+
+        // Fetch activity and BrokerBay data in parallel
+        const [actRes, bbRes] = await Promise.all([
+          fetch('/api/gmail/activity?days=7'),
+          fetch('/api/gmail/brokerbay?days=30'),
+        ]);
+
+        const actData = await actRes.json();
+        const bbData = await bbRes.json();
+
+        if (actData.status === 'ok') setActivity(actData);
+        if (bbData.status === 'ok') setBrokerBay(bbData);
+      } catch (err) {
+        console.error('[Gmail] Hook error:', err);
+      }
+      setLoading(false);
+    })();
+  }, []);
+
+  return { gmailStatus, activity, brokerBay, loading };
+}
+
+// ─────────────────────────────────────────────
+// GMAIL ACTIVITY PANEL — shows sent email tracking + awaiting replies
+// ─────────────────────────────────────────────
+function GmailActivityPanel() {
+  const { gmailStatus, activity, brokerBay, loading } = useGmailActivity();
+  const [tab, setTab] = useState('awaiting'); // awaiting | sent | brokerbay
+
+  if (loading) {
+    return (
+      <Card>
+        <SectionHeader title="Gmail Activity" />
+        <div style={{ padding: 20, textAlign: 'center', color: '#9ca3af', fontSize: 12 }}>
+          <RefreshCw size={16} style={{ animation: 'spin 1s linear infinite', margin: '0 auto 8px' }} />
+          Scanning your Gmail...
+        </div>
+      </Card>
+    );
+  }
+
+  if (!gmailStatus.connected) {
+    return (
+      <Card>
+        <SectionHeader title="Gmail Activity" />
+        <div style={{ padding: 20, textAlign: 'center', color: '#9ca3af', fontSize: 12 }}>
+          Gmail not connected. Connect your Google account to enable email scanning.
+        </div>
+      </Card>
+    );
+  }
+
+  const tabs = [
+    { id: 'awaiting', label: `Awaiting Reply (${activity?.awaitingReply?.length || 0})` },
+    { id: 'sent', label: `Waiting On (${activity?.waitingOn?.length || 0})` },
+    { id: 'brokerbay', label: `BrokerBay (${brokerBay?.summary?.totalEmails || 0})` },
+  ];
+
+  const formatTimestamp = (ts) => {
+    if (!ts) return '';
+    const d = new Date(ts);
+    const now = new Date();
+    const diff = now - d;
+    if (diff < 60 * 60 * 1000) return `${Math.round(diff / 60000)}m ago`;
+    if (diff < 24 * 60 * 60 * 1000) return `${Math.round(diff / 3600000)}h ago`;
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  };
+
+  return (
+    <Card>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <SectionHeader title="Gmail Intelligence" count={activity?.totalActivity} />
+        <span style={{ fontSize: 9, fontWeight: 700, color: '#fff', background: '#10b981', padding: '2px 6px', borderRadius: 3, marginTop: -4 }}>LIVE</span>
+      </div>
+
+      {/* Tabs */}
+      <div style={{ display: 'flex', gap: 4, marginBottom: 14 }}>
+        {tabs.map(t => (
+          <button key={t.id} onClick={() => setTab(t.id)} style={{
+            padding: '6px 12px', borderRadius: 8, border: '1px solid ' + (tab === t.id ? '#3b82f6' : '#e5e7eb'),
+            background: tab === t.id ? '#eff6ff' : '#fff', color: tab === t.id ? '#1d4ed8' : '#6b7280',
+            fontSize: 11, fontWeight: 600, cursor: 'pointer',
+          }}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Awaiting Your Reply */}
+      {tab === 'awaiting' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {(activity?.awaitingReply || []).length === 0 ? (
+            <div style={{ padding: 16, textAlign: 'center', color: '#9ca3af', fontSize: 12 }}>
+              <CheckCircle2 size={20} style={{ margin: '0 auto 6px' }} /> All caught up — no one waiting on you.
+            </div>
+          ) : (
+            (activity?.awaitingReply || []).map((c, i) => (
+              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', borderRadius: 8, background: '#fef2f2', border: '1px solid #fecaca' }}>
+                <div style={{ width: 28, height: 28, borderRadius: '50%', background: '#ef444418', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <span style={{ fontSize: 11, fontWeight: 800, color: '#ef4444' }}>{c.name?.charAt(0) || '?'}</span>
+                </div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: '#111827' }}>{c.name}</div>
+                  <div style={{ fontSize: 11, color: '#6b7280' }}>{c.email}</div>
+                </div>
+                <div style={{ textAlign: 'right' }}>
+                  <div style={{ fontSize: 10, color: '#ef4444', fontWeight: 600 }}>Needs reply</div>
+                  <div style={{ fontSize: 10, color: '#9ca3af' }}>{formatTimestamp(c.lastReceived)}</div>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      )}
+
+      {/* You're Waiting On */}
+      {tab === 'sent' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {(activity?.waitingOn || []).length === 0 ? (
+            <div style={{ padding: 16, textAlign: 'center', color: '#9ca3af', fontSize: 12 }}>No pending follow-ups.</div>
+          ) : (
+            (activity?.waitingOn || []).map((c, i) => (
+              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', borderRadius: 8, background: '#fffbeb', border: '1px solid #fde68a' }}>
+                <div style={{ width: 28, height: 28, borderRadius: '50%', background: '#f59e0b18', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <span style={{ fontSize: 11, fontWeight: 800, color: '#f59e0b' }}>{c.name?.charAt(0) || '?'}</span>
+                </div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: '#111827' }}>{c.name}</div>
+                  <div style={{ fontSize: 11, color: '#6b7280' }}>{c.email}</div>
+                </div>
+                <div style={{ textAlign: 'right' }}>
+                  <div style={{ fontSize: 10, color: '#f59e0b', fontWeight: 600 }}>Waiting on them</div>
+                  <div style={{ fontSize: 10, color: '#9ca3af' }}>Sent {formatTimestamp(c.lastSent)}</div>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      )}
+
+      {/* BrokerBay Summary */}
+      {tab === 'brokerbay' && brokerBay && (
+        <div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 12 }}>
+            <div style={{ padding: '10px', borderRadius: 8, background: '#ecfdf5', textAlign: 'center' }}>
+              <div style={{ fontSize: 18, fontWeight: 800, color: '#16a34a' }}>{brokerBay.summary?.confirmedShowings || 0}</div>
+              <div style={{ fontSize: 10, color: '#6b7280' }}>Confirmed</div>
+            </div>
+            <div style={{ padding: '10px', borderRadius: 8, background: '#fef2f2', textAlign: 'center' }}>
+              <div style={{ fontSize: 18, fontWeight: 800, color: '#dc2626' }}>{brokerBay.summary?.cancelledShowings || 0}</div>
+              <div style={{ fontSize: 10, color: '#6b7280' }}>Cancelled</div>
+            </div>
+            <div style={{ padding: '10px', borderRadius: 8, background: '#fffbeb', textAlign: 'center' }}>
+              <div style={{ fontSize: 18, fontWeight: 800, color: '#f59e0b' }}>{brokerBay.summary?.requestedShowings || 0}</div>
+              <div style={{ fontSize: 10, color: '#6b7280' }}>Pending</div>
+            </div>
+          </div>
+
+          {/* Cancelled showings alert */}
+          {(brokerBay.showings?.cancelled || []).length > 0 && (
+            <div style={{ marginBottom: 8 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: '#dc2626', marginBottom: 6 }}>CANCELLED SHOWINGS</div>
+              {brokerBay.showings.cancelled.map((s, i) => (
+                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderRadius: 6, background: '#fef2f2', border: '1px solid #fecaca', marginBottom: 4 }}>
+                  <Trash2 size={12} color="#dc2626" />
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: '#111827', textDecoration: 'line-through' }}>{s.address}</div>
+                    <div style={{ fontSize: 10, color: '#6b7280' }}>{s.showingDate || ''} {s.showingTime || ''} — {s.agentName || 'Agent TBD'}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Recent confirmed */}
+          {(brokerBay.showings?.confirmed || []).length > 0 && (
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: '#16a34a', marginBottom: 6 }}>RECENT CONFIRMED</div>
+              {brokerBay.showings.confirmed.slice(0, 5).map((s, i) => (
+                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', borderRadius: 6, background: '#f0fdf4', marginBottom: 3 }}>
+                  <CheckCircle2 size={12} color="#16a34a" />
+                  <div style={{ fontSize: 12, color: '#111827' }}>{s.address}</div>
+                  <div style={{ fontSize: 10, color: '#6b7280', marginLeft: 'auto' }}>{s.showingDate || ''}</div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </Card>
+  );
+}
+
+// ─────────────────────────────────────────────
 // CALENDAR SECTION
 // ─────────────────────────────────────────────
 // ─────────────────────────────────────────────
@@ -4205,11 +4420,14 @@ function SectionContent({ section }) {
           <CallListSection />
           <EmailEASection />
         </div>
+
+        {/* Gmail Intelligence — live sent mail tracking + BrokerBay cross-reference */}
+        <GmailActivityPanel />
       </div>
     );
     case "priorities": return <TopPriorities />;
     case "calls": return <CallListSection />;
-    case "emails": return <EmailEASection />;
+    case "emails": return (<div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}><EmailEASection /><GmailActivityPanel /></div>);
     case "calendar": return <CalendarSection />;
     case "showings": return <ShowingsSection />;
     case "crm": return <PlaceholderSection title="Follow Up Boss — Deal Pipeline" icon={Users} />;
