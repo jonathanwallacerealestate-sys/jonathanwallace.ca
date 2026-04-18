@@ -1,0 +1,10 @@
+{
+  "propertyId": "test-integ-123",
+  "formData": {
+    "address": "123 Test St",
+    "city": "Midland",
+    "province": "ON"
+  },
+  "createdAt": "2026-04-18T19:14:58.641Z",
+  "updatedAt": "2026-04-18T19:14:58.641Z"
+}
