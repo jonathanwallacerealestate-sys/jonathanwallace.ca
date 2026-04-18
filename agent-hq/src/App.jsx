@@ -7032,11 +7032,11 @@ export default function Dashboard() {
       {/* MAIN */}
       <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
         {/* Top bar */}
-        <div style={{ background: "#fff", padding: "10px 24px", display: "flex", alignItems: "center", borderBottom: "1px solid #e5e7eb", flexShrink: 0, position: "relative" }}>
+        <div style={{ background: "#fff", padding: "12px 24px", display: "flex", alignItems: "center", borderBottom: "1px solid #e5e7eb", flexShrink: 0, position: "sticky", top: 0, zIndex: 50 }}>
           {/* Center — Logo + Date */}
           <div style={{ position: "absolute", left: "50%", transform: "translateX(-50%)", display: "flex", flexDirection: "column", alignItems: "center" }}>
-            <img src="/agent-hq-logo.png" alt="Agent HQ" style={{ height: 50, objectFit: "contain" }} />
-            <div style={{ fontSize: 12, fontWeight: 700, color: "#111827", marginTop: 2 }}>{new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</div>
+            <img src="/agent-hq-logo.png" alt="Agent HQ" style={{ height: 60, objectFit: "contain" }} />
+            <div style={{ fontSize: 14, fontWeight: 700, color: "#111827", marginTop: 3 }}>{new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</div>
           </div>
           {/* Right — Search, Bell, Avatar */}
           <div style={{ display: "flex", alignItems: "center", gap: 14, marginLeft: "auto" }}>
