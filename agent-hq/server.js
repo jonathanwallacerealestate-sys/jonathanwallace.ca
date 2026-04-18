@@ -3085,19 +3085,23 @@ function parseGeoWarehouseText(text) {
 
   // --- Frontage & Depth ---
   const frontMatch = t.match(/Frontage:\s*([\d.]+)\s*ft/i);
-  if (frontMatch) fields.frontage = frontMatch[1] + ' ft';
+  if (frontMatch) {
+    fields.lotFrontage = frontMatch[1];
+  }
   const depthMatch = t.match(/Depth:\s*([\d.]+)\s*ft/i);
-  if (depthMatch) fields.depth = depthMatch[1] + ' ft';
+  if (depthMatch) {
+    fields.lotDepth = depthMatch[1];
+  }
 
   // --- Lot Dimensions from Measurements ---
   // The measurements line looks like: "521.82ft. x 155.95ft. x 207.93ft. x ..."
   const measMatch = t.match(/([\d.]+ft\.\s*x\s*[\d.]+ft\.[\s\S]*?)(?:\nLot Measurement|\n\n)/i);
   if (measMatch) {
     fields.lotDimensions = measMatch[1].replace(/\n/g, ' ').trim();
-  } else if (fields.frontage && fields.depth) {
-    fields.lotDimensions = `${fields.frontage} x ${fields.depth}`;
-  } else if (fields.frontage) {
-    fields.lotDimensions = `Frontage: ${fields.frontage}`;
+  } else if (fields.lotFrontage && fields.lotDepth) {
+    fields.lotDimensions = `${fields.lotFrontage} x ${fields.lotDepth}`;
+  } else if (fields.lotFrontage) {
+    fields.lotDimensions = `Frontage: ${fields.lotFrontage} ft`;
   }
 
   // --- ARN ---
@@ -3302,11 +3306,29 @@ function parseMLSListingText(text) {
     // PARKING DRIVE SPACES(+24), TOTAL PARKING SPACES(+25), OTHER STRUCTURES(+26),
     // BASEMENT(+27), UTILITIES-HYDRO(+28)
 
+    // Lot dimensions → parse frontage x depth
+    const lotDimLine = vLines[lotAnchor];
+    if (lotDimLine) {
+      const lotParts = lotDimLine.match(/([\d.]+)\s*x\s*([\d.]+)/);
+      if (lotParts) {
+        fields.lotFrontage = lotParts[1];
+        fields.lotDepth = lotParts[2];
+      }
+    }
+
     const acreage = atOffset(1);
     if (acreage) fields.lotSize = acreage + ' acres';
 
     const sqft = atOffset(2);
     if (sqft && !fields.sqftAboveGrade) fields.sqftAboveGrade = sqft;
+
+    // Pool at offset +4
+    const pool = atOffset(4);
+    if (pool && !/none/i.test(pool)) {
+      fields.hasPool = true;
+      if (/salt/i.test(pool)) fields.poolType = 'Saltwater';
+      else fields.poolType = 'Chlorine';
+    }
 
     const ac = atOffset(5);
     if (ac) {
@@ -3442,6 +3464,24 @@ function parseMLSListingText(text) {
   if (/waterfront/i.test(t.match(/FEATURES[\s\S]*?(?=PROPERTY INFORMATION|SPECIAL|$)/i)?.[0] || '')) {
     fields.isWaterfront = true;
   }
+  // Also detect waterfront from property type header
+  if (/cottage|waterfront|lakefront|riverfr/i.test(t.substring(0, 500))) {
+    fields.isWaterfront = true;
+  }
+
+  // ─── FIREPLACE ───
+  const fpMatch = t.match(/FIREPLACE[S]?\s*\n\s*(.+?)(?:\n)/i);
+  if (fpMatch && !/none/i.test(fpMatch[1])) {
+    fields.hasFireplace = true;
+    const fpType = fpMatch[1].trim().toLowerCase();
+    if (fpType.includes('wood')) fields.fireplaceType = 'Wood';
+    else if (fpType.includes('propane')) fields.fireplaceType = 'Propane';
+    else if (fpType.includes('gas')) fields.fireplaceType = 'Gas';
+    else if (fpType.includes('electric')) fields.fireplaceType = 'Electric';
+  }
+  // Count fireplaces if mentioned
+  const fpCountMatch = t.match(/(\d+)\s*(?:fireplace|f\/p)/i);
+  if (fpCountMatch && fields.hasFireplace) fields.numberOfFireplaces = fpCountMatch[1];
 
   // ─── ROOM INFO table ───
   const roomSection = t.match(/ROOMLEVELDIMENSIONSNOTES\s*\n([\s\S]*?)(?:\nWASHROOM INFO|\n\s*$)/i)

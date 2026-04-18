@@ -5352,14 +5352,16 @@ function defaultFormData() {
   return {
     propertyId: '', address: '', city: 'Midland', postalCode: '',
     mlsNumber: '', listPrice: '', propertyType: '', lotSize: '', lotDimensions: '',
+    lotFrontage: '', lotDepth: '',
     taxes: '', taxYear: '', assessedValue: '',
     sellerName: '', sellerPhone: '', sellerEmail: '',
     sellerName2: '', sellerPhone2: '', sellerEmail2: '', occupancy: '',
     bedrooms: '', bathrooms: '',
     style: '', foundationType: '', roofType: '', roofAge: '', exteriorMaterial: '',
-    sqftAboveGrade: '', sqftBelowGrade: '',
-    electricalAmps: '', electricalType: '',
+    sqftAboveGrade: '', sqftBelowGrade: '', totalFinishedSqFt: '',
+    plumbing: 'Standard', electricalAmps: '', electricalType: '',
     heatingTypes: [], furnaceAge: '', furnaceOwnedRented: '', acTypes: [],
+    hasFireplace: false, fireplaceType: '', numberOfFireplaces: '',
     hotWaterType: '', hotWaterAge: '', hotWaterOwnedRented: '', rentalItems: '',
     hydroProvider: '', propaneProvider: '', gasProvider: '', internetProvider: '', internetType: '',
     basementType: '', basementFinish: '', basementWalkout: '', basementCeilingHeight: '', basementNotes: '',
@@ -5367,11 +5369,15 @@ function defaultFormData() {
     garageType: '', garageSpaces: '', drivewaySize: '', drivewayMaterial: '', drivewaySpaces: '',
     appliancesIncluded: [],
     otherInclusions: [], inclusionsNotes: '', exclusions: '',
+    hasPool: false, poolType: '', hasHotTub: false,
     visibleUpgrades: '', hiddenUpgrades: '', floorPlanChanges: '',
     rooms: [],
-    isWaterfront: false, waterfrontType: '', waterBody: '', shoreline: '', dock: '', waterDepth: '',
-    lockboxCode: '', accessNotes: '', showingRestrictions: '',
+    isWaterfront: false, waterfrontType: '', waterBody: '', waterBodyType: '', waterfrontFootage: '',
+    shoreline: '', shorelineExposure: '', dock: '', waterDepth: '',
+    waterfrontFeatures: '', waterfrontAccessoryBuildings: '',
+    lockboxCode: '', accessNotes: '', showingRestrictions: '', showingInstructions: '',
     signType: '', signLocation: '', riderInfo: '',
+    stagingNotes: '', photographyNotes: '',
     additionalNotes: '',
     top5Reasons: '', mlsDescription: '',
     fintracId1Type: '', fintracId1Number: '', fintracId1Expiry: '',
@@ -5730,8 +5736,11 @@ function ListingForm() {
               <FormField label="City / Town">{inp('city', 'Midland')}</FormField>
               <FormField label="Postal Code">{inp('postalCode', 'L4R 1A1')}</FormField>
               <FormField label="Property Type">{sel('propertyType', PROPERTY_TYPES, 'Select type...')}</FormField>
-              <FormField label="Lot Size">{inp('lotSize', '50 x 120 ft')}</FormField>
-              <FormField label="Lot Dimensions">{inp('lotDimensions', '0.14 acres')}</FormField>
+              <FormField label="Year Built">{inp('yearBuilt', '')}</FormField>
+              <FormField label="Lot Size (Acreage)">{inp('lotSize', '0.50 acres')}</FormField>
+              <FormField label="Lot Dimensions">{inp('lotDimensions', '50 x 120')}</FormField>
+              <FormField label="Lot Frontage (ft)">{inp('lotFrontage', '')}</FormField>
+              <FormField label="Lot Depth (ft)">{inp('lotDepth', '')}</FormField>
               <FormField label="Taxes (Annual)">{inp('taxes', '3,200')}</FormField>
               <FormField label="Tax Year">{inp('taxYear', '2025')}</FormField>
               <FormField label="Assessed Value">{inp('assessedValue', '')}</FormField>
@@ -5769,12 +5778,14 @@ function ListingForm() {
               <FormField label="Roof Age (years)">{inp('roofAge', '')}</FormField>
               <FormField label="Sq Ft — Above Grade">{inp('sqftAboveGrade', '')}</FormField>
               <FormField label="Sq Ft — Below Grade">{inp('sqftBelowGrade', '')}</FormField>
+              <FormField label="Total Finished Sq Ft">{inp('totalFinishedSqFt', '')}</FormField>
             </div>
           </FormSection>
 
-          {/* SECTION 5: ELECTRICAL */}
-          <FormSection title="Electrical" icon={Zap} expanded={expanded.electrical} onToggle={() => toggle('electrical')}>
+          {/* SECTION 5: PLUMBING & ELECTRICAL */}
+          <FormSection title="Plumbing & Electrical" icon={Zap} expanded={expanded.electrical} onToggle={() => toggle('electrical')}>
             <div style={gridStyle(3)}>
+              <FormField label="Plumbing">{sel('plumbing', ['Standard', 'Copper', 'PEX', 'Galvanized', 'Mixed', 'Other'], 'Select...')}</FormField>
               <FormField label="Panel Amps">{sel('electricalAmps', ['60', '100', '200', '400'], 'Select...')}</FormField>
               <FormField label="Breakers or Fuses">{sel('electricalType', ['Breakers', 'Fuses', 'Mixed'], 'Select...')}</FormField>
             </div>
@@ -5793,6 +5804,18 @@ function ListingForm() {
               <FormField label="Air Conditioning">
                 <ChipSelect options={AC_OPTIONS} selected={form.acTypes || []} onChange={v => updateField('acTypes', v)} />
               </FormField>
+            </div>
+            <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px solid #e5e7eb' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', marginBottom: 10 }}>
+                <input type="checkbox" checked={form.hasFireplace || false} onChange={e => updateField('hasFireplace', e.target.checked)} />
+                <span style={{ fontSize: 13, fontWeight: 500 }}>Fireplace</span>
+              </label>
+              {form.hasFireplace && (
+                <div style={gridStyle(3)}>
+                  <FormField label="Fireplace Type">{sel('fireplaceType', ['Wood', 'Propane', 'Gas', 'Electric'], 'Select...')}</FormField>
+                  <FormField label="Number of Fireplaces">{sel('numberOfFireplaces', ['1','2','3','4'], 'Select...')}</FormField>
+                </div>
+              )}
             </div>
           </FormSection>
 
@@ -5857,6 +5880,21 @@ function ListingForm() {
           {/* SECTION 13: OTHER INCLUSIONS */}
           <FormSection title="Other Inclusions" icon={CheckCircle2} expanded={expanded.inclusions} onToggle={() => toggle('inclusions')} badge={form.otherInclusions.length > 0 ? form.otherInclusions.length : null}>
             <ChipSelect options={INCLUSION_OPTIONS} selected={form.otherInclusions || []} onChange={v => updateField('otherInclusions', v)} />
+            <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px solid #e5e7eb', display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+                <input type="checkbox" checked={form.hasPool || false} onChange={e => updateField('hasPool', e.target.checked)} />
+                <span style={{ fontSize: 13, fontWeight: 500 }}>Pool</span>
+              </label>
+              {form.hasPool && (
+                <div style={{ marginLeft: 26 }}>
+                  <FormField label="Pool Type">{sel('poolType', ['Chlorine', 'Saltwater'], 'Select...')}</FormField>
+                </div>
+              )}
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+                <input type="checkbox" checked={form.hasHotTub || false} onChange={e => updateField('hasHotTub', e.target.checked)} />
+                <span style={{ fontSize: 13, fontWeight: 500 }}>Hot Tub</span>
+              </label>
+            </div>
             <div style={{ marginTop: 12 }}>
               <FormField label="Additional Inclusions Notes">{ta('inclusionsNotes', 'Any other items included in the sale...')}</FormField>
             </div>
@@ -5932,9 +5970,14 @@ function ListingForm() {
               <div style={gridStyle(3)}>
                 <FormField label="Waterfront Type">{sel('waterfrontType', ['Lake', 'River', 'Bay', 'Ocean', 'Pond', 'Creek'], 'Select...')}</FormField>
                 <FormField label="Water Body Name">{inp('waterBody', 'e.g. Georgian Bay, Lake Simcoe')}</FormField>
-                <FormField label="Shoreline Type">{inp('shoreline', 'e.g. Sandy, Rocky, Gradual')}</FormField>
-                <FormField label="Dock">{inp('dock', 'e.g. Floating dock, permanent, none')}</FormField>
+                <FormField label="Water Body Type">{sel('waterBodyType', ['Lake', 'River', 'Bay', 'Pond', 'Creek', 'Canal'], 'Select...')}</FormField>
+                <FormField label="Waterfront Footage (ft)">{inp('waterfrontFootage', '')}</FormField>
+                <FormField label="Shoreline Type">{sel('shoreline', ['Sandy', 'Rocky', 'Gradual', 'Steep', 'Marsh', 'Mixed'], 'Select...')}</FormField>
+                <FormField label="Shoreline Exposure">{sel('shorelineExposure', ['North', 'South', 'East', 'West', 'NE', 'NW', 'SE', 'SW'], 'Select...')}</FormField>
+                <FormField label="Dock / Docking Type">{sel('dock', ['Floating', 'Permanent', 'Boathouse', 'Marina', 'Municipal', 'None'], 'Select...')}</FormField>
                 <FormField label="Water Depth">{inp('waterDepth', 'e.g. Shallow, Deep, Gradual entry')}</FormField>
+                <FormField label="Waterfront Features" span={2}>{inp('waterfrontFeatures', 'e.g. Boat launch, swim area, sunset views')}</FormField>
+                <FormField label="Accessory Buildings">{inp('waterfrontAccessoryBuildings', 'e.g. Bunkie, Boathouse, Shed')}</FormField>
               </div>
             )}
           </FormSection>
@@ -5956,6 +5999,17 @@ function ListingForm() {
               <FormField label="Lockbox Code">{inp('lockboxCode', '')}</FormField>
               <FormField label="Access Notes">{inp('accessNotes', 'e.g. Key under mat, ring doorbell')}</FormField>
               <FormField label="Restrictions">{inp('showingRestrictions', 'e.g. 24hr notice, no Sundays')}</FormField>
+            </div>
+            <div style={{ marginTop: 12 }}>
+              <FormField label="Showing Instructions" span={3}>{ta('showingInstructions', 'Detailed instructions for agents showing the property...')}</FormField>
+            </div>
+          </FormSection>
+
+          {/* SECTION 19b: STAGING & PHOTOGRAPHY NOTES */}
+          <FormSection title="Staging & Photography Notes" icon={Star} expanded={expanded.staging} onToggle={() => toggle('staging')}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <FormField label="Notes for Staging">{ta('stagingNotes', 'Client situation, background info, sensitive details, special requests...')}</FormField>
+              <FormField label="Notes for Photography">{ta('photographyNotes', 'Specific rooms to highlight, recent renovations, WOW features, angles to capture...')}</FormField>
             </div>
           </FormSection>
 
