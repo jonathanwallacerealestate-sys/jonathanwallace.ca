@@ -2244,8 +2244,8 @@ app.get('/api/tj/setup', async (req, res) => {
   res.json({ success: true, ready: !!state.labelId, state: { ...state, messageIds: undefined, processedEmailIds: undefined }, ...results });
 });
 
-// STEP 2: POST /api/tj/process — Fetch next 100 message IDs from Gmail, process them against FUB
-app.post('/api/tj/process', async (req, res) => {
+// STEP 2: POST /api/tj/scan — Fetch next batch from Gmail, parse & categorize, return candidates for review
+app.post('/api/tj/scan', async (req, res) => {
   if (!FUB_API_KEY || !tokens) return res.json({ error: 'Not configured' });
 
   const state = loadTjState();
@@ -2253,13 +2253,12 @@ app.post('/api/tj/process', async (req, res) => {
     return res.json({ error: 'Run setup first — no Gmail label found.', success: false });
   }
 
-  state.status = 'processing';
+  state.status = 'scanning';
   saveTjState(state);
 
   const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
-  const batchResults = { processed: 0, created: 0, skippedExisting: 0, skippedNoContact: 0, notesAdded: 0, errors: 0 };
 
-  // 1) Fetch next page of message IDs from Gmail (100 per batch)
+  // 1) Fetch next page of message IDs from Gmail
   const listParams = { userId: 'me', labelIds: [state.labelId], maxResults: TJ_BATCH_SIZE };
   if (state.nextPageToken) listParams.pageToken = state.nextPageToken;
 
@@ -2271,12 +2270,10 @@ app.post('/api/tj/process', async (req, res) => {
     batchIds = (listResp.data.messages || []).map(m => m.id);
     state.nextPageToken = listResp.data.nextPageToken || null;
     hasMore = !!state.nextPageToken;
-
-    // Update total estimate from Gmail's resultSizeEstimate
     if (listResp.data.resultSizeEstimate && state.totalMessages === 0) {
       state.totalMessages = listResp.data.resultSizeEstimate;
     }
-    console.log(`[TJ] Batch ${state.currentBatch + 1}: fetched ${batchIds.length} message IDs (hasMore: ${hasMore})`);
+    console.log(`[TJ] Scan batch ${state.currentBatch + 1}: fetched ${batchIds.length} message IDs (hasMore: ${hasMore})`);
   } catch (err) {
     console.error('[TJ] Gmail list error:', err.message);
     state.status = 'paused';
@@ -2287,14 +2284,17 @@ app.post('/api/tj/process', async (req, res) => {
   if (batchIds.length === 0) {
     state.status = 'complete';
     saveTjState(state);
-    return res.json({ success: true, batch: state.currentBatch, batchResults, complete: true, progress: buildTjProgress(state) });
+    return res.json({ success: true, candidates: [], skipped: [], complete: true, hasMore: false, progress: buildTjProgress(state) });
   }
 
-  // 2) Process each email in this batch
+  // 2) Parse each email and categorize
+  const candidates = []; // contacts ready for approval
+  const skipped = [];    // auto-filtered out (with reason)
+  let scannedCount = 0;
+
   for (const msgId of batchIds) {
     if (state.processedEmailIds[msgId]) {
-      batchResults.processed++;
-      state.processedCount++;
+      scannedCount++;
       continue;
     }
 
@@ -2307,24 +2307,19 @@ app.post('/api/tj/process', async (req, res) => {
       const contactEmail = parsed.emails[0] || null;
       const contactName = parsed.fromName || (parsed.names.length > 0 ? parsed.names[0] : null);
 
-      // --- EXCLUSION FILTERS ---
-      // 1) Internal team domains: only allow through if they're a realtor (signature says Realtor/Sales Representative)
+      // --- EXCLUSION FILTERS (auto-skip with reason) ---
       const internalDomains = ['teamjordan.ca', 'faristeam.ca'];
       if (parsed.fromEmail && internalDomains.some(d => parsed.fromEmail.toLowerCase().includes(d))) {
-        // Check if this person is actually a realtor based on their signature
         const internalRealtorCheck = /\b(realtor|sales\s+representative)\b/i;
         if (!internalRealtorCheck.test(body)) {
+          skipped.push({ msgId, name: contactName, email: contactEmail, reason: 'Internal team (no Realtor/Sales Rep in signature)' });
           state.processedEmailIds[msgId] = 'skipped';
           state.emailsSkipped++;
-          batchResults.skippedNoContact++;
-          batchResults.processed++;
-          state.processedCount++;
+          scannedCount++;
           continue;
         }
-        // If they ARE a realtor, let them through — they'll be flagged as realtor by parseEmailForContact
       }
 
-      // 2) Skip automation / system / notification senders
       const systemSenders = [
         'zapier', 'noreply', 'no-reply', 'mailer-daemon', 'postmaster',
         'notifications', 'notification', 'alerts', 'alert', 'donotreply',
@@ -2337,54 +2332,47 @@ app.post('/api/tj/process', async (req, res) => {
       ];
       const fromLower = (parsed.fromEmail || '').toLowerCase() + ' ' + (parsed.fromName || '').toLowerCase();
       if (systemSenders.some(s => fromLower.includes(s))) {
+        skipped.push({ msgId, name: contactName, email: contactEmail, reason: 'System/automation sender' });
         state.processedEmailIds[msgId] = 'skipped';
         state.emailsSkipped++;
-        batchResults.skippedNoContact++;
-        batchResults.processed++;
-        state.processedCount++;
+        scannedCount++;
         continue;
       }
 
-      // 3) Skip non-person names (internal roles, offices, generic accounts)
       const nonPersonPatterns = /\b(coordinator|office|brokerage|admin|administrator|listings?\s+(?:coordinator|dept|department)|deals?\s+(?:coordinator|dept|department)|media\s+coordinator|team\s+jordan|reception|front\s+desk|accounting|bookkeep|operations|marketing\s+(?:dept|team|coordinator)|support\s+team|customer\s+service|it\s+(?:dept|department))\b/i;
       if (contactName && nonPersonPatterns.test(contactName)) {
+        skipped.push({ msgId, name: contactName, email: contactEmail, reason: 'Non-person name (role/office)' });
         state.processedEmailIds[msgId] = 'skipped';
         state.emailsSkipped++;
-        batchResults.skippedNoContact++;
-        batchResults.processed++;
-        state.processedCount++;
+        scannedCount++;
         continue;
       }
 
-      // 4) Skip if no usable contact info at all
       if (!contactEmail && !contactName) {
+        skipped.push({ msgId, reason: 'No contact info' });
         state.processedEmailIds[msgId] = 'skipped';
         state.emailsSkipped++;
-        batchResults.skippedNoContact++;
-        batchResults.processed++;
-        state.processedCount++;
+        scannedCount++;
         continue;
       }
 
-      // 5) Skip if contact only has a name but no email (too unreliable for FUB import)
       if (!contactEmail) {
+        skipped.push({ msgId, name: contactName, reason: 'Name only — no email' });
         state.processedEmailIds[msgId] = 'skipped';
         state.emailsSkipped++;
-        batchResults.skippedNoContact++;
-        batchResults.processed++;
-        state.processedCount++;
+        scannedCount++;
         continue;
       }
 
       // Cross-reference against FUB
       const existing = await findPersonInFub(contactEmail, contactName);
-
       if (existing) {
+        skipped.push({ msgId, name: contactName, email: contactEmail, reason: 'Already in FUB', fubId: existing.id });
+        // Still add notes for existing contacts
         if (parsed.noteWorthy.length > 0) {
           try {
             await fetch(`${FUB_BASE}/notes`, {
-              method: 'POST',
-              headers: fubHeaders(),
+              method: 'POST', headers: fubHeaders(),
               body: JSON.stringify({
                 personId: existing.id,
                 body: `<p><strong>Team Jordan Archive:</strong></p><p>${parsed.noteWorthy.join(' | ')}</p><p><em>Email: ${parsed.subject} (${parsed.date})</em></p>`,
@@ -2392,171 +2380,220 @@ app.post('/api/tj/process', async (req, res) => {
               }),
             });
             state.notesAdded++;
-            batchResults.notesAdded++;
           } catch {}
         }
         state.processedEmailIds[msgId] = 'existing';
         state.leadsSkippedExisting++;
-        batchResults.skippedExisting++;
-        batchResults.processed++;
-        state.processedCount++;
+        scannedCount++;
         continue;
       }
 
-      // New contact — create in FUB
+      // --- BUILD CANDIDATE FOR REVIEW ---
       const nameParts = (contactName || 'Unknown').split(/\s+/);
       const firstName = nameParts[0] || 'Unknown';
       const lastName = nameParts.slice(1).join(' ') || '';
       const isRealtor = parsed.isRealtor;
-      const isLawyer = parsed.isLawyer && !isRealtor; // realtor takes priority
+      const isLawyer = parsed.isLawyer && !isRealtor;
 
-      // For realtors: determine source type and strip property-specific data
+      let contactType = 'lead';
       let realtorSource = null;
       if (isRealtor) {
+        contactType = 'realtor';
         if (parsed.isShowingRequest) realtorSource = 'Showing Request';
         else if (parsed.isBrokerBuyRequest) realtorSource = 'Broker Buy Request';
         else if (parsed.brokerage) realtorSource = 'Brokerage Signature';
         else realtorSource = 'Email Correspondence';
-      }
-
-      // Filter noteWorthy: realtors should NOT get property address, MLS, deal value, closing date
-      const noteWorthyForContact = isRealtor
-        ? parsed.noteWorthy.filter(n => !n.startsWith('Property:') && !n.startsWith('MLS#:') && !n.startsWith('Deal Value:') && !n.startsWith('Closing:') && !n.startsWith('YSP:'))
-        : parsed.noteWorthy;
-
-      // Build the new person object based on contact type
-      let newPerson;
-      let contactType; // 'realtor' | 'lawyer' | 'lead'
-
-      if (isLawyer) {
-        // LAWYERS: first name, last name, phone, email, work address, law firm — NO notes
+      } else if (isLawyer) {
         contactType = 'lawyer';
-        newPerson = {
-          firstName, lastName,
-          stage: 'Lawyer',
-          source: 'Team Jordan Email Archive',
-          emails: contactEmail ? [{ value: contactEmail }] : [],
-          phones: parsed.phones.length > 0 ? [{ value: parsed.phones[0], type: 'Work' }] : [],
-          tags: ['Lawyer', 'Team Jordan Import', 'Agent HQ Import'],
-        };
-        if (parsed.lawFirm) newPerson.company = parsed.lawFirm;
-        // Import work address if available from signature
-        if (parsed.workAddress) {
-          newPerson.addresses = [{ value: parsed.workAddress, type: 'Work' }];
-        }
-      } else if (isRealtor) {
-        contactType = 'realtor';
-        newPerson = {
-          firstName, lastName,
-          stage: 'Real Estate Agent',
-          source: 'Team Jordan Email Archive',
-          emails: contactEmail ? [{ value: contactEmail }] : [],
-          phones: parsed.phones.length > 0 ? [{ value: parsed.phones[0], type: 'Mobile' }] : [],
-          tags: ['Realtor', 'Agent', 'Team Jordan Import', 'Agent HQ Import'],
-        };
-        if (parsed.brokerage) newPerson.company = parsed.brokerage;
-      } else {
-        contactType = 'lead';
-        newPerson = {
-          firstName, lastName,
-          stage: 'Old Team Jordan Leads',
-          source: 'Team Jordan Email Archive',
-          emails: contactEmail ? [{ value: contactEmail }] : [],
-          phones: parsed.phones.length > 0 ? [{ value: parsed.phones[0], type: 'Mobile' }] : [],
-          tags: ['Team Jordan Import', 'Agent HQ Import'],
-        };
       }
 
-      try {
-        const createResp = await fetch(`${FUB_BASE}/people`, {
-          method: 'POST',
-          headers: fubHeaders(),
-          body: JSON.stringify(newPerson),
-        });
+      candidates.push({
+        msgId,
+        firstName, lastName,
+        email: contactEmail,
+        phone: parsed.phones[0] || null,
+        type: contactType,
+        realtorSource,
+        brokerage: parsed.brokerage || null,
+        lawFirm: parsed.lawFirm || null,
+        workAddress: parsed.workAddress || null,
+        subject: parsed.subject,
+        date: parsed.date,
+        noteWorthy: parsed.noteWorthy,
+        additionalEmails: parsed.emails.slice(1),
+        additionalPhones: parsed.phones.slice(1),
+        names: parsed.names,
+        approved: true, // default to approved; user unchecks to reject
+      });
 
-        if (createResp.ok) {
-          const created = await createResp.json();
-
-          // LAWYERS get NO notes — just contact info
-          if (!isLawyer) {
-            const noteLines = [
-              `<p><strong>Imported from Team Jordan Email Archive</strong></p>`,
-            ];
-            if (isRealtor && realtorSource) noteLines.push(`<p><strong>Source:</strong> ${realtorSource}</p>`);
-            noteLines.push(`<p>Original email: "${parsed.subject}" (${parsed.date})</p>`);
-            if (noteWorthyForContact.length > 0) noteLines.push(`<p><strong>${isRealtor ? 'Agent Info' : 'Deal Info'}:</strong> ${noteWorthyForContact.join(' | ')}</p>`);
-            if (parsed.emails.length > 1) noteLines.push(`<p>Additional emails: ${parsed.emails.slice(1).join(', ')}</p>`);
-            if (parsed.phones.length > 1) noteLines.push(`<p>Additional phones: ${parsed.phones.slice(1).join(', ')}</p>`);
-            if (!isRealtor && parsed.names.length > 0) noteLines.push(`<p>Names referenced: ${parsed.names.join(', ')}</p>`);
-
-            try {
-              await fetch(`${FUB_BASE}/notes`, {
-                method: 'POST', headers: fubHeaders(),
-                body: JSON.stringify({ personId: created.id, body: noteLines.join(''), subject: 'Team Jordan Import — Agent HQ', isHtml: true }),
-              });
-              state.notesAdded++;
-              batchResults.notesAdded++;
-            } catch {}
-          }
-
-          state.processedEmailIds[msgId] = 'created';
-          if (isRealtor) { state.realtorsCreated++; }
-          else if (isLawyer) { state.lawyersCreated = (state.lawyersCreated || 0) + 1; }
-          else { state.leadsCreated++; }
-          batchResults.created++;
-
-          state.recentActivity.unshift({
-            action: 'created', type: contactType, isRealtor, isLawyer,
-            name: `${firstName} ${lastName}`.trim(), email: contactEmail,
-            fubId: created.id, brokerage: parsed.brokerage, lawFirm: parsed.lawFirm,
-            at: new Date().toISOString(), noteWorthy: isLawyer ? [] : parsed.noteWorthy,
-          });
-          if (state.recentActivity.length > 20) state.recentActivity = state.recentActivity.slice(0, 20);
-        } else {
-          const errText = await createResp.text();
-          state.processedEmailIds[msgId] = 'error';
-          state.errors.push({ msgId, error: errText.slice(0, 200) });
-          batchResults.errors++;
-        }
-      } catch (err) {
-        state.processedEmailIds[msgId] = 'error';
-        state.errors.push({ msgId, error: err.message });
-        batchResults.errors++;
-      }
-
-      batchResults.processed++;
-      state.processedCount++;
-
-      // Rate limit: 200ms delay between FUB creates
-      await new Promise(r => setTimeout(r, 200));
+      scannedCount++;
+      await new Promise(r => setTimeout(r, 100)); // rate limit Gmail reads
 
     } catch (err) {
-      state.processedEmailIds[msgId] = 'error';
-      state.errors.push({ msgId, error: err.message });
-      batchResults.errors++;
-      state.processedCount++;
-      batchResults.processed++;
+      skipped.push({ msgId, reason: `Error: ${err.message}` });
+      scannedCount++;
     }
   }
 
+  // Store pending candidates in state for the approve step
+  state.pendingCandidates = candidates;
   state.currentBatch++;
   state.lastProcessedAt = new Date().toISOString();
-  state.status = hasMore ? 'paused' : 'complete';
-
-  if (state.errors.length > 100) state.errors = state.errors.slice(-100);
-  // Update total with running count if we haven't finished
-  if (hasMore && state.processedCount > state.totalMessages) {
-    state.totalMessages = state.processedCount; // floor estimate
-  }
-
+  state.status = 'review'; // new status: waiting for approval
   saveTjState(state);
 
   res.json({
     success: true,
     batch: state.currentBatch,
-    batchResults,
+    candidates,
+    skipped,
+    skippedCount: skipped.length,
     hasMore,
-    complete: !hasMore && batchIds.length === 0,
+    progress: buildTjProgress(state),
+  });
+});
+
+// STEP 3: POST /api/tj/approve — Import approved candidates into FUB
+app.post('/api/tj/approve', async (req, res) => {
+  if (!FUB_API_KEY) return res.json({ error: 'FUB not configured' });
+
+  const state = loadTjState();
+  const { approvedIds } = req.body; // array of msgIds the user approved
+
+  if (!approvedIds || !Array.isArray(approvedIds)) {
+    return res.json({ error: 'Missing approvedIds array', success: false });
+  }
+
+  const candidates = state.pendingCandidates || [];
+  if (candidates.length === 0) {
+    return res.json({ error: 'No pending candidates. Run a scan first.', success: false });
+  }
+
+  state.status = 'importing';
+  saveTjState(state);
+
+  const results = { imported: 0, rejected: 0, errors: 0 };
+
+  for (const candidate of candidates) {
+    const isApproved = approvedIds.includes(candidate.msgId);
+
+    if (!isApproved) {
+      // User rejected this one — mark as skipped
+      state.processedEmailIds[candidate.msgId] = 'rejected';
+      state.emailsSkipped++;
+      state.processedCount++;
+      results.rejected++;
+      continue;
+    }
+
+    // Build FUB person object
+    const { firstName, lastName, email, phone, type, realtorSource, brokerage, lawFirm, workAddress, noteWorthy, additionalEmails, additionalPhones, names } = candidate;
+    const isRealtor = type === 'realtor';
+    const isLawyer = type === 'lawyer';
+
+    let newPerson;
+    if (isLawyer) {
+      newPerson = {
+        firstName, lastName,
+        stage: 'Lawyer',
+        source: 'Team Jordan Email Archive',
+        emails: email ? [{ value: email }] : [],
+        phones: phone ? [{ value: phone, type: 'Work' }] : [],
+        tags: ['Lawyer', 'Team Jordan Import', 'Agent HQ Import'],
+      };
+      if (lawFirm) newPerson.company = lawFirm;
+      if (workAddress) newPerson.addresses = [{ value: workAddress, type: 'Work' }];
+    } else if (isRealtor) {
+      newPerson = {
+        firstName, lastName,
+        stage: 'Real Estate Agent',
+        source: 'Team Jordan Email Archive',
+        emails: email ? [{ value: email }] : [],
+        phones: phone ? [{ value: phone, type: 'Mobile' }] : [],
+        tags: ['Realtor', 'Agent', 'Team Jordan Import', 'Agent HQ Import'],
+      };
+      if (brokerage) newPerson.company = brokerage;
+    } else {
+      newPerson = {
+        firstName, lastName,
+        stage: 'Old Team Jordan Leads',
+        source: 'Team Jordan Email Archive',
+        emails: email ? [{ value: email }] : [],
+        phones: phone ? [{ value: phone, type: 'Mobile' }] : [],
+        tags: ['Team Jordan Import', 'Agent HQ Import'],
+      };
+    }
+
+    try {
+      const createResp = await fetch(`${FUB_BASE}/people`, {
+        method: 'POST', headers: fubHeaders(),
+        body: JSON.stringify(newPerson),
+      });
+
+      if (createResp.ok) {
+        const created = await createResp.json();
+
+        // Add notes (except for lawyers)
+        if (!isLawyer) {
+          const noteWorthyFiltered = isRealtor
+            ? noteWorthy.filter(n => !n.startsWith('Property:') && !n.startsWith('MLS#:') && !n.startsWith('Deal Value:') && !n.startsWith('Closing:') && !n.startsWith('YSP:'))
+            : noteWorthy;
+
+          const noteLines = [`<p><strong>Imported from Team Jordan Email Archive</strong></p>`];
+          if (isRealtor && realtorSource) noteLines.push(`<p><strong>Source:</strong> ${realtorSource}</p>`);
+          noteLines.push(`<p>Original email: "${candidate.subject}" (${candidate.date})</p>`);
+          if (noteWorthyFiltered.length > 0) noteLines.push(`<p><strong>${isRealtor ? 'Agent Info' : 'Deal Info'}:</strong> ${noteWorthyFiltered.join(' | ')}</p>`);
+          if (additionalEmails.length > 0) noteLines.push(`<p>Additional emails: ${additionalEmails.join(', ')}</p>`);
+          if (additionalPhones.length > 0) noteLines.push(`<p>Additional phones: ${additionalPhones.join(', ')}</p>`);
+          if (!isRealtor && names.length > 0) noteLines.push(`<p>Names referenced: ${names.join(', ')}</p>`);
+
+          try {
+            await fetch(`${FUB_BASE}/notes`, {
+              method: 'POST', headers: fubHeaders(),
+              body: JSON.stringify({ personId: created.id, body: noteLines.join(''), subject: 'Team Jordan Import — Agent HQ', isHtml: true }),
+            });
+            state.notesAdded++;
+          } catch {}
+        }
+
+        state.processedEmailIds[candidate.msgId] = 'created';
+        if (isRealtor) { state.realtorsCreated++; }
+        else if (isLawyer) { state.lawyersCreated = (state.lawyersCreated || 0) + 1; }
+        else { state.leadsCreated++; }
+        results.imported++;
+
+        state.recentActivity.unshift({
+          action: 'created', type, isRealtor, isLawyer,
+          name: `${firstName} ${lastName}`.trim(), email,
+          fubId: created.id, brokerage, lawFirm,
+          at: new Date().toISOString(), noteWorthy: isLawyer ? [] : noteWorthy,
+        });
+        if (state.recentActivity.length > 20) state.recentActivity = state.recentActivity.slice(0, 20);
+      } else {
+        const errText = await createResp.text();
+        state.processedEmailIds[candidate.msgId] = 'error';
+        state.errors.push({ msgId: candidate.msgId, error: errText.slice(0, 200) });
+        results.errors++;
+      }
+    } catch (err) {
+      state.processedEmailIds[candidate.msgId] = 'error';
+      state.errors.push({ msgId: candidate.msgId, error: err.message });
+      results.errors++;
+    }
+
+    state.processedCount++;
+    await new Promise(r => setTimeout(r, 200)); // rate limit FUB
+  }
+
+  // Clear pending candidates
+  state.pendingCandidates = [];
+  state.status = 'paused';
+  if (state.errors.length > 100) state.errors = state.errors.slice(-100);
+  saveTjState(state);
+
+  res.json({
+    success: true,
+    results,
     progress: buildTjProgress(state),
   });
 });

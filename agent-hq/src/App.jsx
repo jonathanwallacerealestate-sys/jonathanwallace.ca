@@ -962,10 +962,14 @@ function FeedbackCard({ fb }) {
 function TeamJordanImport() {
   const [status, setStatus] = useState(null);
   const [setting, setSetting] = useState(false);
-  const [processing, setProcessing] = useState(false);
-  const [autoRunning, setAutoRunning] = useState(false);
+  const [scanning, setScanning] = useState(false);
+  const [importing, setImporting] = useState(false);
   const [setupError, setSetupError] = useState(null);
-  const autoRef = useRef(null);
+  const [candidates, setCandidates] = useState([]);    // parsed contacts pending review
+  const [skippedList, setSkippedList] = useState([]);   // auto-filtered contacts
+  const [scanResult, setScanResult] = useState(null);   // last scan metadata
+  const [importResult, setImportResult] = useState(null); // last import result
+  const [showSkipped, setShowSkipped] = useState(false);
 
   const fetchStatus = async () => {
     try {
@@ -977,20 +981,13 @@ function TeamJordanImport() {
 
   useEffect(() => { fetchStatus(); }, []);
 
-  // Clean up auto-run on unmount
-  useEffect(() => () => { if (autoRef.current) clearTimeout(autoRef.current); }, []);
-
   const runSetup = async () => {
     setSetting(true);
     setSetupError(null);
     try {
       const res = await fetch('/api/tj/setup');
       const data = await res.json();
-      if (data.error) {
-        setSetupError(data.error);
-        setSetting(false);
-        return;
-      }
+      if (data.error) { setSetupError(data.error); setSetting(false); return; }
       if (!data.ready && !data.labelFound) {
         setSetupError(data.availableLabels?.length > 0
           ? `Gmail label not found. Available labels: ${data.availableLabels.join(', ')}`
@@ -1013,53 +1010,75 @@ function TeamJordanImport() {
     setSetting(false);
   };
 
-  const [lastBatch, setLastBatch] = useState(null);
-
-  const runBatch = async () => {
-    setProcessing(true);
+  // SCAN: parse next batch of emails, return candidates for review
+  const runScan = async () => {
+    setScanning(true);
+    setSetupError(null);
+    setCandidates([]);
+    setSkippedList([]);
+    setScanResult(null);
+    setImportResult(null);
     try {
-      const res = await fetch('/api/tj/process', { method: 'POST' });
+      const res = await fetch('/api/tj/scan', { method: 'POST' });
       const data = await res.json();
-      if (data.error) {
-        setSetupError(data.error);
-        setProcessing(false);
-        return;
-      }
-      setLastBatch(data);
+      if (data.error) { setSetupError(data.error); setScanning(false); return; }
+      setCandidates((data.candidates || []).map(c => ({ ...c, approved: true })));
+      setSkippedList(data.skipped || []);
+      setScanResult(data);
       await fetchStatus();
     } catch (err) {
-      setSetupError('Network error during batch processing.');
+      setSetupError('Network error during scan.');
     }
-    setProcessing(false);
+    setScanning(false);
   };
 
-  const startAutoRun = () => {
-    setAutoRunning(true);
-    const runNext = async () => {
-      try {
-        const res = await fetch('/api/tj/process', { method: 'POST' });
-        const data = await res.json();
-        setLastBatch(data);
-        await fetchStatus();
-        if (data.hasMore && !data.complete && !data.error) {
-          autoRef.current = setTimeout(runNext, 2000); // 2s gap between batches
-        } else {
-          setAutoRunning(false);
-        }
-      } catch {
-        setAutoRunning(false);
-      }
-    };
-    runNext();
+  // Toggle individual candidate approval
+  const toggleCandidate = (msgId) => {
+    setCandidates(prev => prev.map(c => c.msgId === msgId ? { ...c, approved: !c.approved } : c));
   };
 
-  const stopAutoRun = () => {
-    setAutoRunning(false);
-    if (autoRef.current) clearTimeout(autoRef.current);
+  // Select/deselect all
+  const toggleAll = (val) => {
+    setCandidates(prev => prev.map(c => ({ ...c, approved: val })));
+  };
+
+  // Change candidate type
+  const changeCandidateType = (msgId, newType) => {
+    setCandidates(prev => prev.map(c => c.msgId === msgId ? { ...c, type: newType } : c));
+  };
+
+  // APPROVE: import checked candidates into FUB
+  const runApprove = async () => {
+    const approved = candidates.filter(c => c.approved);
+    if (approved.length === 0) {
+      setSetupError('No candidates selected for import.');
+      return;
+    }
+    setImporting(true);
+    setSetupError(null);
+    try {
+      const res = await fetch('/api/tj/approve', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ approvedIds: approved.map(c => c.msgId) }),
+      });
+      const data = await res.json();
+      if (data.error) { setSetupError(data.error); setImporting(false); return; }
+      setImportResult(data.results);
+      setCandidates([]);
+      setSkippedList([]);
+      setScanResult(null);
+      await fetchStatus();
+    } catch (err) {
+      setSetupError('Network error during import.');
+    }
+    setImporting(false);
   };
 
   const p = status?.progress || {};
-  const pct = p.percent || 0;
+  const approvedCount = candidates.filter(c => c.approved).length;
+  const typeColor = { realtor: '#f59e0b', lawyer: '#6366f1', lead: '#10b981' };
+  const typeLabel = { realtor: 'REALTOR', lawyer: 'LAWYER', lead: 'LEAD' };
 
   return (
     <Card>
@@ -1068,7 +1087,8 @@ function TeamJordanImport() {
           <Inbox size={16} color="#8b5cf6" />
           <span style={{ fontSize: 15, fontWeight: 700, color: "#111827" }}>Team Jordan Archive Import</span>
           {status?.status === 'complete' && <span style={{ fontSize: 9, fontWeight: 700, color: "#fff", background: "#10b981", padding: "1px 5px", borderRadius: 3 }}>COMPLETE</span>}
-          {status?.status === 'processing' && <span style={{ fontSize: 9, fontWeight: 700, color: "#fff", background: "#f59e0b", padding: "1px 5px", borderRadius: 3 }}>RUNNING</span>}
+          {status?.status === 'review' && <span style={{ fontSize: 9, fontWeight: 700, color: "#fff", background: "#f59e0b", padding: "1px 5px", borderRadius: 3 }}>REVIEW</span>}
+          {status?.status === 'importing' && <span style={{ fontSize: 9, fontWeight: 700, color: "#fff", background: "#8b5cf6", padding: "1px 5px", borderRadius: 3 }}>IMPORTING</span>}
         </div>
       </div>
 
@@ -1076,7 +1096,7 @@ function TeamJordanImport() {
       {(!status || status.status === 'idle') && (
         <div style={{ padding: "16px 0" }}>
           <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 12 }}>
-            Scan the <strong>jonathan@teamjordan.ca / All Mail</strong> label in Gmail, cross-reference against Follow Up Boss, and import new leads under "Old Team Jordan Leads" stage.
+            Scan the <strong>jonathan@teamjordan.ca / All Mail</strong> label in Gmail. Each batch will show you what it found for approval before anything gets imported into FUB.
           </div>
           {setupError && (
             <div style={{ background: "#fef2f2", border: "1px solid #fca5a5", borderRadius: 8, padding: "10px 14px", marginBottom: 12, fontSize: 12 }}>
@@ -1085,11 +1105,6 @@ function TeamJordanImport() {
                 <strong style={{ color: "#dc2626" }}>Setup Error</strong>
               </div>
               <div style={{ color: "#991b1b" }}>{setupError}</div>
-              {setupError.includes('Gmail not connected') && (
-                <div style={{ marginTop: 6, color: "#6b7280", fontSize: 11 }}>
-                  Go to <strong>Calendar</strong> section and reconnect Google to fix this. The GOOGLE_REFRESH_TOKEN env variable may also need to be set in Railway.
-                </div>
-              )}
             </div>
           )}
           <button onClick={runSetup} disabled={setting} style={{
@@ -1101,25 +1116,9 @@ function TeamJordanImport() {
         </div>
       )}
 
-      {/* Progress phase */}
-      {(status?.status === 'ready' || status?.status === 'paused' || status?.status === 'processing' || status?.status === 'complete') && (
+      {/* Main workflow — ready / review / paused / complete */}
+      {(status?.status === 'ready' || status?.status === 'paused' || status?.status === 'review' || status?.status === 'scanning' || status?.status === 'importing' || status?.status === 'complete') && (
         <>
-          {/* Batch summary */}
-          <div style={{ marginBottom: 16 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-              <span style={{ fontSize: 13, fontWeight: 600, color: "#374151" }}>
-                {p.processed > 0 ? `${p.processed.toLocaleString()} emails processed across ${status?.currentBatch || 0} batch${(status?.currentBatch || 0) !== 1 ? 'es' : ''}` : 'Ready to start processing'}
-              </span>
-              {status?.status === 'complete' && <span style={{ fontSize: 10, fontWeight: 700, color: "#fff", background: "#10b981", padding: "2px 6px", borderRadius: 3 }}>ALL DONE</span>}
-              {status?.hasMore !== false && status?.status !== 'complete' && p.processed > 0 && <span style={{ fontSize: 10, fontWeight: 600, color: "#8b5cf6" }}>More batches available</span>}
-            </div>
-            {lastBatch?.batchResults && (
-              <div style={{ background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 8, padding: "8px 12px", marginBottom: 8, fontSize: 12, color: "#166534" }}>
-                <strong>Batch {lastBatch.batch} complete:</strong> {lastBatch.batchResults.created} created, {lastBatch.batchResults.skippedExisting} already in FUB, {lastBatch.batchResults.skippedNoContact} skipped, {lastBatch.batchResults.errors} errors
-              </div>
-            )}
-          </div>
-
           {/* Stats grid */}
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr 1fr 1fr", gap: 8, marginBottom: 16 }}>
             {[
@@ -1137,57 +1136,143 @@ function TeamJordanImport() {
             ))}
           </div>
 
-          {/* Controls */}
-          <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
-            {!autoRunning ? (
-              <>
-                <button onClick={runBatch} disabled={processing || status?.status === 'complete'} style={{
-                  display: "flex", alignItems: "center", gap: 4, background: "#8b5cf6", color: "#fff", border: "none", borderRadius: 6,
-                  padding: "7px 14px", fontSize: 12, fontWeight: 600, cursor: processing ? "wait" : "pointer", opacity: status?.status === 'complete' ? 0.5 : 1,
-                }}>
-                  {processing ? <><RefreshCw size={12} style={{ animation: "spin 1s linear infinite" }} /> Processing batch {(status?.currentBatch || 0) + 1}...</> : <><Play size={12} /> Run Batch {(status?.currentBatch || 0) + 1} ({TJ_BATCH_SIZE} emails)</>}
-                </button>
-                <button onClick={startAutoRun} disabled={status?.status === 'complete'} style={{
-                  display: "flex", alignItems: "center", gap: 4, background: "#059669", color: "#fff", border: "none", borderRadius: 6,
-                  padding: "7px 14px", fontSize: 12, fontWeight: 600, cursor: "pointer",
-                }}>
-                  <Zap size={12} /> Auto-Run All
-                </button>
-              </>
-            ) : (
-              <button onClick={stopAutoRun} style={{
-                display: "flex", alignItems: "center", gap: 4, background: "#ef4444", color: "#fff", border: "none", borderRadius: 6,
-                padding: "7px 14px", fontSize: 12, fontWeight: 600, cursor: "pointer",
-              }}>
-                <Square size={12} /> Stop Auto-Run
-              </button>
-            )}
-            {status?.lastProcessedAt && (
-              <span style={{ fontSize: 11, color: "#9ca3af", alignSelf: "center" }}>Last batch: {new Date(status.lastProcessedAt).toLocaleTimeString()}</span>
-            )}
-            <button onClick={async () => {
-              if (confirm('Reset all import progress? This cannot be undone.')) {
-                await fetch('/api/tj/reset', { method: 'POST' });
-                setStatus(null);
-                setLastBatch(null);
-                setSetupError(null);
-                await fetchStatus();
-              }
-            }} style={{
-              display: "flex", alignItems: "center", gap: 4, background: "transparent", color: "#9ca3af", border: "1px solid #e5e7eb", borderRadius: 6,
-              padding: "7px 14px", fontSize: 12, fontWeight: 500, cursor: "pointer", marginLeft: "auto",
-            }}>
-              <RotateCcw size={11} /> Reset
-            </button>
-          </div>
+          {/* Import result banner */}
+          {importResult && (
+            <div style={{ background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 8, padding: "10px 14px", marginBottom: 12, fontSize: 12, color: "#166534" }}>
+              <strong>Import complete:</strong> {importResult.imported} imported, {importResult.rejected} rejected, {importResult.errors} errors
+            </div>
+          )}
+
           {setupError && (
             <div style={{ background: "#fef2f2", border: "1px solid #fca5a5", borderRadius: 8, padding: "8px 12px", marginBottom: 12, fontSize: 12, color: "#991b1b" }}>
               <AlertTriangle size={12} style={{ display: "inline", verticalAlign: "middle", marginRight: 4 }} /> {setupError}
             </div>
           )}
 
+          {/* SCAN button — shown when no candidates are pending review */}
+          {candidates.length === 0 && (
+            <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+              <button onClick={runScan} disabled={scanning || status?.status === 'complete'} style={{
+                display: "flex", alignItems: "center", gap: 4, background: "#8b5cf6", color: "#fff", border: "none", borderRadius: 6,
+                padding: "7px 14px", fontSize: 12, fontWeight: 600, cursor: scanning ? "wait" : "pointer", opacity: status?.status === 'complete' ? 0.5 : 1,
+              }}>
+                {scanning ? <><RefreshCw size={12} style={{ animation: "spin 1s linear infinite" }} /> Scanning batch {(status?.currentBatch || 0) + 1}...</> : <><Search size={12} /> Scan Next Batch ({TJ_BATCH_SIZE} emails)</>}
+              </button>
+              {status?.lastProcessedAt && (
+                <span style={{ fontSize: 11, color: "#9ca3af", alignSelf: "center" }}>Last: {new Date(status.lastProcessedAt).toLocaleTimeString()}</span>
+              )}
+              <button onClick={async () => {
+                if (confirm('Reset all import progress? This cannot be undone.')) {
+                  await fetch('/api/tj/reset', { method: 'POST' });
+                  setStatus(null); setCandidates([]); setSkippedList([]); setScanResult(null); setImportResult(null); setSetupError(null);
+                  await fetchStatus();
+                }
+              }} style={{
+                display: "flex", alignItems: "center", gap: 4, background: "transparent", color: "#9ca3af", border: "1px solid #e5e7eb", borderRadius: 6,
+                padding: "7px 14px", fontSize: 12, fontWeight: 500, cursor: "pointer", marginLeft: "auto",
+              }}>
+                <RotateCcw size={11} /> Reset
+              </button>
+            </div>
+          )}
+
+          {/* REVIEW TABLE — shown when candidates exist */}
+          {candidates.length > 0 && (
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                <span style={{ fontSize: 13, fontWeight: 700, color: "#374151" }}>
+                  Review Batch {scanResult?.batch || '?'} — {candidates.length} contacts found
+                </span>
+                <div style={{ display: "flex", gap: 6 }}>
+                  <button onClick={() => toggleAll(true)} style={{ fontSize: 10, padding: "3px 8px", borderRadius: 4, border: "1px solid #d1d5db", background: "#f0fdf4", color: "#166534", cursor: "pointer", fontWeight: 600 }}>Select All</button>
+                  <button onClick={() => toggleAll(false)} style={{ fontSize: 10, padding: "3px 8px", borderRadius: 4, border: "1px solid #d1d5db", background: "#fef2f2", color: "#991b1b", cursor: "pointer", fontWeight: 600 }}>Deselect All</button>
+                </div>
+              </div>
+
+              {/* Candidate list */}
+              <div style={{ maxHeight: 400, overflowY: "auto", border: "1px solid #e5e7eb", borderRadius: 8 }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                  <thead>
+                    <tr style={{ background: "#f9fafb", borderBottom: "1px solid #e5e7eb" }}>
+                      <th style={{ padding: "8px 10px", textAlign: "left", fontWeight: 600, color: "#6b7280", width: 36 }}></th>
+                      <th style={{ padding: "8px 6px", textAlign: "left", fontWeight: 600, color: "#6b7280" }}>Name</th>
+                      <th style={{ padding: "8px 6px", textAlign: "left", fontWeight: 600, color: "#6b7280" }}>Email</th>
+                      <th style={{ padding: "8px 6px", textAlign: "left", fontWeight: 600, color: "#6b7280" }}>Phone</th>
+                      <th style={{ padding: "8px 6px", textAlign: "center", fontWeight: 600, color: "#6b7280", width: 90 }}>Type</th>
+                      <th style={{ padding: "8px 6px", textAlign: "left", fontWeight: 600, color: "#6b7280" }}>Details</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {candidates.map((c, i) => (
+                      <tr key={c.msgId} style={{ borderBottom: "1px solid #f3f4f6", background: c.approved ? "#fff" : "#fafafa", opacity: c.approved ? 1 : 0.5 }}>
+                        <td style={{ padding: "6px 10px", textAlign: "center" }}>
+                          <input type="checkbox" checked={c.approved} onChange={() => toggleCandidate(c.msgId)} style={{ cursor: "pointer", width: 15, height: 15 }} />
+                        </td>
+                        <td style={{ padding: "6px", fontWeight: 600, color: "#111827" }}>{c.firstName} {c.lastName}</td>
+                        <td style={{ padding: "6px", color: "#6b7280", maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.email}</td>
+                        <td style={{ padding: "6px", color: "#6b7280" }}>{c.phone || '—'}</td>
+                        <td style={{ padding: "6px", textAlign: "center" }}>
+                          <select value={c.type} onChange={e => changeCandidateType(c.msgId, e.target.value)}
+                            style={{ fontSize: 10, fontWeight: 700, padding: "2px 6px", borderRadius: 4, border: "none",
+                              background: typeColor[c.type] || '#6b7280', color: "#fff", cursor: "pointer", appearance: "auto" }}>
+                            <option value="lead">LEAD</option>
+                            <option value="realtor">REALTOR</option>
+                            <option value="lawyer">LAWYER</option>
+                          </select>
+                        </td>
+                        <td style={{ padding: "6px", fontSize: 10, color: "#9ca3af", maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          {c.brokerage && `Brokerage: ${c.brokerage}`}
+                          {c.lawFirm && `Firm: ${c.lawFirm}`}
+                          {c.realtorSource && ` (${c.realtorSource})`}
+                          {!c.brokerage && !c.lawFirm && !c.realtorSource && c.subject}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Skipped contacts (collapsible) */}
+              {skippedList.length > 0 && (
+                <div style={{ marginTop: 8 }}>
+                  <button onClick={() => setShowSkipped(!showSkipped)} style={{
+                    fontSize: 11, color: "#6b7280", background: "none", border: "none", cursor: "pointer", padding: 0, fontWeight: 600,
+                  }}>
+                    {showSkipped ? '▼' : '▶'} {skippedList.length} auto-filtered
+                  </button>
+                  {showSkipped && (
+                    <div style={{ maxHeight: 200, overflowY: "auto", marginTop: 4, fontSize: 11, color: "#9ca3af" }}>
+                      {skippedList.map((s, i) => (
+                        <div key={i} style={{ padding: "2px 0" }}>
+                          <span style={{ color: "#ef4444" }}>✕</span> {s.name || s.email || s.msgId?.slice(0, 8)} — <em>{s.reason}</em>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* APPROVE / SKIP buttons */}
+              <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+                <button onClick={runApprove} disabled={importing || approvedCount === 0} style={{
+                  display: "flex", alignItems: "center", gap: 4, background: "#10b981", color: "#fff", border: "none", borderRadius: 6,
+                  padding: "8px 16px", fontSize: 12, fontWeight: 700, cursor: importing ? "wait" : "pointer",
+                  opacity: approvedCount === 0 ? 0.4 : 1,
+                }}>
+                  {importing ? <><RefreshCw size={12} style={{ animation: "spin 1s linear infinite" }} /> Importing...</> : <><CheckCircle2 size={12} /> Approve & Import ({approvedCount})</>}
+                </button>
+                <button onClick={() => { setCandidates([]); setSkippedList([]); setScanResult(null); }} style={{
+                  display: "flex", alignItems: "center", gap: 4, background: "transparent", color: "#6b7280", border: "1px solid #e5e7eb", borderRadius: 6,
+                  padding: "8px 14px", fontSize: 12, fontWeight: 500, cursor: "pointer",
+                }}>
+                  Skip Batch
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Recent activity */}
-          {status?.recentActivity?.length > 0 && (
+          {status?.recentActivity?.length > 0 && candidates.length === 0 && (
             <div style={{ borderTop: "1px solid #f3f4f6", paddingTop: 12 }}>
               <div style={{ fontSize: 11, fontWeight: 700, color: "#6b7280", marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.05em" }}>Recent Imports</div>
               {status.recentActivity.slice(0, 8).map((a, i) => (
@@ -1197,7 +1282,6 @@ function TeamJordanImport() {
                   {a.isRealtor && <span style={{ fontSize: 9, fontWeight: 700, color: "#fff", background: "#f59e0b", padding: "1px 5px", borderRadius: 3 }}>REALTOR</span>}
                   {a.isLawyer && <span style={{ fontSize: 9, fontWeight: 700, color: "#fff", background: "#6366f1", padding: "1px 5px", borderRadius: 3 }}>LAWYER</span>}
                   {a.email && <span style={{ color: "#9ca3af" }}>{a.email}</span>}
-                  {a.noteWorthy?.length > 0 && <span style={{ fontSize: 10, color: "#8b5cf6" }}>{a.noteWorthy.join(' · ')}</span>}
                 </div>
               ))}
             </div>
