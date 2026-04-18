@@ -5465,6 +5465,9 @@ function ListingForm() {
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState(null);
   const [sisuExport, setSisuExport] = useState(null);
+  const [fubAppointments, setFubAppointments] = useState([]);
+  const [loadingFub, setLoadingFub] = useState(false);
+  const [importingFub, setImportingFub] = useState(null);
   const geoFileRef = useRef(null);
   const mlsFileRef = useRef(null);
   const saveTimerRef = useRef(null);
@@ -5664,7 +5667,34 @@ function ListingForm() {
     }
   };
 
-  useEffect(() => { fetchProperties(); }, []);
+  // ─── FETCH FUB LISTING APPOINTMENTS ───
+  const fetchFubAppointments = async () => {
+    setLoadingFub(true);
+    try {
+      const res = await fetch('/api/fub/listing-appointments');
+      const data = await res.json();
+      if (data.success) setFubAppointments(data.appointments || []);
+    } catch (err) { console.error('Failed to load FUB appointments:', err); }
+    setLoadingFub(false);
+  };
+
+  // Import a FUB listing appointment → create listing form and load it
+  const importFubAppointment = async (appt) => {
+    setImportingFub(appt.fubId);
+    try {
+      const res = await fetch(`/api/fub/listing-appointments/import/${appt.fubId}`, { method: 'POST' });
+      const data = await res.json();
+      if (data.success && data.propertyId) {
+        await fetchProperties(); // refresh list
+        await loadProperty(data.propertyId); // load the new form
+        // Mark this appointment as having a form now
+        setFubAppointments(prev => prev.map(a => a.fubId === appt.fubId ? { ...a, hasListingForm: true } : a));
+      }
+    } catch (err) { console.error('Failed to import FUB appointment:', err); }
+    setImportingFub(null);
+  };
+
+  useEffect(() => { fetchProperties(); fetchFubAppointments(); }, []);
 
   // Auto-generate propertyId when address changes
   useEffect(() => {
@@ -5728,6 +5758,57 @@ function ListingForm() {
           display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
         }}><Trash size={14} color="#ef4444" /></button>}
       </div>
+
+      {/* FUB LISTING APPOINTMENTS — incoming from Follow Up Boss */}
+      {fubAppointments.filter(a => !a.hasListingForm).length > 0 && (
+        <div style={{ background: '#fffbf0', borderRadius: 10, border: '1px solid #f0dca0', padding: '14px 16px', marginBottom: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+            <Users size={14} color="#92730a" />
+            <span style={{ fontSize: 12, fontWeight: 700, color: '#92730a', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+              Listing Appointments from Follow Up Boss
+            </span>
+            <span style={{ fontSize: 10, fontWeight: 600, color: '#fff', background: '#c8a96e', padding: '2px 8px', borderRadius: 10 }}>
+              {fubAppointments.filter(a => !a.hasListingForm).length} new
+            </span>
+            <div style={{ flex: 1 }} />
+            <button onClick={fetchFubAppointments} disabled={loadingFub} style={{
+              fontSize: 10, color: '#92730a', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline',
+            }}>{loadingFub ? 'Syncing...' : 'Refresh'}</button>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {fubAppointments.filter(a => !a.hasListingForm).map(appt => (
+              <div key={appt.fubId} style={{
+                display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px',
+                background: '#fff', borderRadius: 8, border: '1px solid #e5e7eb',
+              }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: '#111827' }}>{appt.name || 'Unknown'}</div>
+                  <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>
+                    {appt.address ? `${appt.address}${appt.city ? `, ${appt.city}` : ''}` : 'No address in FUB'}
+                    {appt.phone ? ` · ${appt.phone}` : ''}
+                    {appt.email ? ` · ${appt.email}` : ''}
+                  </div>
+                </div>
+                <button
+                  onClick={() => importFubAppointment(appt)}
+                  disabled={importingFub === appt.fubId}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 5, padding: '6px 14px', borderRadius: 8,
+                    border: '1px solid #c8a96e', background: '#c8a96e', color: '#fff',
+                    fontSize: 11, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap',
+                  }}
+                >
+                  {importingFub === appt.fubId ? (
+                    <><Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> Creating...</>
+                  ) : (
+                    <><Plus size={12} /> Start Listing</>
+                  )}
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* IMPORT & ACTIONS TOOLBAR */}
       <div style={{ background: '#fff', borderRadius: 10, border: '1px solid #e5e7eb', padding: '12px 16px', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>

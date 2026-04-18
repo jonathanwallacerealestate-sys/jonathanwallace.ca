@@ -2904,6 +2904,173 @@ app.post('/api/fub/log-call', async (req, res) => {
 });
 
 // ─────────────────────────────────────────────
+// FUB LISTING APPOINTMENTS — Auto-populate from tag
+// ─────────────────────────────────────────────
+
+// GET /api/fub/listing-appointments — Fetch contacts tagged "Listing Appointment" in FUB
+app.get('/api/fub/listing-appointments', async (req, res) => {
+  if (!FUB_API_KEY) return res.json({ error: 'FUB_API_KEY not configured', appointments: [] });
+  try {
+    // FUB API: search people by tag
+    const tag = 'Listing Appointment';
+    let allContacts = [];
+    let offset = 0;
+    const limit = 100;
+
+    // Paginate through all contacts with this tag
+    while (true) {
+      const url = `${FUB_BASE}/people?tag=${encodeURIComponent(tag)}&limit=${limit}&offset=${offset}&sort=created&order=desc`;
+      const resp = await fetch(url, { headers: fubHeaders() });
+      if (!resp.ok) {
+        console.error(`[FUB] Listing appointments fetch error: ${resp.status}`);
+        break;
+      }
+      const data = await resp.json();
+      const people = data.people || [];
+      allContacts = allContacts.concat(people);
+      if (people.length < limit) break;
+      offset += limit;
+      if (offset > 500) break; // safety cap
+    }
+
+    // Also try searching by stage name "Listing Appointment" as fallback
+    try {
+      const stageUrl = `${FUB_BASE}/people?stage=${encodeURIComponent(tag)}&limit=100&sort=created&order=desc`;
+      const stageResp = await fetch(stageUrl, { headers: fubHeaders() });
+      if (stageResp.ok) {
+        const stageData = await stageResp.json();
+        const stagePeople = stageData.people || [];
+        // Merge without duplicates
+        const existingIds = new Set(allContacts.map(c => c.id));
+        for (const p of stagePeople) {
+          if (!existingIds.has(p.id)) {
+            allContacts.push(p);
+            existingIds.add(p.id);
+          }
+        }
+      }
+    } catch {}
+
+    // Map to clean appointment objects
+    const appointments = allContacts.map(c => {
+      // Extract primary address from FUB contact
+      const addr = (c.addresses && c.addresses.length > 0) ? c.addresses[0] : {};
+      const emails = (c.emails || []).map(e => e.value).filter(Boolean);
+      const phones = (c.phones || []).map(p => p.value).filter(Boolean);
+
+      return {
+        fubId: c.id,
+        name: [c.firstName, c.lastName].filter(Boolean).join(' '),
+        firstName: c.firstName || '',
+        lastName: c.lastName || '',
+        email: emails[0] || '',
+        phone: phones[0] || '',
+        address: [addr.street, addr.street2].filter(Boolean).join(' ').trim(),
+        city: addr.city || '',
+        postalCode: addr.code || '',
+        province: addr.state || 'ON',
+        stage: c.stage || '',
+        tags: (c.tags || []).map(t => typeof t === 'string' ? t : t.tag || t.name || ''),
+        created: c.created || '',
+        lastActivity: c.lastActivity || '',
+        source: c.source || '',
+      };
+    });
+
+    // Check which ones already have listing forms created
+    const LISTING_FORMS_DIR_CHECK = path.join(__dirname, '.listing-forms');
+    const existingForms = new Set();
+    try {
+      const files = fs.readdirSync(LISTING_FORMS_DIR_CHECK).filter(f => f.endsWith('.json'));
+      for (const f of files) {
+        try {
+          const data = JSON.parse(fs.readFileSync(path.join(LISTING_FORMS_DIR_CHECK, f), 'utf8'));
+          if (data.fubId) existingForms.add(Number(data.fubId));
+        } catch {}
+      }
+    } catch {}
+
+    // Mark which appointments already have forms
+    for (const appt of appointments) {
+      appt.hasListingForm = existingForms.has(appt.fubId);
+    }
+
+    console.log(`[FUB] Found ${appointments.length} listing appointments (${appointments.filter(a => !a.hasListingForm).length} new)`);
+    res.json({ success: true, appointments, total: appointments.length });
+  } catch (err) {
+    console.error('[FUB] Listing appointments error:', err);
+    res.json({ error: err.message, appointments: [] });
+  }
+});
+
+// POST /api/fub/listing-appointments/import/:fubId — Create a listing form from a FUB contact
+app.post('/api/fub/listing-appointments/import/:fubId', async (req, res) => {
+  if (!FUB_API_KEY) return res.json({ error: 'FUB_API_KEY not configured', success: false });
+  try {
+    const fubId = req.params.fubId;
+
+    // Fetch the full contact from FUB
+    const resp = await fetch(`${FUB_BASE}/people/${fubId}`, { headers: fubHeaders() });
+    if (!resp.ok) return res.json({ error: `FUB returned ${resp.status}`, success: false });
+    const contact = await resp.json();
+
+    const addr = (contact.addresses && contact.addresses.length > 0) ? contact.addresses[0] : {};
+    const emails = (contact.emails || []).map(e => e.value).filter(Boolean);
+    const phones = (contact.phones || []).map(p => p.value).filter(Boolean);
+
+    const name = [contact.firstName, contact.lastName].filter(Boolean).join(' ');
+    const street = [addr.street, addr.street2].filter(Boolean).join(' ').trim();
+    const city = addr.city || '';
+
+    // Generate propertyId from address or name
+    const slugBase = street || name || `fub-${fubId}`;
+    const slugCity = city || 'listing';
+    const propertyId = slugBase.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 60)
+      + '-' + slugCity.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+
+    // Check if form already exists
+    const LISTING_FORMS_DIR_IMPORT = path.join(__dirname, '.listing-forms');
+    if (!fs.existsSync(LISTING_FORMS_DIR_IMPORT)) fs.mkdirSync(LISTING_FORMS_DIR_IMPORT, { recursive: true });
+    const filePath = path.join(LISTING_FORMS_DIR_IMPORT, `${propertyId}.json`);
+
+    if (fs.existsSync(filePath)) {
+      const existing = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+      return res.json({ success: true, propertyId: existing.propertyId, alreadyExists: true });
+    }
+
+    // Create new listing form pre-populated from FUB contact
+    const formData = {
+      propertyId,
+      address: street,
+      city: city,
+      postalCode: addr.code || '',
+      sellerName: name,
+      sellerPhone: phones[0] || '',
+      sellerEmail: emails[0] || '',
+      sellerName2: '',
+      sellerPhone2: '',
+      sellerEmail2: '',
+      fubId: Number(fubId),
+      fubSource: 'listing-appointment',
+      status: 'draft',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    // If contact has a second person associated (co-seller), try to get from notes
+    // For now, just save the primary seller info
+
+    fs.writeFileSync(filePath, JSON.stringify(formData, null, 2));
+    console.log(`[FUB] Created listing form for ${name} at ${street || '(no address)'} (FUB ID: ${fubId})`);
+
+    res.json({ success: true, propertyId, formData });
+  } catch (err) {
+    console.error('[FUB] Import listing appointment error:', err);
+    res.json({ error: err.message, success: false });
+  }
+});
+
+// ─────────────────────────────────────────────
 // LISTING FORM — Pre-Listing Data Management
 // ─────────────────────────────────────────────
 
