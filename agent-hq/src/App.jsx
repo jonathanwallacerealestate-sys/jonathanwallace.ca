@@ -51,7 +51,8 @@ const emailInbox = [
 // NOTE: Google Calendar MCP integration needs reconnection.
 // Showing only BrokerBay-confirmed events as LIVE data for now.
 const todayCalendar = [
-  { time: "12:30 PM", end: "1:30 PM", title: "Showing — 45 Brule St, Penetanguishene (Completed)", type: "showing", color: "#10b981", icon: CheckCircle2, source: "brokerbay", live: true },
+  { time: "11:15 AM", end: "12:15 PM", title: "Showing — 612 Bay St, Midland", type: "showing", color: "#10b981", icon: CheckCircle2, source: "brokerbay", live: true },
+  { time: "2:00 PM", end: "3:00 PM", title: "Showing — 481 Islandview Lane, Midland", type: "showing", color: "#10b981", icon: CheckCircle2, source: "brokerbay", live: true },
 ];
 const gcalConnectionStatus = { connected: false, reason: "Google Calendar integration needs refresh — reconnect to pull full calendar." };
 
@@ -59,20 +60,20 @@ const gcalConnectionStatus = { connected: false, reason: "Google Calendar integr
 // DATA: BROKERBAY SHOWINGS (LIVE — parsed from Gmail)
 // ─────────────────────────────────────────────
 const brokerBayShowings = [
-  // TODAY — completed (Jonathan attended as buyer agent)
-  { id: "bb-1", time: "12:30 PM", end: "1:30 PM", date: "Today", property: "45 Brule Street, Penetanguishene", mls: "—", status: "completed",
+  // YESTERDAY — completed (Jonathan attended as buyer agent)
+  { id: "bb-1", time: "12:30 PM", end: "1:30 PM", date: "Thu, Apr 16", property: "45 Brule Street, Penetanguishene", mls: "—", status: "completed",
     requestedBy: "Jonathan Wallace (Buyer Agent)", buyerAgent: "Jonathan Wallace",
     buyerName: "—", sellerName: "Peggy Hill / Christine Hanna (Re/Max Hallmark Peggy Hill Group)",
     notes: "Modified from 3:30 PM → 12:30 PM. Feedback requested by listing agent.", lockboxCode: "4610",
     source: "brokerbay", live: true, role: "buyer_agent" },
-  // TOMORROW — your listing 612 Bay St
-  { id: "bb-2", time: "11:15 AM", end: "12:15 PM", date: "Fri, Apr 17", property: "612 Bay Street, Midland", mls: "—", status: "confirmed",
+  // TODAY — your listing 612 Bay St
+  { id: "bb-2", time: "11:15 AM", end: "12:15 PM", date: "Today", property: "612 Bay Street, Midland", mls: "—", status: "confirmed",
     requestedBy: "Caitlin Danielle Renton (Renton Realty)", buyerAgent: "Caitlin Danielle Renton",
     buyerName: "—", sellerName: "Your Listing",
     notes: "Caitlin Renton — caitlinrenton@outlook.com — 647-273-9850. Renton Realty office: 905-822-7737.", lockboxCode: "—",
     source: "brokerbay", live: true, role: "listing_agent" },
-  // TOMORROW — your listing 481 Islandview Lane
-  { id: "bb-3", time: "2:00 PM", end: "3:00 PM", date: "Fri, Apr 17", property: "481 Islandview Lane, Midland", mls: "—", status: "confirmed",
+  // TODAY — your listing 481 Islandview Lane
+  { id: "bb-3", time: "2:00 PM", end: "3:00 PM", date: "Today", property: "481 Islandview Lane, Midland", mls: "—", status: "confirmed",
     requestedBy: "Jordan Iles (Real Broker Ontario Ltd.)", buyerAgent: "Jordan Iles",
     buyerName: "—", sellerName: "Your Listing",
     notes: "Jordan Iles — jiles@teamjordan.ca — Real Broker Ontario: 888-311-1172.", lockboxCode: "—",
@@ -144,7 +145,7 @@ const backlogTasks = [
   { id: 4, text: "Call new FUB lead Vittorio Destefano — (647) 207-8660", done: false, category: "lead", categoryColor: "#f59e0b", live: true },
   { id: 5, text: "Respond to Lino D'Angicco re: listings review", done: false, category: "lead", categoryColor: "#f59e0b", live: true },
   { id: 6, text: "Forward REALM listings to Edward Kariuki — Midland $350-$500k", done: false, category: "lead", categoryColor: "#f59e0b", live: true },
-  { id: 7, text: "Submit outstanding feedback for 45 Brule St showing", done: false, category: "showing", categoryColor: "#2563eb", live: true },
+  { id: 7, text: "Submit outstanding feedback for 45 Brule St showing (yesterday)", done: false, category: "showing", categoryColor: "#2563eb", live: true },
   { id: 8, text: "Sign up for Faris Team Cineplex Client Appreciation event", done: false, category: "marketing", categoryColor: "#8b5cf6", live: true },
   { id: 9, text: "Review Make.com Agent Gmail Gateway errors", done: false, category: "tech", categoryColor: "#6b7280", live: true },
 ];
@@ -423,7 +424,7 @@ function MorningBriefing() {
         </div>
         <div>
           <div style={{ fontSize: 16, fontWeight: 800, color: "#92400e" }}>Good morning, Jonathan</div>
-          <div style={{ fontSize: 12, color: "#b45309" }}>Thursday, April 16 — Here's your day at a glance.</div>
+          <div style={{ fontSize: 12, color: "#b45309" }}>{new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })} — Here's your day at a glance.</div>
         </div>
       </div>
 
@@ -435,7 +436,7 @@ function MorningBriefing() {
             <span style={{ fontSize: 12, fontWeight: 700, color: "#92400e" }}>Showings</span>
             <span style={{ fontSize: 9, fontWeight: 700, color: "#fff", background: "#10b981", padding: "1px 5px", borderRadius: 3 }}>LIVE</span>
           </div>
-          {brokerBayShowings.filter(s => s.date === "Today" || s.date === "Fri, Apr 17").slice(0, 3).map((s, i) => (
+          {brokerBayShowings.filter(s => s.date === "Today").slice(0, 3).map((s, i) => (
             <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
               <div style={{ width: 3, height: 20, borderRadius: 2, background: s.status === "completed" ? "#2563eb" : s.status === "confirmed" ? "#059669" : "#d97706", flexShrink: 0 }} />
               <div style={{ flex: 1, minWidth: 0 }}>
@@ -1965,12 +1966,12 @@ const showingIntelligence = [
 // ─────────────────────────────────────────────
 const outstandingFeedback = [
   {
-    id: "fb-1", address: "45 Brule Street, Penetanguishene", date: "Today, Apr 16", time: "12:30 PM — 1:30 PM",
+    id: "fb-1", address: "45 Brule Street, Penetanguishene", date: "Yesterday, Apr 16", time: "12:30 PM — 1:30 PM",
     listingAgent: "Peggy Hill / Christine Hanna", brokerage: "Re/Max Hallmark Peggy Hill Group Realty",
     listingAgentEmail: "info@peggyhill.com", listingAgentPhone: "(705) 739-4455",
     status: "outstanding", live: true, role: "buyer_agent",
-    emailReceivedAt: "Today, 2:31 PM",
-    notes: "You showed this property today. Feedback survey link was sent to jonathan@faristeam.ca.",
+    emailReceivedAt: "Yesterday, 2:31 PM",
+    notes: "You showed this property yesterday. Feedback survey link was sent to jonathan@faristeam.ca.",
   },
 ];
 
