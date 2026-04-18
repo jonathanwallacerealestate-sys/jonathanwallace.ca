@@ -2599,6 +2599,43 @@ app.post('/api/tj/reset', (req, res) => {
   res.json({ success: true, message: 'Import state reset' });
 });
 
+// POST /api/tj/cleanup — delete bad imports from FUB by name
+app.post('/api/tj/cleanup', async (req, res) => {
+  if (!FUB_API_KEY) return res.json({ error: 'FUB_API_KEY not configured' });
+  const badNames = [
+    'Team Jordan Listings Coordinator',
+    'Team Jordan Deals Coordinator',
+    'Team Jordan Brokerage Office',
+    'Tara Go May',
+    'Zapier',
+  ];
+  const results = [];
+  for (const name of badNames) {
+    try {
+      const searchResp = await fetch(`${FUB_BASE}/people?q=${encodeURIComponent(name)}&limit=10`, {
+        headers: fubHeaders(),
+      });
+      if (!searchResp.ok) { results.push({ name, status: 'search_failed' }); continue; }
+      const data = await searchResp.json();
+      const matches = (data.people || []).filter(p => {
+        const tags = (p.tags || []).map(t => t.tag || t);
+        return tags.includes('Team Jordan Import') || tags.includes('Agent HQ Import');
+      });
+      for (const person of matches) {
+        const delResp = await fetch(`${FUB_BASE}/people/${person.id}`, {
+          method: 'DELETE', headers: fubHeaders(),
+        });
+        results.push({ name, id: person.id, deleted: delResp.ok });
+        await new Promise(r => setTimeout(r, 300));
+      }
+      if (matches.length === 0) results.push({ name, status: 'not_found' });
+    } catch (err) {
+      results.push({ name, error: err.message });
+    }
+  }
+  res.json({ success: true, results });
+});
+
 // POST /api/fub/log-call — log a call + note in Follow Up Boss
 app.post('/api/fub/log-call', async (req, res) => {
   if (!FUB_API_KEY) return res.json({ error: 'FUB_API_KEY not configured', success: false });
