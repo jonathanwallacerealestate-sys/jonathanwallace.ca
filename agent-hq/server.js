@@ -3080,7 +3080,7 @@ function parseGeoWarehouseText(text) {
   // Values appear after the label block. Match the area value directly.
   const areaMatch = t.match(/([\d,.]+)\s*sq\.?ft\.?\s*\(([\d.]+)\s*ac\)/i);
   if (areaMatch) {
-    fields.lotSize = `${areaMatch[1]} sq ft (${areaMatch[2]} ac)`;
+    fields.lotSize = `${areaMatch[2]} acres`;
   }
 
   // --- Frontage & Depth ---
@@ -3255,9 +3255,7 @@ function parseMLSListingText(text) {
     fields.city = headerAddr[2].trim();
   }
 
-  // MLS Number
-  const mlsMatch = t.match(/\n([A-Z]\d{7,10})\n/);
-  if (mlsMatch) fields.mlsNumber = mlsMatch[1];
+  // MLS Number — not imported into form (agent doesn't need it)
 
   // Taxes & Tax Year from header stats: "TAXES$3,246 (2021)"
   const taxMatch = t.match(/TAXES\s*\$\s*([\d,]+)\s*\((\d{4})\)/i);
@@ -3343,10 +3341,11 @@ function parseMLSListingText(text) {
       const h = ((heatType || '') + ' ' + (heatSrc || '')).toLowerCase();
       const types = [];
       if (h.includes('forced air') && h.includes('gas')) types.push('Forced Air Gas');
-      else if (h.includes('forced air') && h.includes('propane')) types.push('Propane');
+      else if (h.includes('forced air') && h.includes('propane')) { types.push('Forced Air Propane'); fields.rentalItems = (fields.rentalItems ? fields.rentalItems + ', ' : '') + 'Propane Tank'; }
       else if (h.includes('forced air') && h.includes('oil')) types.push('Oil Furnace');
       else if (h.includes('forced air') && h.includes('electric')) types.push('Electric Baseboard');
       else if (h.includes('forced air')) types.push('Forced Air Gas');
+      if (h.includes('propane') && !h.includes('forced air')) { types.push('Forced Air Propane'); fields.rentalItems = (fields.rentalItems ? fields.rentalItems + ', ' : '') + 'Propane Tank'; }
       if (h.includes('baseboard')) types.push('Electric Baseboard');
       if (h.includes('radiant') || h.includes('in-floor')) types.push('Radiant In-Floor');
       if (h.includes('wood') && h.includes('stove')) types.push('Wood Stove');
@@ -3473,7 +3472,27 @@ function parseMLSListingText(text) {
   }
 
 
-  // ─── EXTRAS (Inclusions/Exclusions) ───
+  // ─── Foundation (optional field in REALM, search by label or value pattern) ───
+  // Some REALM listings include FOUNDATION in the property info column
+  const foundInLabels = t.match(/FOUNDATION\b/i);
+  if (foundInLabels) {
+    // Find foundation value in the values block by known terms
+    for (const line of vLines) {
+      const fl = line.toLowerCase();
+      if (/poured|concrete|block|stone|slab|crawl|pier|post/i.test(fl) && line.length < 30) {
+        if (fl.includes('poured') || fl.includes('concrete')) fields.foundationType = 'Poured Concrete';
+        else if (fl.includes('block')) fields.foundationType = 'Block';
+        else if (fl.includes('stone')) fields.foundationType = 'Stone';
+        else if (fl.includes('slab')) fields.foundationType = 'Slab';
+        else if (fl.includes('crawl')) fields.foundationType = 'Crawl Space';
+        else if (fl.includes('pier') || fl.includes('post')) fields.foundationType = 'Pier / Post';
+        else fields.foundationType = line;
+        break;
+      }
+    }
+  }
+
+  // ─── EXTRAS (Inclusions only — never transfer exclusions) ───
   const extrasMatch = t.match(/EXTRAS\s*\n\s*(.+?)(?:\n\s*PROPERTY HISTORY|\n\n)/is);
   if (extrasMatch) {
     const extras = extrasMatch[1].trim();
@@ -3493,10 +3512,7 @@ function parseMLSListingText(text) {
       }
       if (matched.length > 0) fields.appliancesIncluded = matched;
     }
-    const exclPart = extras.match(/Excl:\s*(.+)/is);
-    if (exclPart && !/none/i.test(exclPart[1].trim())) {
-      fields.exclusions = exclPart[1].trim();
-    }
+    // Never transfer exclusions from MLS listing — agent fills these in fresh
   }
 
   // ─── CLIENT REMARKS as MLS description ───

@@ -5335,7 +5335,7 @@ function MetricCard({ card }) {
 // LISTING FORM — Pre-Listing Questionnaire & Checklist
 // ─────────────────────────────────────────────
 
-const HEATING_OPTIONS = ['Forced Air Gas', 'Propane', 'Electric Baseboard', 'Radiant In-Floor', 'Mini-Split', 'Wood Stove', 'Pellet Stove', 'Oil Furnace', 'Geothermal', 'Boiler / Radiator'];
+const HEATING_OPTIONS = ['Forced Air Gas', 'Forced Air Propane', 'Electric Baseboard', 'Radiant In-Floor', 'Mini-Split', 'Wood Stove', 'Pellet Stove', 'Oil Furnace', 'Geothermal', 'Boiler / Radiator'];
 const AC_OPTIONS = ['Central Air', 'Ductless Mini-Split', 'Window Units', 'None'];
 const APPLIANCE_OPTIONS = ['Fridge', 'Stove', 'Dishwasher', 'Microwave', 'Washer', 'Dryer', 'Range Hood', 'Built-in Oven', 'Wine Fridge', 'Chest Freezer', 'Garburator', 'Water Softener', 'Central Vac'];
 const INCLUSION_OPTIONS = ['Window Coverings', 'Light Fixtures', 'Garage Door Opener', 'Hot Tub', 'Pool Equipment', 'Storage Shed', 'ELFs', 'Smart Home Devices', 'Security System', 'Water Treatment System', 'Satellite Dish', 'TV Wall Mount(s)'];
@@ -5729,8 +5729,6 @@ function ListingForm() {
               <FormField label="Street Address" span={2}>{inp('address', '123 Main Street')}</FormField>
               <FormField label="City / Town">{inp('city', 'Midland')}</FormField>
               <FormField label="Postal Code">{inp('postalCode', 'L4R 1A1')}</FormField>
-              <FormField label="MLS #">{inp('mlsNumber', '')}</FormField>
-              <FormField label="List Price">{inp('listPrice', '499,000')}</FormField>
               <FormField label="Property Type">{sel('propertyType', PROPERTY_TYPES, 'Select type...')}</FormField>
               <FormField label="Lot Size">{inp('lotSize', '50 x 120 ft')}</FormField>
               <FormField label="Lot Dimensions">{inp('lotDimensions', '0.14 acres')}</FormField>
