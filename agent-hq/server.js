@@ -1743,32 +1743,14 @@ async function runScheduledSweep(trigger = 'scheduled') {
   }
 }
 
-// Schedule checker — runs every minute, fires sweep at 7AM and 5PM EST
-let lastScheduledHour = -1;
-const SWEEP_HOURS_EST = [7, 17]; // 7AM and 5PM Eastern
-
-function checkScheduledSweep() {
-  // Get current hour in Eastern Time
+// Hourly sweep — runs every 60 minutes, lightweight and always-on
+const SWEEP_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
+setInterval(() => {
   const now = new Date();
-  const estString = now.toLocaleString('en-US', { timeZone: 'America/Toronto', hour: 'numeric', hour12: false });
-  const currentHourEST = parseInt(estString);
-  const currentMinute = now.getMinutes();
-
-  // Fire at :00 of each scheduled hour (within first 2 minutes to avoid double-fire)
-  if (SWEEP_HOURS_EST.includes(currentHourEST) && currentMinute < 2 && lastScheduledHour !== currentHourEST) {
-    lastScheduledHour = currentHourEST;
-    console.log(`[EA Sweep] Triggering scheduled ${currentHourEST === 7 ? 'morning' : 'evening'} sweep`);
-    runScheduledSweep(`scheduled_${currentHourEST === 7 ? '7am' : '5pm'}`);
-  }
-
-  // Reset tracker when we move past the scheduled hour
-  if (!SWEEP_HOURS_EST.includes(currentHourEST)) {
-    lastScheduledHour = -1;
-  }
-}
-
-// Check every 60 seconds
-setInterval(checkScheduledSweep, 60 * 1000);
+  const estString = now.toLocaleString('en-US', { timeZone: 'America/Toronto', hour: 'numeric', minute: 'numeric', hour12: true });
+  console.log(`[EA Sweep] Hourly sweep firing (${estString} EST)`);
+  runScheduledSweep(`hourly_${estString.replace(/[:\s]/g, '')}`);
+}, SWEEP_INTERVAL_MS);
 
 // Also run a sweep on startup (after a short delay for tokens to load)
 setTimeout(() => {
@@ -1782,7 +1764,7 @@ app.get('/api/ea/sweep-status', (req, res) => {
   const estString = now.toLocaleString('en-US', { timeZone: 'America/Toronto' });
   res.json({
     currentTimeEST: estString,
-    scheduledHours: SWEEP_HOURS_EST.map(h => `${h}:00 EST`),
+    schedule: 'Every hour (24/7 on Railway)',
     lastSweep: scheduledSweepLog[0] || null,
     totalSweeps: scheduledSweepLog.length,
     recentLogs: scheduledSweepLog.slice(0, 10),

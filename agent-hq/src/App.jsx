@@ -6702,12 +6702,12 @@ function SyncsSection() {
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
           {statusDot(sweepStatus?.lastSweep?.status === 'success')}
           <span style={{ fontSize: 14, fontWeight: 700, color: "#111827", flex: 1 }}>EA Auto-Sweep</span>
-          <span style={{ fontSize: 10, color: "#6b7280", background: "#f3f4f6", padding: "2px 8px", borderRadius: 4 }}>7:00 AM & 5:00 PM EST</span>
+          <span style={{ fontSize: 10, color: "#10b981", background: "#ecfdf5", padding: "2px 8px", borderRadius: 4, fontWeight: 600 }}>Every Hour — 24/7</span>
           <button onClick={triggerSweep} disabled={triggering} style={{ fontSize: 11, color: "#fff", background: "#2563eb", border: "none", borderRadius: 6, padding: "5px 12px", cursor: "pointer", fontWeight: 600 }}>
             {triggering ? 'Running...' : 'Run Now'}
           </button>
         </div>
-        <p style={{ fontSize: 12, color: "#6b7280", margin: "0 0 12px" }}>Automatically re-scans Gmail threads, detects CC-forwarded Outlook replies, and reconciles thread states twice daily.</p>
+        <p style={{ fontSize: 12, color: "#6b7280", margin: "0 0 12px" }}>Automatically re-scans Gmail threads, detects CC-forwarded Outlook replies, and reconciles thread states every hour on Railway. Always running — no computer needed.</p>
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 10 }}>
           <div style={{ background: "#f9fafb", borderRadius: 8, padding: 10, textAlign: "center" }}>
