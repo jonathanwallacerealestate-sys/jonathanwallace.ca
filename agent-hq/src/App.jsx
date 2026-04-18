@@ -1313,7 +1313,7 @@ function TeamJordanImport() {
 }
 
 // Constant for frontend to reference
-const TJ_BATCH_SIZE = 2000;
+const TJ_BATCH_SIZE = 1000;
 
 function LeadImportBar() {
   const [scanning, setScanning] = useState(false);

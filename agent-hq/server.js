@@ -1901,7 +1901,7 @@ app.get('/api/fub/leads/processed', (req, res) => {
 // ─────────────────────────────────────────────
 
 const TJ_STATE_PATH = path.join(__dirname, '.tj-import-state.json');
-const TJ_BATCH_SIZE = 2000;
+const TJ_BATCH_SIZE = 1000;
 
 // Load/save import state
 function loadTjState() {
@@ -2326,8 +2326,18 @@ app.post('/api/tj/scan', async (req, res) => {
   };
 
   let scannedCount = 0;
+  const scanStartTime = Date.now();
+  const SCAN_TIMEOUT_MS = 4 * 60 * 1000; // 4 minute safety limit — return what we have before Railway kills the request
+  let timedOut = false;
 
   for (const msgId of batchIds) {
+    // Safety: if we're approaching timeout, stop scanning and return what we have
+    if (Date.now() - scanStartTime > SCAN_TIMEOUT_MS) {
+      console.log(`[TJ] Scan timeout after ${scannedCount} emails (${Math.round((Date.now() - scanStartTime) / 1000)}s). Returning partial results.`);
+      timedOut = true;
+      break;
+    }
+
     if (state.processedEmailIds[msgId]) {
       scannedCount++;
       continue;
@@ -2539,13 +2549,20 @@ app.post('/api/tj/scan', async (req, res) => {
   state.status = 'review'; // waiting for approval
   saveTjState(state);
 
+  const scanDuration = Math.round((Date.now() - scanStartTime) / 1000);
+  console.log(`[TJ] Scan complete: ${candidates.length} candidates, ${skipped.length} skipped, ${scannedCount} processed in ${scanDuration}s${timedOut ? ' (TIMED OUT)' : ''}`);
+
   res.json({
     success: true,
     batch: state.currentBatch,
     candidates,
     skipped,
     skippedCount: skipped.length,
-    hasMore,
+    hasMore: hasMore || timedOut, // if timed out, there are still unscanned emails
+    timedOut,
+    scannedCount,
+    totalInBatch: batchIds.length,
+    scanDuration,
     progress: buildTjProgress(state),
   });
 });
