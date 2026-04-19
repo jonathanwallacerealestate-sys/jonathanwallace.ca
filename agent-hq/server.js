@@ -790,6 +790,259 @@ app.post('/api/tasks', (req, res) => {
 });
 
 // ─────────────────────────────────────────────
+// AI-POWERED PRIORITY GENERATION
+// Uses Claude + live data from FUB, Gmail, Calendar, Showings
+// to build a ranked list of 10+ actionable priorities
+// ─────────────────────────────────────────────
+app.get('/api/priorities/generate', async (req, res) => {
+  try {
+    // Gather live data from all sources in parallel
+    const [callListData, eaData, calendarData, showingsData] = await Promise.allSettled([
+      // Call list — stale contacts, hot leads
+      (async () => {
+        if (!FUB_API_KEY) return null;
+        try {
+          const r = await fetch(`${FUB_BASE}/people?sort=lastActivity&order=asc&limit=20&stage=A - Hot 1-3 Months,B - Warm 3-6 Months`, { headers: fubHeaders() });
+          if (!r.ok) return null;
+          const d = await r.json();
+          return (d.people || []).map(p => ({
+            name: [p.firstName, p.lastName].filter(Boolean).join(' '),
+            stage: p.stage || '',
+            lastActivity: p.lastActivity || '',
+            phone: p.phones?.[0]?.value || '',
+            email: p.emails?.[0]?.value || '',
+            tags: (p.tags || []).join(', '),
+          }));
+        } catch { return null; }
+      })(),
+      // Email AI — awaiting_you threads
+      (async () => {
+        const threads = Object.values(eaThreadCache.threads || {});
+        return threads
+          .filter(t => t.state === 'awaiting_you')
+          .sort((a, b) => {
+            const po = { p0: 0, p1: 1, p2: 2 };
+            return (po[a.priority] || 2) - (po[b.priority] || 2);
+          })
+          .slice(0, 10)
+          .map(t => ({ subject: t.subject, from: t.from, priority: t.priority, category: t.category, snippet: (t.snippet || '').slice(0, 80) }));
+      })(),
+      // Calendar — upcoming events today/tomorrow
+      (async () => {
+        if (!tokens) return null;
+        try {
+          const cal = google.calendar({ version: 'v3', auth: oauth2Client });
+          const now = new Date();
+          const tomorrow = new Date(now); tomorrow.setDate(tomorrow.getDate() + 2);
+          const evts = await cal.events.list({
+            calendarId: 'primary', timeMin: now.toISOString(), timeMax: tomorrow.toISOString(),
+            singleEvents: true, orderBy: 'startTime', maxResults: 10,
+          });
+          return (evts.data.items || []).map(e => ({
+            summary: e.summary, start: e.start?.dateTime || e.start?.date, location: e.location || '',
+          }));
+        } catch { return null; }
+      })(),
+      // Showings — pending requests, upcoming confirmed
+      (async () => {
+        if (!tokens) return null;
+        try {
+          const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
+          const r = await gmail.users.messages.list({ userId: 'me', q: 'from:brokerbay subject:(showing request) newer_than:7d', maxResults: 5 });
+          return { pendingCount: (r.data.messages || []).length };
+        } catch { return { pendingCount: 0 }; }
+      })(),
+    ]);
+
+    const contacts = callListData.status === 'fulfilled' ? callListData.value : null;
+    const emails = eaData.status === 'fulfilled' ? eaData.value : [];
+    const calendar = calendarData.status === 'fulfilled' ? calendarData.value : null;
+    const showings = showingsData.status === 'fulfilled' ? showingsData.value : null;
+
+    // Build context block for Claude
+    const contextParts = [];
+    const today = new Date();
+    const dayName = today.toLocaleDateString('en-US', { weekday: 'long' });
+    const dateStr = today.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+    contextParts.push(`Today is ${dayName}, ${dateStr}.`);
+    contextParts.push(`Jonathan Wallace is a high-producing real estate agent in Simcoe County / Georgian Bay, Ontario. He has ~19 active listings, 1 sold conditional, 1 buyer deal approaching closing, and ~6 new listings coming.`);
+
+    if (contacts && contacts.length > 0) {
+      contextParts.push(`\nFUB CONTACTS (sorted by least recent activity — these people need follow-up):`);
+      contacts.slice(0, 12).forEach(c => {
+        contextParts.push(`- ${c.name} | Stage: ${c.stage} | Last activity: ${c.lastActivity || 'unknown'} | Phone: ${c.phone || 'none'} | Tags: ${c.tags || 'none'}`);
+      });
+    }
+
+    if (emails.length > 0) {
+      contextParts.push(`\nEMAILS AWAITING REPLY (${emails.length} threads):`);
+      emails.slice(0, 8).forEach(e => {
+        contextParts.push(`- [${e.priority?.toUpperCase() || 'P2'}] From: ${e.from} | Subject: ${e.subject} | ${e.snippet}`);
+      });
+    }
+
+    if (calendar && calendar.length > 0) {
+      contextParts.push(`\nUPCOMING CALENDAR (today/tomorrow):`);
+      calendar.forEach(e => {
+        contextParts.push(`- ${e.summary} at ${e.start}${e.location ? ' (' + e.location + ')' : ''}`);
+      });
+    }
+
+    if (showings) {
+      contextParts.push(`\nSHOWINGS: ${showings.pendingCount} pending showing requests in the last 7 days.`);
+    }
+
+    // Completed tasks from today — so Claude doesn't re-suggest them
+    const completedToday = (taskState.doneIds || []);
+    if (completedToday.length > 0) {
+      contextParts.push(`\nALREADY COMPLETED TODAY: ${taskState.doneCount || 0} tasks done this session.`);
+    }
+
+    const contextBlock = contextParts.join('\n');
+
+    // If no Claude API, generate rule-based priorities
+    if (!anthropic) {
+      const fallbackList = generateRuleBasedPriorities(contacts, emails, calendar, showings);
+      return res.json({ status: 'ok', priorities: fallbackList, source: 'rules', generatedAt: new Date().toISOString() });
+    }
+
+    // Call Claude to generate prioritized task list
+    const msg = await anthropic.messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 1200,
+      messages: [{
+        role: 'user',
+        content: `You are Jonathan Wallace's AI business assistant. Your job is to generate his priority task list for today.
+
+CONTEXT:
+${contextBlock}
+
+RULES:
+1. Generate EXACTLY 10 tasks, ranked from most urgent/impactful to least.
+2. Every task must be specific and actionable — include names, phone numbers, addresses, subjects when available.
+3. Categories to cover (aim for variety across these):
+   - DEALS: Active transaction tasks (conditions, inspections, closings, offers)
+   - LEADS: Follow up with stale contacts, call hot leads, respond to new inquiries
+   - EMAIL: Reply to specific emails awaiting response
+   - MARKETING: Post on social media (2x/week goal), create listing content, video walkthroughs
+   - PROSPECTING: Past client check-ins, expired listing outreach, sphere of influence calls
+   - STRATEGY: Database cleanup, review monthly goals, plan campaigns, review market stats
+4. Top 3 should be the most urgent money-making or deal-protecting tasks.
+5. Items 4-6 should be important business-building activities.
+6. Items 7-10 should be growth activities, marketing, or strategic thinking.
+7. If there are emails awaiting reply, at least one should be in the top 5.
+8. If there are stale contacts (>7 days for hot, >14 days for warm), include follow-up tasks.
+9. Always include at least one marketing task and one prospecting task.
+10. Never suggest tasks that sound generic — always tie to real data from the context above.
+
+OUTPUT FORMAT:
+Return a JSON array of exactly 10 objects. Each object has:
+- "text": The task description (specific, actionable, 1 sentence)
+- "category": One of "deal", "lead", "email", "marketing", "prospecting", "strategy"
+
+Return ONLY the JSON array, no other text.`
+      }],
+    });
+
+    const raw = msg.content?.[0]?.text || '[]';
+    let tasks = [];
+    try {
+      // Extract JSON from response (handle markdown code blocks)
+      const jsonMatch = raw.match(/\[[\s\S]*\]/);
+      tasks = jsonMatch ? JSON.parse(jsonMatch[0]) : [];
+    } catch (parseErr) {
+      console.log('[Priorities] Claude response parse error:', parseErr.message);
+      const fallbackList = generateRuleBasedPriorities(contacts, emails, calendar, showings);
+      return res.json({ status: 'ok', priorities: fallbackList, source: 'rules_fallback', generatedAt: new Date().toISOString() });
+    }
+
+    // Map categories to colors
+    const catColors = {
+      deal: '#ef4444', lead: '#f59e0b', email: '#2563eb', marketing: '#8b5cf6',
+      prospecting: '#059669', strategy: '#6366f1', showing: '#0891b2', task: '#6b7280',
+    };
+
+    const priorityList = tasks.slice(0, 12).map((t, i) => ({
+      id: Date.now() + i,
+      text: t.text || 'Task',
+      category: t.category || 'task',
+      categoryColor: catColors[t.category] || '#6b7280',
+      done: false,
+      aiGenerated: true,
+      rank: i + 1,
+    }));
+
+    res.json({
+      status: 'ok',
+      priorities: priorityList,
+      source: 'claude',
+      generatedAt: new Date().toISOString(),
+      dataPoints: {
+        contacts: contacts?.length || 0,
+        emails: emails.length,
+        calendarEvents: calendar?.length || 0,
+        showingRequests: showings?.pendingCount || 0,
+      },
+    });
+
+  } catch (err) {
+    console.error('[Priorities] Generation error:', err.message);
+    res.status(500).json({ status: 'error', error: err.message });
+  }
+});
+
+// Rule-based fallback when Claude API is unavailable
+function generateRuleBasedPriorities(contacts, emails, calendar, showings) {
+  const catColors = {
+    deal: '#ef4444', lead: '#f59e0b', email: '#2563eb', marketing: '#8b5cf6',
+    prospecting: '#059669', strategy: '#6366f1',
+  };
+  const list = [];
+  let id = Date.now();
+
+  // Emails awaiting reply
+  if (emails && emails.length > 0) {
+    const top = emails[0];
+    list.push({ id: id++, text: `Reply to ${top.from} — ${top.subject}`, category: 'email', categoryColor: catColors.email, done: false, rank: list.length + 1 });
+  }
+
+  // Stale contacts
+  if (contacts && contacts.length > 0) {
+    contacts.slice(0, 3).forEach(c => {
+      list.push({ id: id++, text: `Follow up with ${c.name} (${c.stage}) — ${c.phone || 'no phone'}`, category: 'lead', categoryColor: catColors.lead, done: false, rank: list.length + 1 });
+    });
+  }
+
+  // Calendar prep
+  if (calendar && calendar.length > 0) {
+    const next = calendar[0];
+    list.push({ id: id++, text: `Prepare for: ${next.summary}`, category: 'deal', categoryColor: catColors.deal, done: false, rank: list.length + 1 });
+  }
+
+  // Marketing
+  list.push({ id: id++, text: 'Post a listing highlight or market update on Instagram and Google Business', category: 'marketing', categoryColor: catColors.marketing, done: false, rank: list.length + 1 });
+
+  // Prospecting
+  list.push({ id: id++, text: 'Call 3 past clients — check in and ask for referrals', category: 'prospecting', categoryColor: catColors.prospecting, done: false, rank: list.length + 1 });
+
+  // Strategy
+  list.push({ id: id++, text: 'Review this week\'s GCI progress against monthly target', category: 'strategy', categoryColor: catColors.strategy, done: false, rank: list.length + 1 });
+  list.push({ id: id++, text: 'Clean up 10 contacts in FUB — add tags, update stages', category: 'strategy', categoryColor: catColors.strategy, done: false, rank: list.length + 1 });
+
+  // More emails
+  if (emails && emails.length > 1) {
+    list.push({ id: id++, text: `Reply to ${emails[1].from} — ${emails[1].subject}`, category: 'email', categoryColor: catColors.email, done: false, rank: list.length + 1 });
+  }
+
+  // Pad to 10
+  while (list.length < 10) {
+    list.push({ id: id++, text: 'Review new listings on REALM for buyer matches', category: 'prospecting', categoryColor: catColors.prospecting, done: false, rank: list.length + 1 });
+  }
+
+  return list.slice(0, 10);
+}
+
+// ─────────────────────────────────────────────
 // Feedback Submitted State Persistence
 // ─────────────────────────────────────────────
 const FEEDBACK_STATE_PATH = path.join(__dirname, '.feedback-submitted.json');

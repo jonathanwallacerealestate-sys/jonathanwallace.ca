@@ -354,20 +354,8 @@ const sidebarItems = [
 // ─────────────────────────────────────────────
 // DATA: TOP PRIORITIES OF THE DAY
 // ─────────────────────────────────────────────
-const defaultBig3 = [
-  { id: 1, text: "Reply to Dan Landry re: 308 Christine listing strategy", done: false, category: "deal", categoryColor: "#ef4444", live: true },
-  { id: 2, text: "Notify sellers about confirmed home inspection — 282 Robins Point Rd (Apr 22, 9:30 AM)", done: false, category: "showing", categoryColor: "#2563eb", live: true },
-  { id: 3, text: "Follow up on 11 Joliet closing — buyer mortgage funds pending", done: false, category: "deal", categoryColor: "#ef4444", live: true },
-];
-
-const backlogTasks = [
-  { id: 4, text: "Call new FUB lead Vittorio Destefano — (647) 207-8660", done: false, category: "lead", categoryColor: "#f59e0b", live: true },
-  { id: 5, text: "Respond to Lino D'Angicco re: listings review", done: false, category: "lead", categoryColor: "#f59e0b", live: true },
-  { id: 6, text: "Forward REALM listings to Edward Kariuki — Midland $350-$500k", done: false, category: "lead", categoryColor: "#f59e0b", live: true },
-  { id: 7, text: "Submit outstanding feedback for 45 Brule St showing (yesterday)", done: false, category: "showing", categoryColor: "#2563eb", live: true },
-  { id: 8, text: "Sign up for Faris Team Cineplex Client Appreciation event", done: false, category: "marketing", categoryColor: "#8b5cf6", live: true },
-  { id: 9, text: "Review Make.com Agent Gmail Gateway errors", done: false, category: "tech", categoryColor: "#6b7280", live: true },
-];
+const defaultBig3 = [];
+const backlogTasks = [];
 
 // ─────────────────────────────────────────────
 // COMPONENTS: SHARED
@@ -2828,142 +2816,103 @@ function ShowingsSection() {
 // TOP PRIORITIES OF THE DAY (drag to reorder)
 // ─────────────────────────────────────────────
 function TopPriorities() {
-  const [priorities, setPriorities] = useState(defaultBig3);
-  const [backlog, setBacklog] = useState(backlogTasks);
+  const [tasks, setTasks] = useState([]);
   const [newTask, setNewTask] = useState("");
-  const [showBacklog, setShowBacklog] = useState(false);
+  const [completing, setCompleting] = useState(null);
+  const [doneCount, setDoneCount] = useState(0);
+  const [doneIds, setDoneIds] = useState([]);
+  const [loaded, setLoaded] = useState(false);
+  const [generating, setGenerating] = useState(false);
+  const [source, setSource] = useState('');
+  const [lastGenerated, setLastGenerated] = useState(null);
   const [dragFrom, setDragFrom] = useState(null);
   const [dragOver, setDragOver] = useState(null);
 
-  const [completing, setCompleting] = useState(null); // id of task being completed (for animation)
-  const [doneCount, setDoneCount] = useState(0); // total tasks completed this session
-  const [doneIds, setDoneIds] = useState([]); // track which task IDs have been completed
-  const [loaded, setLoaded] = useState(false);
+  // Tier colours: top 3 orange, next 3 yellow, rest green
+  const tierColor = (idx) => {
+    if (idx < 3) return { bg: '#fff7ed', border: '#fed7aa', accent: '#ea580c', badge: '#ea580c', badgeBg: '#fff7ed', label: 'DO NOW' };
+    if (idx < 6) return { bg: '#fefce8', border: '#fef08a', accent: '#ca8a04', badge: '#ca8a04', badgeBg: '#fefce8', label: 'UP NEXT' };
+    return { bg: '#f0fdf4', border: '#bbf7d0', accent: '#16a34a', badge: '#16a34a', badgeBg: '#f0fdf4', label: 'GROWTH' };
+  };
 
-  // Load saved state — try server first, fall back to localStorage backup
+  // Load saved state, then auto-generate if empty
   useEffect(() => {
     (async () => {
       let stateLoaded = false;
-
-      // 1. Try server
       try {
         const res = await fetch('/api/tasks');
         const { state } = await res.json();
-        if (state && state.priorities && state.savedAt) {
-          setPriorities(state.priorities);
-          setBacklog(state.backlog || []);
+        if (state && state.priorities && state.priorities.length > 0 && state.savedAt) {
+          setTasks(state.priorities);
           setDoneCount(state.doneCount || 0);
           setDoneIds(state.doneIds || []);
+          setSource(state.source || 'saved');
+          setLastGenerated(state.generatedAt || state.savedAt);
           stateLoaded = true;
-          // Update localStorage backup with server data
-          try { localStorage.setItem('agenthq-tasks', JSON.stringify(state)); } catch {}
         }
-      } catch { /* server unavailable */ }
-
-      // 2. If server had nothing, try localStorage backup
+      } catch {}
       if (!stateLoaded) {
-        try {
-          const backup = localStorage.getItem('agenthq-tasks');
-          if (backup) {
-            const state = JSON.parse(backup);
-            if (state && state.priorities && state.savedAt) {
-              setPriorities(state.priorities);
-              setBacklog(state.backlog || []);
-              setDoneCount(state.doneCount || 0);
-              setDoneIds(state.doneIds || []);
-              stateLoaded = true;
-              console.log('[Tasks] Restored from localStorage backup (server had no data — likely redeployed)');
-              // Push the backup back to server so it's in sync
-              fetch('/api/tasks', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: backup,
-              }).catch(() => {});
-            }
-          }
-        } catch { /* no backup available */ }
+        // Auto-generate on first load if nothing saved
+        await generatePriorities();
       }
-
-      if (!stateLoaded) {
-        console.log('[Tasks] No saved state found — using defaults');
-      }
-
       setLoaded(true);
     })();
   }, []);
 
-  // Save state to server + localStorage whenever priorities/backlog/doneCount change (debounced)
+  // Save state whenever tasks change
   useEffect(() => {
-    if (!loaded) return; // don't save before initial load
+    if (!loaded) return;
     const timer = setTimeout(() => {
-      const payload = { priorities, backlog, doneCount, doneIds, savedAt: new Date().toISOString() };
-
-      // Save to server
-      fetch('/api/tasks', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      }).catch(() => {});
-
-      // Save to localStorage as backup (survives server redeploys)
-      try { localStorage.setItem('agenthq-tasks', JSON.stringify(payload)); } catch {}
+      const payload = { priorities: tasks, doneCount, doneIds, source, generatedAt: lastGenerated, savedAt: new Date().toISOString() };
+      fetch('/api/tasks', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }).catch(() => {});
     }, 500);
     return () => clearTimeout(timer);
-  }, [priorities, backlog, doneCount, doneIds, loaded]);
+  }, [tasks, doneCount, doneIds, loaded]);
+
+  const generatePriorities = async () => {
+    setGenerating(true);
+    try {
+      const res = await fetch('/api/priorities/generate');
+      const data = await res.json();
+      if (data.status === 'ok' && data.priorities?.length > 0) {
+        setTasks(data.priorities);
+        setSource(data.source);
+        setLastGenerated(data.generatedAt);
+        setDoneCount(0);
+        setDoneIds([]);
+      }
+    } catch (e) {
+      console.error('[Priorities] Generate error:', e);
+    }
+    setGenerating(false);
+  };
 
   const markDone = (id) => {
-    // Show green checkmark briefly
     setCompleting(id);
-    setPriorities(prev => prev.map(t => t.id === id ? { ...t, done: true } : t));
-    // After brief delay, remove completed task and pull next from backlog
+    setTasks(prev => prev.map(t => t.id === id ? { ...t, done: true } : t));
     setTimeout(() => {
       setDoneCount(c => c + 1);
       setDoneIds(prev => [...prev, id]);
-      setPriorities(prev => {
-        const remaining = prev.filter(t => t.id !== id);
-        return remaining;
-      });
-      setBacklog(prev => {
-        const nextTask = prev.find(t => !t.done);
-        if (nextTask) {
-          setPriorities(curr => {
-            if (curr.length < 3) return [...curr, nextTask];
-            return curr;
-          });
-          return prev.filter(t => t.id !== nextTask.id);
-        }
-        return prev;
-      });
+      setTasks(prev => prev.filter(t => t.id !== id));
       setCompleting(null);
     }, 600);
   };
 
-  const toggleBacklog = (id) => setBacklog(prev => prev.map(t => t.id === id ? { ...t, done: !t.done } : t));
-
-  const promoteTask = (task) => {
-    if (priorities.length >= 3) return;
-    setBacklog(prev => prev.filter(t => t.id !== task.id));
-    setPriorities(prev => [...prev, task]);
-  };
-
-  const demoteTask = (task) => {
-    setPriorities(prev => prev.filter(t => t.id !== task.id));
-    setBacklog(prev => [{ ...task, done: false }, ...prev]);
-  };
-
   const addTask = () => {
     if (!newTask.trim()) return;
-    const task = { id: Date.now(), text: newTask, done: false, category: "task", categoryColor: "#6b7280" };
-    setBacklog(prev => [task, ...prev]);
+    const task = { id: Date.now(), text: newTask, done: false, category: "task", categoryColor: "#6b7280", rank: tasks.length + 1 };
+    setTasks(prev => [...prev, task]);
     setNewTask("");
   };
 
-  // Drag handlers for reordering
+  const removeTask = (id) => setTasks(prev => prev.filter(t => t.id !== id));
+
+  // Drag handlers
   const handleDragStart = (idx) => { setDragFrom(idx); };
   const handleDragEnter = (idx) => { setDragOver(idx); };
   const handleDragEnd = () => {
     if (dragFrom !== null && dragOver !== null && dragFrom !== dragOver) {
-      setPriorities(prev => {
+      setTasks(prev => {
         const items = [...prev];
         const [moved] = items.splice(dragFrom, 1);
         items.splice(dragOver, 0, moved);
@@ -2974,214 +2923,162 @@ function TopPriorities() {
     setDragOver(null);
   };
 
-  // Click to move up/down
   const moveUp = (idx) => {
     if (idx === 0) return;
-    setPriorities(prev => {
-      const items = [...prev];
-      [items[idx - 1], items[idx]] = [items[idx], items[idx - 1]];
-      return items;
-    });
+    setTasks(prev => { const items = [...prev]; [items[idx - 1], items[idx]] = [items[idx], items[idx - 1]]; return items; });
   };
   const moveDown = (idx) => {
-    if (idx >= priorities.length - 1) return;
-    setPriorities(prev => {
-      const items = [...prev];
-      [items[idx], items[idx + 1]] = [items[idx + 1], items[idx]];
-      return items;
-    });
+    if (idx >= tasks.length - 1) return;
+    setTasks(prev => { const items = [...prev]; [items[idx], items[idx + 1]] = [items[idx + 1], items[idx]]; return items; });
   };
 
-  const totalTasks = priorities.length + backlog.length + doneCount;
+  const activeTasks = tasks.filter(t => !t.done);
+  const totalTasks = activeTasks.length + doneCount;
   const progressPct = totalTasks > 0 ? Math.round((doneCount / totalTasks) * 100) : 0;
-  const allDone = priorities.length === 0 && backlog.filter(t => !t.done).length === 0;
 
   return (
     <Card>
       {/* Header */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <div style={{ width: 32, height: 32, borderRadius: 8, background: allDone ? "#ecfdf5" : "linear-gradient(135deg,#eff6ff,#f0f9ff)", display: "flex", alignItems: "center", justifyContent: "center", border: allDone ? "1px solid #bbf7d0" : "1px solid #bfdbfe" }}>
-            <Target size={16} color={allDone ? "#10b981" : "#2563eb"} />
+          <div style={{ width: 32, height: 32, borderRadius: 8, background: "linear-gradient(135deg,#fff7ed,#fefce8)", display: "flex", alignItems: "center", justifyContent: "center", border: "1px solid #fed7aa" }}>
+            <Target size={16} color="#ea580c" />
           </div>
           <div>
             <h3 style={{ fontSize: 15, fontWeight: 700, color: "#111827", margin: 0 }}>
-              Top Priorities {allDone && <span style={{ fontSize: 12, color: "#10b981", fontWeight: 600 }}>— All done!</span>}
+              Today's Priorities
+              {source === 'claude' && <span style={{ fontSize: 9, fontWeight: 700, color: '#fff', background: '#ea580c', padding: '2px 6px', borderRadius: 3, marginLeft: 8, verticalAlign: 'middle' }}>AI</span>}
             </h3>
-            <div style={{ fontSize: 11, color: "#9ca3af" }}>Drag to reorder. The things that move the needle today.</div>
+            <div style={{ fontSize: 11, color: "#9ca3af" }}>Ranked by impact. Drag to reorder. Never stop moving forward.</div>
           </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <div style={{ width: 60, height: 5, background: "#f3f4f6", borderRadius: 3, overflow: "hidden" }}>
-            <div style={{ width: `${progressPct}%`, height: "100%", background: allDone ? "#10b981" : "#2563eb", borderRadius: 3, transition: "width 0.3s" }} />
+            <div style={{ width: `${progressPct}%`, height: "100%", background: "#ea580c", borderRadius: 3, transition: "width 0.3s" }} />
           </div>
-          <span style={{ fontSize: 12, fontWeight: 700, color: allDone ? "#10b981" : "#2563eb" }}>{doneCount}/{totalTasks}</span>
+          <span style={{ fontSize: 12, fontWeight: 700, color: "#ea580c" }}>{doneCount}/{totalTasks}</span>
+          <button onClick={generatePriorities} disabled={generating} style={{
+            fontSize: 10, color: "#6b7280", background: "none", border: "none", cursor: "pointer", textDecoration: "underline",
+          }}>
+            {generating ? <RefreshCw size={12} style={{ animation: 'spin 1s linear infinite' }} /> : 'Regenerate'}
+          </button>
         </div>
       </div>
 
-      {/* Priority list — draggable */}
-      <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 16 }}>
-        {priorities.map((task, idx) => (
-          <div
-            key={task.id}
-            draggable
-            onDragStart={() => handleDragStart(idx)}
-            onDragEnter={() => handleDragEnter(idx)}
-            onDragEnd={handleDragEnd}
-            onDragOver={(e) => e.preventDefault()}
-            style={{
-              display: "flex", alignItems: "center", gap: 10, padding: "12px 14px", borderRadius: 10,
-              background: dragOver === idx && dragFrom !== idx ? "#eff6ff" : task.done ? "#f0fdf4" : "#fff",
-              border: dragOver === idx && dragFrom !== idx ? "2px solid #93c5fd" : task.done ? "1px solid #bbf7d0" : "1px solid #e5e7eb",
-              boxShadow: dragFrom === idx ? "0 4px 12px rgba(0,0,0,0.1)" : task.done ? "none" : "0 1px 3px rgba(0,0,0,0.04)",
-              opacity: completing === task.id ? 0.4 : dragFrom === idx ? 0.5 : 1,
-              transform: completing === task.id ? "scale(0.97)" : "none",
-              cursor: "grab", transition: "all 0.15s ease",
-              userSelect: "none",
-            }}
-          >
-            {/* Drag handle */}
-            <div style={{ display: "flex", flexDirection: "column", gap: 1, cursor: "grab", padding: "4px 2px", flexShrink: 0 }}>
-              <div style={{ display: "flex", gap: 2 }}>
-                <div style={{ width: 3, height: 3, borderRadius: "50%", background: "#c8a96e" }} />
-                <div style={{ width: 3, height: 3, borderRadius: "50%", background: "#c8a96e" }} />
-              </div>
-              <div style={{ display: "flex", gap: 2 }}>
-                <div style={{ width: 3, height: 3, borderRadius: "50%", background: "#c8a96e" }} />
-                <div style={{ width: 3, height: 3, borderRadius: "50%", background: "#c8a96e" }} />
-              </div>
-              <div style={{ display: "flex", gap: 2 }}>
-                <div style={{ width: 3, height: 3, borderRadius: "50%", background: "#c8a96e" }} />
-                <div style={{ width: 3, height: 3, borderRadius: "50%", background: "#c8a96e" }} />
-              </div>
-            </div>
+      {/* Loading state */}
+      {generating && activeTasks.length === 0 && (
+        <div style={{ padding: 40, textAlign: 'center', color: '#9ca3af' }}>
+          <RefreshCw size={20} style={{ animation: 'spin 1s linear infinite', margin: '0 auto 10px' }} />
+          <div style={{ fontSize: 13, fontWeight: 600 }}>Analyzing your business data...</div>
+          <div style={{ fontSize: 11, marginTop: 4 }}>Scanning FUB contacts, emails, calendar, and showings</div>
+        </div>
+      )}
 
-            {/* Priority number */}
-            <div style={{
-              width: 26, height: 26, borderRadius: "50%",
-              background: task.done ? "#10b981" : idx === 0 ? "#ef4444" : idx === 1 ? "#f59e0b" : "#2563eb",
-              display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
-            }}>
-              {task.done
-                ? <Check size={13} color="#fff" />
-                : <span style={{ fontSize: 12, fontWeight: 800, color: "#fff" }}>{idx + 1}</span>
-              }
-            </div>
+      {/* Tiered task list */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+        {activeTasks.map((task, idx) => {
+          const tier = tierColor(idx);
+          const prevTier = idx > 0 ? tierColor(idx - 1) : null;
+          const showTierLabel = idx === 0 || tier.label !== prevTier?.label;
 
-            {/* Task text */}
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{
-                fontSize: 13, fontWeight: 600, color: task.done ? "#6b7280" : "#111827",
-                textDecoration: task.done ? "line-through" : "none",
-              }}>
-                {task.text}
-              </div>
-            </div>
-
-            {/* Category tag */}
-            <span style={{ fontSize: 9, fontWeight: 700, color: task.categoryColor, background: task.categoryColor + "12", padding: "2px 7px", borderRadius: 4, textTransform: "uppercase", letterSpacing: "0.03em" }}>{task.category}</span>
-
-            {/* Reorder arrows */}
-            <div style={{ display: "flex", flexDirection: "column", gap: 0, flexShrink: 0 }}>
-              <button onClick={() => moveUp(idx)} disabled={idx === 0} style={{
-                background: "none", border: "none", cursor: idx === 0 ? "default" : "pointer",
-                color: idx === 0 ? "#e5e7eb" : "#9ca3af", padding: "1px 3px", lineHeight: 0,
-              }}>
-                <ChevronUp size={13} />
-              </button>
-              <button onClick={() => moveDown(idx)} disabled={idx >= priorities.length - 1} style={{
-                background: "none", border: "none", cursor: idx >= priorities.length - 1 ? "default" : "pointer",
-                color: idx >= priorities.length - 1 ? "#e5e7eb" : "#9ca3af", padding: "1px 3px", lineHeight: 0,
-              }}>
-                <ChevronDown size={13} />
-              </button>
-            </div>
-
-            {/* Done / Demote */}
-            <button onClick={() => !task.done && markDone(task.id)} disabled={task.done || completing === task.id} style={{
-              background: task.done || completing === task.id ? "#d1fae5" : "#f3f4f6", border: "none", borderRadius: 6,
-              padding: "5px 10px", fontSize: 11, cursor: task.done ? "default" : "pointer",
-              color: task.done || completing === task.id ? "#065f46" : "#6b7280", fontWeight: 600,
-              transition: "all 0.3s ease",
-            }}>
-              {task.done ? <span style={{ display: "flex", alignItems: "center", gap: 3 }}><Check size={11} /> Done</span> : "Done"}
-            </button>
-            <button onClick={() => demoteTask(task)} style={{
-              background: "none", border: "none", color: "#d1d5db", cursor: "pointer", padding: 4,
-            }} title="Move to backlog">
-              <X size={13} />
-            </button>
-          </div>
-        ))}
-
-        {/* Empty slots */}
-        {priorities.length < 3 && Array.from({ length: 3 - priorities.length }).map((_, i) => (
-          <div key={`empty-${i}`} style={{
-            display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
-            padding: "14px", borderRadius: 10, border: "2px dashed #e5e7eb", color: "#d1d5db",
-          }}>
-            <Target size={14} />
-            <span style={{ fontSize: 12 }}>Promote a task from the backlog</span>
-          </div>
-        ))}
-      </div>
-
-      {/* Backlog */}
-      <div>
-        <button onClick={() => setShowBacklog(!showBacklog)} style={{
-          display: "flex", alignItems: "center", gap: 6, background: "none", border: "none",
-          color: "#6b7280", fontSize: 12, fontWeight: 600, cursor: "pointer", padding: "4px 0",
-        }}>
-          {showBacklog ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
-          Backlog ({backlog.length} tasks)
-        </button>
-
-        {showBacklog && (
-          <div style={{ marginTop: 8 }}>
-            <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
-              <input value={newTask} onChange={e => setNewTask(e.target.value)} onKeyDown={e => e.key === "Enter" && addTask()}
-                placeholder="Add a task..." style={{ flex: 1, padding: "8px 12px", borderRadius: 8, border: "1px solid #e5e7eb", fontSize: 12, outline: "none" }} />
-              <button onClick={addTask} style={{
-                background: "#2563eb", color: "#fff", border: "none", borderRadius: 8,
-                padding: "8px 14px", fontSize: 12, fontWeight: 600, cursor: "pointer",
-                display: "flex", alignItems: "center", gap: 4,
-              }}>
-                <PenLine size={11} /> Add
-              </button>
-            </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-              {backlog.map(task => (
-                <div key={task.id} style={{
-                  display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", borderRadius: 8,
-                  background: task.done ? "#f9fafb" : "#fafafa", opacity: task.done ? 0.5 : 1,
-                }}>
-                  <button onClick={() => toggleBacklog(task.id)} style={{
-                    width: 18, height: 18, borderRadius: "50%", border: task.done ? "none" : "2px solid #d1d5db",
-                    background: task.done ? "#10b981" : "transparent", display: "flex", alignItems: "center", justifyContent: "center",
-                    cursor: "pointer", flexShrink: 0,
-                  }}>
-                    {task.done && <Check size={10} color="#fff" />}
-                  </button>
-                  <span style={{
-                    fontSize: 12, color: task.done ? "#9ca3af" : "#374151", flex: 1,
-                    textDecoration: task.done ? "line-through" : "none",
-                  }}>{task.text}</span>
-                  <span style={{ fontSize: 9, fontWeight: 600, color: task.categoryColor, background: task.categoryColor + "10", padding: "1px 5px", borderRadius: 3 }}>{task.category}</span>
-                  {priorities.length < 3 && !task.done && (
-                    <button onClick={() => promoteTask(task)} style={{
-                      background: "#eff6ff", color: "#2563eb", border: "1px solid #bfdbfe",
-                      borderRadius: 5, padding: "3px 8px", fontSize: 10, fontWeight: 600, cursor: "pointer",
-                      display: "flex", alignItems: "center", gap: 3,
-                    }}>
-                      <ChevronUp size={10} /> Priority
-                    </button>
-                  )}
+          return (
+            <div key={task.id}>
+              {/* Tier separator label */}
+              {showTierLabel && (
+                <div style={{ fontSize: 9, fontWeight: 800, color: tier.accent, letterSpacing: '0.08em', padding: '8px 0 4px', display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <div style={{ width: 12, height: 2, background: tier.accent, borderRadius: 1 }} />
+                  {tier.label}
+                  <div style={{ flex: 1, height: 1, background: tier.border }} />
                 </div>
-              ))}
+              )}
+              <div
+                draggable
+                onDragStart={() => handleDragStart(idx)}
+                onDragEnter={() => handleDragEnter(idx)}
+                onDragEnd={handleDragEnd}
+                onDragOver={(e) => e.preventDefault()}
+                style={{
+                  display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", borderRadius: 10,
+                  background: dragOver === idx && dragFrom !== idx ? "#eff6ff" : tier.bg,
+                  border: `1px solid ${dragOver === idx && dragFrom !== idx ? '#93c5fd' : tier.border}`,
+                  boxShadow: dragFrom === idx ? "0 4px 12px rgba(0,0,0,0.1)" : "0 1px 2px rgba(0,0,0,0.03)",
+                  opacity: completing === task.id ? 0.4 : dragFrom === idx ? 0.5 : 1,
+                  transform: completing === task.id ? "scale(0.97)" : "none",
+                  cursor: "grab", transition: "all 0.15s ease", userSelect: "none",
+                }}
+              >
+                {/* Drag handle */}
+                <div style={{ display: "flex", flexDirection: "column", gap: 1, cursor: "grab", padding: "4px 2px", flexShrink: 0 }}>
+                  {[0,1,2].map(r => (
+                    <div key={r} style={{ display: "flex", gap: 2 }}>
+                      <div style={{ width: 3, height: 3, borderRadius: "50%", background: tier.accent + '60' }} />
+                      <div style={{ width: 3, height: 3, borderRadius: "50%", background: tier.accent + '60' }} />
+                    </div>
+                  ))}
+                </div>
+
+                {/* Rank number */}
+                <div style={{
+                  width: 24, height: 24, borderRadius: "50%", background: tier.accent,
+                  display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+                }}>
+                  <span style={{ fontSize: 11, fontWeight: 800, color: "#fff" }}>{idx + 1}</span>
+                </div>
+
+                {/* Task text */}
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 12, fontWeight: idx < 3 ? 700 : 500, color: "#111827", lineHeight: 1.3 }}>{task.text}</div>
+                </div>
+
+                {/* Category tag */}
+                <span style={{ fontSize: 8, fontWeight: 700, color: task.categoryColor || tier.accent, background: (task.categoryColor || tier.accent) + '12', padding: "2px 6px", borderRadius: 4, textTransform: "uppercase", letterSpacing: "0.03em", flexShrink: 0, whiteSpace: 'nowrap' }}>{task.category}</span>
+
+                {/* Reorder arrows */}
+                <div style={{ display: "flex", flexDirection: "column", gap: 0, flexShrink: 0 }}>
+                  <button onClick={() => moveUp(idx)} disabled={idx === 0} style={{ background: "none", border: "none", cursor: idx === 0 ? "default" : "pointer", color: idx === 0 ? "#e5e7eb" : "#9ca3af", padding: "1px 3px", lineHeight: 0 }}>
+                    <ChevronUp size={12} />
+                  </button>
+                  <button onClick={() => moveDown(idx)} disabled={idx >= activeTasks.length - 1} style={{ background: "none", border: "none", cursor: idx >= activeTasks.length - 1 ? "default" : "pointer", color: idx >= activeTasks.length - 1 ? "#e5e7eb" : "#9ca3af", padding: "1px 3px", lineHeight: 0 }}>
+                    <ChevronDown size={12} />
+                  </button>
+                </div>
+
+                {/* Done button */}
+                <button onClick={() => markDone(task.id)} disabled={completing === task.id} style={{
+                  background: "#f3f4f6", border: "none", borderRadius: 6,
+                  padding: "4px 10px", fontSize: 10, cursor: "pointer",
+                  color: "#6b7280", fontWeight: 600, transition: "all 0.15s",
+                }}>Done</button>
+
+                {/* Remove */}
+                <button onClick={() => removeTask(task.id)} style={{ background: "none", border: "none", color: "#d1d5db", cursor: "pointer", padding: 3 }} title="Remove">
+                  <X size={12} />
+                </button>
+              </div>
             </div>
-          </div>
-        )}
+          );
+        })}
       </div>
+
+      {/* Add custom task */}
+      <div style={{ display: "flex", gap: 6, marginTop: 12 }}>
+        <input value={newTask} onChange={e => setNewTask(e.target.value)} onKeyDown={e => e.key === "Enter" && addTask()}
+          placeholder="Add a task..." style={{ flex: 1, padding: "8px 12px", borderRadius: 8, border: "1px solid #e5e7eb", fontSize: 12, outline: "none" }} />
+        <button onClick={addTask} style={{
+          background: "#ea580c", color: "#fff", border: "none", borderRadius: 8,
+          padding: "8px 14px", fontSize: 11, fontWeight: 600, cursor: "pointer",
+          display: "flex", alignItems: "center", gap: 4,
+        }}>
+          <PenLine size={11} /> Add
+        </button>
+      </div>
+
+      {/* Footer */}
+      {lastGenerated && (
+        <div style={{ marginTop: 8, fontSize: 10, color: "#9ca3af", textAlign: "center" }}>
+          Generated {new Date(lastGenerated).toLocaleTimeString()} · {source === 'claude' ? 'AI-powered' : 'Rule-based'} · {activeTasks.length} active tasks
+        </div>
+      )}
     </Card>
   );
 }
