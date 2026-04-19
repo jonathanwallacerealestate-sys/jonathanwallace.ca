@@ -1797,47 +1797,56 @@ function CallCard({ c, onLogged }) {
       transition: "all 0.2s ease",
     }}>
       {/* Main contact row */}
-      <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 12px" }}>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <span style={{ fontSize: 13, fontWeight: 700, color: "#111827" }}>{c.name}</span>
-            <span style={{ fontSize: 10, fontWeight: 600, color: c.tagColor, background: c.tagBg, padding: "1px 6px", borderRadius: 4 }}>{c.fubStage}</span>
+      <div style={{ padding: "10px 12px" }}>
+        {/* Top row: name + stage + action buttons */}
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{ fontSize: 13, fontWeight: 700, color: "#111827" }}>{c.name}</span>
+              <span style={{ fontSize: 10, fontWeight: 600, color: c.tagColor, background: c.tagBg, padding: "1px 6px", borderRadius: 4 }}>{c.fubStage}</span>
+              <span style={{ fontSize: 10, color: "#9ca3af" }}>Last: {c.lastContact}</span>
+            </div>
           </div>
-          <div style={{ fontSize: 11, color: "#6b7280", marginTop: 2 }}>{c.context}</div>
+          {/* Action buttons */}
+          <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+            {mode === 'idle' && (
+              <>
+                <button onClick={() => setMode('logging')} style={{
+                  display: "flex", alignItems: "center", gap: 4, background: "#2563eb", color: "#fff", border: "none", borderRadius: 6,
+                  padding: "6px 10px", fontSize: 11, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap",
+                }}>
+                  <PenLine size={11} /> Log Call
+                </button>
+                <button onClick={() => submitLog('no_answer', '')} disabled={mode === 'vm_submitting'} style={{
+                  display: "flex", alignItems: "center", gap: 4, background: "#f3f4f6", color: "#6b7280", border: "1px solid #e5e7eb", borderRadius: 6,
+                  padding: "6px 8px", fontSize: 10, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap",
+                }}>
+                  <PhoneOff size={10} /> No Answer
+                </button>
+              </>
+            )}
+            {mode === 'vm_submitting' && (
+              <span style={{ fontSize: 11, color: "#9ca3af", display: "flex", alignItems: "center", gap: 4 }}>
+                <RefreshCw size={11} style={{ animation: "spin 1s linear infinite" }} /> Logging...
+              </span>
+            )}
+            {mode === 'submitting' && (
+              <span style={{ fontSize: 11, color: "#2563eb", display: "flex", alignItems: "center", gap: 4 }}>
+                <RefreshCw size={11} style={{ animation: "spin 1s linear infinite" }} /> Saving to FUB...
+              </span>
+            )}
+          </div>
         </div>
-        <div style={{ textAlign: "right", flexShrink: 0, marginRight: 8 }}>
-          <div style={{ fontSize: 12, fontWeight: 600, color: "#374151" }}>{c.phone}</div>
-          <div style={{ fontSize: 10, color: "#9ca3af" }}>Last: {c.lastContact}</div>
-        </div>
-        {/* Action buttons */}
-        <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
-          {mode === 'idle' && (
-            <>
-              <button onClick={() => setMode('logging')} style={{
-                display: "flex", alignItems: "center", gap: 4, background: "#2563eb", color: "#fff", border: "none", borderRadius: 6,
-                padding: "6px 10px", fontSize: 11, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap",
-              }}>
-                <PenLine size={11} /> Log Call
-              </button>
-              <button onClick={() => submitLog('no_answer', '')} disabled={mode === 'vm_submitting'} style={{
-                display: "flex", alignItems: "center", gap: 4, background: "#f3f4f6", color: "#6b7280", border: "1px solid #e5e7eb", borderRadius: 6,
-                padding: "6px 8px", fontSize: 10, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap",
-              }}>
-                <PhoneOff size={10} /> No Answer
-              </button>
-            </>
-          )}
-          {mode === 'vm_submitting' && (
-            <span style={{ fontSize: 11, color: "#9ca3af", display: "flex", alignItems: "center", gap: 4 }}>
-              <RefreshCw size={11} style={{ animation: "spin 1s linear infinite" }} /> Logging...
-            </span>
-          )}
-          {mode === 'submitting' && (
-            <span style={{ fontSize: 11, color: "#2563eb", display: "flex", alignItems: "center", gap: 4 }}>
-              <RefreshCw size={11} style={{ animation: "spin 1s linear infinite" }} /> Saving to FUB...
-            </span>
-          )}
-        </div>
+        {/* Synopsis — Cole's Notes breakdown */}
+        <div style={{ fontSize: 11, color: "#6b7280", marginTop: 4, lineHeight: 1.5 }}>{c.context}</div>
+        {/* Phone number — below buttons for more room */}
+        {c.phone && c.phone !== '—' && (
+          <div style={{ marginTop: 4 }}>
+            <a href={`tel:${c.phone}`} style={{ fontSize: 12, fontWeight: 600, color: "#2563eb", textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 4 }}>
+              <Phone size={11} /> {c.phone}
+            </a>
+          </div>
+        )}
       </div>
 
       {/* Expanded notes panel */}

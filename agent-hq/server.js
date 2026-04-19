@@ -3025,20 +3025,62 @@ app.get('/api/fub/calllist', async (req, res) => {
     // (We'll do this for the final selected list to save API calls)
     const callList = buildCallList(allContacts);
 
-    // Try to fetch last note for each selected contact
+    // Fetch last 5 notes for each selected contact and build a synopsis
     for (const item of callList) {
       try {
-        const noteResp = await fetch(`${FUB_BASE}/notes?personId=${item.fubId}&limit=1&sort=created&order=desc`, {
+        const noteResp = await fetch(`${FUB_BASE}/notes?personId=${item.fubId}&limit=5&sort=created&order=desc`, {
           headers: fubHeaders(),
         });
         if (noteResp.ok) {
           const noteData = await noteResp.json();
           const notes = noteData.notes || [];
-          if (notes.length > 0 && notes[0].body) {
-            // Clean HTML from note body
-            const cleanNote = notes[0].body.replace(/<[^>]*>/g, '').trim();
-            if (cleanNote.length > 0) {
-              item.context = cleanNote.length > 120 ? cleanNote.slice(0, 117) + '...' : cleanNote;
+          if (notes.length > 0) {
+            // Build a synopsis from all notes
+            const allNoteTexts = notes.map(n => {
+              const clean = (n.body || '').replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim();
+              const dateStr = n.created ? new Date(n.created).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '';
+              return { text: clean, date: dateStr, subject: n.subject || '' };
+            }).filter(n => n.text.length > 0);
+
+            if (allNoteTexts.length > 0) {
+              // Build a Cole's Notes synopsis
+              const synopsisParts = [];
+
+              // Most recent note — what's the latest?
+              const latest = allNoteTexts[0];
+              if (latest.date) synopsisParts.push(`Last note (${latest.date}): ${latest.text.slice(0, 100)}`);
+              else synopsisParts.push(latest.text.slice(0, 100));
+
+              // Extract key themes from older notes
+              const allText = allNoteTexts.map(n => n.text).join(' ').toLowerCase();
+
+              // Detect buying/selling intent
+              if (/\b(looking to buy|wants to buy|searching for|buyer|purchase|pre-?approved)\b/i.test(allText)) synopsisParts.push('Buyer intent');
+              if (/\b(looking to sell|wants to sell|listing|seller|thinking of selling|home value|cma)\b/i.test(allText)) synopsisParts.push('Seller intent');
+
+              // Detect property interests
+              const areaMatch = allText.match(/\b(midland|penetang|tiny|tay|wasaga|barrie|orillia|collingwood|georgian bay|lafontaine|balm beach|port mcnicoll)\b/i);
+              if (areaMatch) synopsisParts.push(`Area: ${areaMatch[1]}`);
+
+              // Detect price range
+              const priceMatch = allText.match(/\$[\d,]+k?|\b\d{3,}\s*k\b/i);
+              if (priceMatch) synopsisParts.push(`Budget: ${priceMatch[0]}`);
+
+              // Detect timeline
+              if (/\b(asap|urgent|right away|immediately|this month)\b/i.test(allText)) synopsisParts.push('Urgent timeline');
+              else if (/\b(spring|summer|fall|winter|next year|few months)\b/i.test(allText)) {
+                const seasonMatch = allText.match(/\b(spring|summer|fall|winter|next year)\b/i);
+                if (seasonMatch) synopsisParts.push(`Timeline: ${seasonMatch[1]}`);
+              }
+
+              // Detect referral
+              if (/\b(referr|referred by|sent by)\b/i.test(allText)) synopsisParts.push('Referral');
+
+              // Show count of interactions
+              if (allNoteTexts.length > 1) synopsisParts.push(`${allNoteTexts.length} notes on file`);
+
+              item.context = synopsisParts.join(' · ');
+              item.rawNotes = allNoteTexts.map(n => `${n.date ? n.date + ': ' : ''}${n.text}`);
             }
           }
         }
