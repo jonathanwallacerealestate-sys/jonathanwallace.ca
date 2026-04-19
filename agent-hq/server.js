@@ -1523,6 +1523,15 @@ const AUTO_ARCHIVE_PATTERNS = [
   // DocuSign — hide notifications UNLESS it's a signing session for Jonathan
   // subjectExclude keeps "Please DocuSign", "Review and Sign", "Action Required" visible
   { from: 'docusign', subject: null, action: 'archive', label: null, subjectExclude: /please.*sign|review.*sign|action required|complete.*signing|sign.*document/i },
+  // Make.com — automation notifications, not actionable
+  { from: 'make.com', subject: null, action: 'archive', label: null },
+  { from: 'celonis.com', subject: null, action: 'archive', label: null },
+  // Listing department — cancel/re-list requests and confirmations
+  { from: 'faristeam.ca', subject: /cancel.*list|re-?list|relist|listing.*cancel|cancel.*confirm|re-?list.*confirm/i, action: 'archive', label: null },
+  { from: 'listing', subject: /cancel|re-?list|relist/i, action: 'archive', label: null },
+  // OREA Standards Forms team — form updates, not actionable
+  { from: 'orea', subject: null, action: 'archive', label: null },
+  { from: 'standardforms', subject: null, action: 'archive', label: null },
   // Existing patterns
   { from: 'noreply@sisu.co', subject: null, action: 'archive_extract', label: 'sisu' },
   { from: 'noreply@realtor.ca', subject: null, action: 'archive', label: null },
@@ -1557,7 +1566,7 @@ function classifyThreadPriority(fromEmail, subject, category) {
 function classifySenderType(email) {
   const e = (email || '').toLowerCase();
   if (JONATHAN_EMAILS.some(j => e.includes(j))) return 'jonathan';
-  if (e.includes('brokerbay') || e.includes('sisu') || e.includes('realtor.ca') || e.includes('railway') || e.includes('github') || e.includes('ampre') || e.includes('realm') || e.includes('netlify') || e.includes('descript') || e.includes('docusign')) return 'auto-notif';
+  if (e.includes('brokerbay') || e.includes('sisu') || e.includes('realtor.ca') || e.includes('railway') || e.includes('github') || e.includes('ampre') || e.includes('realm') || e.includes('netlify') || e.includes('descript') || e.includes('docusign') || e.includes('make.com') || e.includes('celonis') || e.includes('orea') || e.includes('standardforms')) return 'auto-notif';
   if (e.includes('faristeam.ca')) return 'internal';
   if (e.includes('followupboss')) return 'auto-notif';
   // Known lawyers from preferences.md
