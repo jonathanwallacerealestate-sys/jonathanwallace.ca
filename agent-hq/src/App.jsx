@@ -2034,7 +2034,7 @@ function EmailEASection() {
     <Card>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}>
         <Mail size={16} color="#c8a96e" />
-        <span style={{ fontSize: 15, fontWeight: 700, color: "#111827", flex: 1 }}>Email EA</span>
+        <span style={{ fontSize: 15, fontWeight: 700, color: "#111827", flex: 1 }}>Email AI</span>
         {isLive && <span style={{ fontSize: 9, fontWeight: 700, color: "#fff", background: "#10b981", padding: "2px 6px", borderRadius: 3 }}>LIVE</span>}
         {!isLive && status !== 'loading' && <span style={{ fontSize: 9, fontWeight: 700, color: "#ef4444", background: "#fef2f2", padding: "2px 6px", borderRadius: 3 }}>DISCONNECTED</span>}
         {(fubSentTracked > 0 || eaData?.outlookCcForwards > 0) && <span style={{ fontSize: 9, color: "#7c3aed", background: "#f5f3ff", padding: "2px 6px", borderRadius: 3, fontWeight: 600 }}>Outlook: {eaData?.outlookCcForwards || 0} sent tracked</span>}
@@ -6920,9 +6920,6 @@ function SectionContent({ section }) {
           <CallListSection />
           <EmailEASection />
         </div>
-
-        {/* Gmail Intelligence — live sent mail tracking + BrokerBay cross-reference */}
-        <GmailActivityPanel />
       </div>
     );
     case "priorities": return <TopPriorities />;

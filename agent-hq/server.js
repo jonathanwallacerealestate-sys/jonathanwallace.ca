@@ -1499,8 +1499,22 @@ const JONATHAN_EMAILS = [
 ];
 
 // Auto-archive patterns from framework §3.7
+// Emails matching these patterns are auto-closed in the EA and hidden from the dashboard.
+// subject: regex that MUST match to filter (null = all emails from this sender)
+// subjectExclude: regex — if it matches, the email is NOT filtered (overrides subject match)
 const AUTO_ARCHIVE_PATTERNS = [
-  { from: 'info@mg.brokerbay.com', subject: /showing confirmed/i, action: 'archive_file', label: 'property' },
+  // BrokerBay — ALL showing emails (requests, confirmations, cancellations, modifications)
+  // These are already tracked in the Showings card via /api/gmail/brokerbay
+  { from: 'info@mg.brokerbay.com', subject: null, action: 'archive_file', label: 'property' },
+  { from: 'brokerbay.com', subject: null, action: 'archive', label: null },
+  // Netlify — deployment notifications, not actionable
+  { from: 'netlify', subject: null, action: 'archive', label: null },
+  // Descript — product notifications, not actionable
+  { from: 'descript', subject: null, action: 'archive', label: null },
+  // DocuSign — hide notifications UNLESS it's a signing session for Jonathan
+  // subjectExclude keeps "Please DocuSign", "Review and Sign", "Action Required" visible
+  { from: 'docusign', subject: null, action: 'archive', label: null, subjectExclude: /please.*sign|review.*sign|action required|complete.*signing|sign.*document/i },
+  // Existing patterns
   { from: 'noreply@sisu.co', subject: null, action: 'archive_extract', label: 'sisu' },
   { from: 'noreply@realtor.ca', subject: null, action: 'archive', label: null },
   { from: 'sso@ampre.ca', subject: null, action: 'archive', label: null },
@@ -1534,7 +1548,7 @@ function classifyThreadPriority(fromEmail, subject, category) {
 function classifySenderType(email) {
   const e = (email || '').toLowerCase();
   if (JONATHAN_EMAILS.some(j => e.includes(j))) return 'jonathan';
-  if (e.includes('brokerbay') || e.includes('sisu') || e.includes('realtor.ca') || e.includes('railway') || e.includes('github') || e.includes('ampre') || e.includes('realm')) return 'auto-notif';
+  if (e.includes('brokerbay') || e.includes('sisu') || e.includes('realtor.ca') || e.includes('railway') || e.includes('github') || e.includes('ampre') || e.includes('realm') || e.includes('netlify') || e.includes('descript') || e.includes('docusign')) return 'auto-notif';
   if (e.includes('faristeam.ca')) return 'internal';
   if (e.includes('followupboss')) return 'auto-notif';
   // Known lawyers from preferences.md
@@ -1547,12 +1561,13 @@ function classifySenderType(email) {
 // Check if an email matches auto-archive patterns
 function shouldAutoArchive(fromEmail, subject) {
   const from = (fromEmail || '').toLowerCase();
-  const sub = (subject || '').toLowerCase();
   for (const pattern of AUTO_ARCHIVE_PATTERNS) {
     if (from.includes(pattern.from.toLowerCase())) {
-      if (!pattern.subject || pattern.subject.test(subject)) {
-        return pattern;
-      }
+      // Check subject inclusion filter (if set, subject must match)
+      if (pattern.subject && !pattern.subject.test(subject)) continue;
+      // Check subject exclusion filter — if it matches, DON'T archive (let it through)
+      if (pattern.subjectExclude && pattern.subjectExclude.test(subject)) continue;
+      return pattern;
     }
   }
   return null;
