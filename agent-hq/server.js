@@ -1970,8 +1970,15 @@ app.get('/api/ea/triage', async (req, res) => {
           } else {
             state = 'awaiting_you'; // Snooze expired
           }
-        } else if (existingState?.state === 'closed' && !lastLabels.includes('UNREAD')) {
-          state = 'closed'; // Respect manual close
+        } else if (existingState?.state === 'closed') {
+          // Respect manual close — only reopen if a NEW message arrived after the close
+          const closedAt = existingState.closedAt || 0;
+          const lastMsgTime = parseInt(lastMsg.internalDate) || 0;
+          if (lastMsgTime > closedAt) {
+            state = 'awaiting_you'; // New message arrived after Done — reopen
+          } else {
+            state = 'closed'; // No new messages since Done — stay closed
+          }
         } else if (archiveRule) {
           state = 'closed'; // Auto-archive rule
         } else if (isFromJonathan || jonathanHasReplied || inSentFolder) {
@@ -2021,6 +2028,7 @@ app.get('/api/ea/triage', async (req, res) => {
           linkedProperty: null, // Will be populated by property-matching logic
           outlookCcDetected: jonathanSentInThread && !isFromJonathan, // CC-forwarded reply detected
           inSentFolder: inSentFolder,
+          ...(existingState?.closedAt && state === 'closed' ? { closedAt: existingState.closedAt } : {}),
         };
       } catch (e) {
         console.error(`[EA] Error processing thread ${thread.id}:`, e.message);
@@ -2231,8 +2239,15 @@ async function runScheduledSweep(trigger = 'scheduled') {
           } else {
             state = 'snoozed';
           }
-        } else if (existingState?.state === 'closed' && !existingState?.autoArchiveRule) {
-          state = 'closed';
+        } else if (existingState?.state === 'closed') {
+          // Respect manual close — only reopen if a NEW message arrived after the close
+          const closedAt = existingState.closedAt || 0;
+          const lastMsgTime = parseInt(lastMsg.internalDate) || 0;
+          if (lastMsgTime > closedAt) {
+            state = 'awaiting_you'; // New message arrived after Done — reopen
+          } else {
+            state = 'closed'; // No new messages since Done — stay closed
+          }
         } else if (archiveRule) {
           state = 'closed';
         } else if (isFromJonathan || jonathanHasReplied || inSentFolder) {
@@ -2282,6 +2297,7 @@ async function runScheduledSweep(trigger = 'scheduled') {
           linkedProperty: null,
           outlookCcDetected: jonathanSentInThread && !isFromJonathan,
           inSentFolder: inSentFolder,
+          ...(existingState?.closedAt && state === 'closed' ? { closedAt: existingState.closedAt } : {}),
         };
       } catch (e) {
         console.error(`[EA Sweep] Error processing thread ${thread.id}:`, e.message);
@@ -2486,6 +2502,9 @@ app.post('/api/ea/thread/:threadId/state', (req, res) => {
     return res.json({ success: false, error: 'Invalid state' });
   }
   eaThreadCache.threads[threadId].state = state;
+  if (state === 'closed') {
+    eaThreadCache.threads[threadId].closedAt = Date.now(); // Track manual close time
+  }
   if (state === 'snoozed' && snoozeUntil) {
     eaThreadCache.threads[threadId].snoozeUntil = snoozeUntil;
   }
