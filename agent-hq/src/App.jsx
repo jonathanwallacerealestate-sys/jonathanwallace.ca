@@ -6776,9 +6776,320 @@ function LifetimeStats() {
         { date: '2022-12-22', address: '8 Evans St', commission: 6703.13, hst: 861.66, net: 6628.13 },
       ],
     },
+    2019: {
+      brokerage: 'KW Experience',
+      ends: 51,
+      totalGCI: 118600.64,
+      totalHST: 13678.13,
+      deals: [
+        { date: '2019-05-01', address: '11 Maria Street', commission: 3687.50, hst: 306.81, net: 2360.00 },
+        { date: '2019-05-03', address: 'Lt117 Lindale Avenue', commission: 343.75, hst: 28.60, net: 219.99 },
+        { date: '2019-05-30', address: '12324 County Road 16', commission: 4062.50, hst: 338.00, net: 2600.00 },
+        { date: '2019-05-30', address: '135 Lumber Road', commission: 4900.00, hst: 407.68, net: 3136.00 },
+        { date: '2019-06-10', address: '700 Tiny Beaches Road', commission: 125.00, hst: 8.77, net: 67.50 },
+        { date: '2019-06-21', address: '30 Oriole Street', commission: 335.83, hst: 27.94, net: 214.93 },
+        { date: '2019-06-26', address: '30, 31, 34 Silver Birch Crescent', commission: 281.25, hst: 23.40, net: 179.99 },
+        { date: '2019-06-27', address: '606 Midland Point Road', commission: 1100.00, hst: 91.52, net: 704.00 },
+        { date: '2019-07-12', address: '1 Glenview Avenue', commission: 1230.00, hst: 102.34, net: 787.20 },
+        { date: '2019-07-15', address: '24 George Street', commission: 4812.50, hst: 400.40, net: 3080.00 },
+        { date: '2019-07-24', address: '1390 Hallen Place', commission: 1007.81, hst: 83.86, net: 645.00 },
+        { date: '2019-07-26', address: '200 Margaret Street', commission: 6160.00, hst: 512.52, net: 3942.40 },
+        { date: '2019-07-26', address: '874 Montreal Street', commission: 2226.29, hst: 203.16, net: 1562.82 },
+        { date: '2019-07-31', address: '32 Giants Tomb Island', commission: 1350.00, hst: 162.36, net: 1249.00 },
+        { date: '2019-08-08', address: '344 First Street', commission: 312.50, hst: 26.00, net: 199.98 },
+        { date: '2019-08-12', address: '783 Midland Point Road', commission: 1625.00, hst: 197.27, net: 1517.50 },
+        { date: '2019-08-12', address: '1942 Tiny Beaches Road N', commission: 6397.50, hst: 773.97, net: 5953.64 },
+        { date: '2019-08-14', address: '47 Beck Bouelvard', commission: 1625.00, hst: 197.27, net: 1517.50 },
+        { date: '2019-08-14', address: '6 Copeland Street', commission: 4127.58, hst: 497.90, net: 3829.93 },
+        { date: '2019-08-19', address: '5 Grandview Road', commission: 375.00, hst: 32.84, net: 252.50 },
+        { date: '2019-08-21', address: '30 Duffy Drive', commission: 1337.50, hst: 160.20, net: 1232.25 },
+        { date: '2019-08-28', address: '699 Aberdeen Boulevard 907', commission: 3950.00, hst: 486.90, net: 3745.38 },
+        { date: '2019-08-29', address: '607 Norman Crescent', commission: 2625.00, hst: 338.00, net: 2600.00 },
+        { date: '2019-08-29', address: '177 Stocco Circle', commission: 2531.25, hst: 319.32, net: 2456.25 },
+        { date: '2019-09-05', address: '2039 Tiny Beaches Road S', commission: 912.50, hst: 117.33, net: 902.50 },
+        { date: '2019-09-09', address: '473 Manly Street', commission: 637.50, hst: 81.58, net: 627.50 },
+        { date: '2019-09-20', address: '518 First Avenue', commission: 421.88, hst: 45.09, net: 346.88 },
+        { date: '2019-09-25', address: '333 Lafontaine Road 306', commission: 1248.75, hst: 155.84, net: 1198.75 },
+        { date: '2019-09-27', address: '1720 Tay Point Road', commission: 3075.00, hst: 391.96, net: 3015.00 },
+        { date: '2019-09-30', address: '10 Bonaventure Place', commission: 5475.00, hst: 705.25, net: 5425.00 },
+        { date: '2019-09-30', address: '100b Hughes Lane', commission: 1062.50, hst: 131.63, net: 1012.50 },
+        { date: '2019-10-03', address: '548 5th Avenue', commission: 345.00, hst: 37.06, net: 285.00 },
+        { date: '2019-10-03', address: '289 Gervais Street', commission: 850.00, hst: 109.20, net: 840.00 },
+        { date: '2019-10-03', address: '116 Mill Street E', commission: 7062.50, hst: 911.63, net: 7012.50 },
+        { date: '2019-10-09', address: 'Lot 34 Macavalley Road', commission: 555.00, hst: 70.85, net: 545.00 },
+        { date: '2019-10-15', address: '994 Booth Avenue', commission: 1020.00, hst: 131.30, net: 1010.00 },
+        { date: '2019-10-17', address: 'Pin 584370045', commission: 125.00, hst: 13.00, net: 100.00 },
+        { date: '2019-10-21', address: '301 Andrew Street', commission: 4650.00, hst: 598.00, net: 4600.00 },
+        { date: '2019-10-23', address: '92 Church Street', commission: 1137.50, hst: 146.58, net: 1127.50 },
+        { date: '2019-10-23', address: '1225 Vinden Street', commission: 362.50, hst: 45.83, net: 352.50 },
+        { date: '2019-10-31', address: '385 Hugel Avenue', commission: 3550.00, hst: 455.00, net: 3500.00 },
+        { date: '2019-11-08', address: '72 New York', commission: 4812.50, hst: 619.13, net: 4762.50 },
+        { date: '2019-11-20', address: '40 Concession 8 West', commission: 2437.50, hst: 313.63, net: 2412.50 },
+        { date: '2019-11-22', address: '27 Main Street', commission: 2000.00, hst: 256.75, net: 1975.00 },
+        { date: '2019-11-26', address: '39 Mourning Dove Trail', commission: 8156.25, hst: 1053.81, net: 8106.25 },
+        { date: '2019-11-29', address: '27 Anderson Place', commission: 1387.50, hst: 179.08, net: 1377.50 },
+        { date: '2019-11-30', address: '37 Crown Court', commission: 875.00, hst: 112.45, net: 865.00 },
+        { date: '2019-12-06', address: '10 Grosvenor Drive', commission: 3150.00, hst: 403.00, net: 3100.00 },
+        { date: '2019-12-06', address: '41 Elm', commission: 2006.25, hst: 257.56, net: 1981.25 },
+        { date: '2019-12-18', address: '42 Berts Road', commission: 2475.00, hst: 315.25, net: 2425.00 },
+        { date: '2019-12-27', address: '1203 Walkers Point Road', commission: 2281.25, hst: 293.31, net: 2256.25 },
+      ],
+    },
+    2020: {
+      brokerage: 'KW Experience',
+      ends: 82,
+      totalGCI: 253751.48,
+      totalHST: 31494.09,
+      deals: [
+        { date: '2020-01-13', address: '235 King Street', commission: 125.00, hst: 13.00, net: 100.00, brokerage: 'KW Experience' },
+        { date: '2020-01-17', address: '355 Glenbrook Drive', commission: 7875.00, hst: 1017.25, net: 7825.00, brokerage: 'KW Experience' },
+        { date: '2020-02-10', address: '31 Silver Birch Crescent', commission: 125.00, hst: 10.39, net: 80.00, brokerage: 'KW Experience' },
+        { date: '2020-02-12', address: '260 Davis Drive #102', commission: 4550.00, hst: 378.56, net: 2912.00, brokerage: 'KW Experience' },
+        { date: '2020-02-12', address: '1 Dufferin Street', commission: 5212.50, hst: 433.68, net: 3336.00, brokerage: 'KW Experience' },
+        { date: '2020-02-14', address: '599 Walpole Crescent', commission: 7150.00, hst: 594.88, net: 4576.00, brokerage: 'KW Experience' },
+        { date: '2020-02-28', address: '848 Midland Point Road', commission: 8187.50, hst: 884.98, net: 6807.50, brokerage: 'KW Experience' },
+        { date: '2020-03-04', address: '128 Wawinet Street', commission: 4471.87, hst: 541.58, net: 4166.06, brokerage: 'KW Experience' },
+        { date: '2020-03-09', address: '957 Dominion Avenue', commission: 987.50, hst: 119.38, net: 918.25, brokerage: 'KW Experience' },
+        { date: '2020-04-03', address: '12 & 14 Thunderbay Lane', commission: 1062.50, hst: 128.54, net: 988.75, brokerage: 'KW Experience' },
+        { date: '2020-04-21', address: '252 Woodlands Avenue', commission: 500.00, hst: 54.60, net: 420.00, brokerage: 'KW Experience' },
+        { date: '2020-04-21', address: '38 Howard Park Avenue #527', commission: 50.00, hst: 0.00, net: 0.00, brokerage: 'KW Experience' },
+        { date: '2020-04-28', address: '1089 Whitney Crescent', commission: 5375.00, hst: 650.32, net: 5002.50, brokerage: 'KW Experience' },
+        { date: '2020-04-30', address: 'Lot 13 Staglir Drive', commission: 562.50, hst: 65.49, net: 503.75, brokerage: 'KW Experience' },
+        { date: '2020-05-08', address: '245 Moonstone Road East', commission: 1242.50, hst: 150.54, net: 1157.95, brokerage: 'KW Experience' },
+        { date: '2020-05-15', address: '5 Meadows Avenue', commission: 2500.00, hst: 302.25, net: 2325.00, brokerage: 'KW Experience' },
+        { date: '2020-05-15', address: '4 Flora Court', commission: 2315.00, hst: 277.69, net: 2136.10, brokerage: 'KW Experience' },
+        { date: '2020-05-19', address: '5411 Elliott Side Road 3', commission: 2937.50, hst: 352.47, net: 2711.25, brokerage: 'KW Experience' },
+        { date: '2020-05-26', address: '47 Hill Top Drive', commission: 4562.50, hst: 565.02, net: 4346.26, brokerage: 'KW Experience' },
+        { date: '2020-06-09', address: '47 Springhome Road', commission: 1612.50, hst: 208.33, net: 1602.50, brokerage: 'KW Experience' },
+        { date: '2020-06-19', address: '4176 Neilsen Road', commission: 2312.25, hst: 299.29, net: 2302.25, brokerage: 'KW Experience' },
+        { date: '2020-06-19', address: '108 Mitchells Beach Road', commission: 1650.00, hst: 213.20, net: 1640.00, brokerage: 'KW Experience' },
+        { date: '2020-06-23', address: '2351 Mcdonald Road', commission: 2304.00, hst: 298.22, net: 2294.00, brokerage: 'KW Experience' },
+        { date: '2020-06-26', address: '564 Second Avenue', commission: 118.75, hst: 12.19, net: 93.75, brokerage: 'KW Experience' },
+        { date: '2020-06-26', address: '81 Marshall Road', commission: 650.00, hst: 83.20, net: 640.00, brokerage: 'KW Experience' },
+        { date: '2020-07-07', address: '1050 Whitney Crescent', commission: 6148.50, hst: 791.51, net: 6088.50, brokerage: 'KW Experience' },
+        { date: '2020-07-10', address: '47 50th Street', commission: 3375.00, hst: 432.25, net: 3325.00, brokerage: 'KW Experience' },
+        { date: '2020-07-10', address: '123 Centre Beach Road', commission: 4575.00, hst: 586.96, net: 4515.00, brokerage: 'KW Experience' },
+        { date: '2020-07-14', address: '36 & 37 Methodist Island', commission: 512.50, hst: 53.62, net: 412.50, brokerage: 'KW Experience' },
+        { date: '2020-07-17', address: '156 Southwinds Crescent', commission: 4000.00, hst: 513.50, net: 3950.00, brokerage: 'KW Experience' },
+        { date: '2020-07-21', address: '4 Beck Boulevard #7', commission: 1556.25, hst: 201.01, net: 1546.25, brokerage: 'KW Experience' },
+        { date: '2020-07-21', address: '7 Levi Simon Trail', commission: 705.00, hst: 90.35, net: 695.00, brokerage: 'KW Experience' },
+        { date: '2020-07-23', address: '397 Queen Street', commission: 4837.50, hst: 622.38, net: 4787.50, brokerage: 'KW Experience' },
+        { date: '2020-07-23', address: 'Lot 95 Highway 93', commission: 412.50, hst: 52.33, net: 402.50, brokerage: 'KW Experience' },
+        { date: '2020-07-28', address: '37 O\'donnell Court', commission: 2126.25, hst: 275.11, net: 2116.25, brokerage: 'KW Experience' },
+        { date: '2020-07-31', address: '30 County Road 6 South', commission: 2437.50, hst: 313.63, net: 2412.50, brokerage: 'KW Experience' },
+        { date: '2020-07-31', address: '420 Lakewood Drive', commission: 7875.00, hst: 1015.96, net: 7815.00, brokerage: 'KW Experience' },
+        { date: '2020-08-04', address: '14 O\'shaughnessy Crescent', commission: 5740.00, hst: 741.00, net: 5700.00, brokerage: 'KW Experience' },
+        { date: '2020-08-14', address: '248 First Street', commission: 2200.00, hst: 284.70, net: 2190.00, brokerage: 'KW Experience' },
+        { date: '2020-08-14', address: '34 Bridle Road', commission: 4750.00, hst: 611.00, net: 4700.00, brokerage: 'KW Experience' },
+        { date: '2020-08-14', address: '110 Heydon Avenue', commission: 2937.50, hst: 377.59, net: 2904.50, brokerage: 'KW Experience' },
+        { date: '2020-08-18', address: '125 Poyntz Street', commission: 687.50, hst: 88.08, net: 677.50, brokerage: 'KW Experience' },
+        { date: '2020-08-21', address: '64 Beck Boulevard', commission: 1801.25, hst: 232.86, net: 1791.25, brokerage: 'KW Experience' },
+        { date: '2020-08-21', address: '3280 Fesserton Sideroad', commission: 3143.75, hst: 402.19, net: 3093.75, brokerage: 'KW Experience' },
+        { date: '2020-08-26', address: '15 Marineland Road', commission: 860.63, hst: 110.58, net: 850.63, brokerage: 'KW Experience' },
+        { date: '2020-08-28', address: '414 Elizabeth Street', commission: 900.00, hst: 115.70, net: 890.00, brokerage: 'KW Experience' },
+        { date: '2020-08-28', address: '48 Moreau Parkway', commission: 330.00, hst: 41.60, net: 320.00, brokerage: 'KW Experience' },
+        { date: '2020-08-31', address: '69 & 71 Polish Avenue', commission: 175.00, hst: 21.45, net: 165.00, brokerage: 'KW Experience' },
+        { date: '2020-09-04', address: 'Lot 9 Farlain Lake Road East', commission: 175.00, hst: 21.45, net: 165.00, brokerage: 'KW Experience' },
+        { date: '2020-09-04', address: '1511 Par Four Drive', commission: 1550.00, hst: 200.20, net: 1540.00, brokerage: 'KW Experience' },
+        { date: '2020-09-04', address: '3358 Muskoka Street', commission: 3637.50, hst: 466.38, net: 3587.50, brokerage: 'KW Experience' },
+        { date: '2020-09-04', address: '92 Balm Beach Road', commission: 4312.50, hst: 554.13, net: 4262.50, brokerage: 'KW Experience' },
+        { date: '2020-09-08', address: '15 Charlebois Court West', commission: 6000.00, hst: 776.75, net: 5975.00, brokerage: 'KW Experience' },
+        { date: '2020-09-11', address: '142 Evergreen Avenue', commission: 3312.50, hst: 424.13, net: 3262.50, brokerage: 'KW Experience' },
+        { date: '2020-09-18', address: '7387 Country Road 9', commission: 687.38, hst: 86.11, net: 662.38, brokerage: 'KW Experience' },
+        { date: '2020-09-22', address: '159 Goldfinch Crescent', commission: 1523.25, hst: 196.72, net: 1513.25, brokerage: 'KW Experience' },
+        { date: '2020-09-29', address: '1197 Everton Road', commission: 125.00, hst: 13.00, net: 100.00, brokerage: 'KW Experience' },
+        { date: '2020-09-29', address: '42 Farlain Lake Road East', commission: 125.00, hst: 13.00, net: 100.00, brokerage: 'KW Experience' },
+        { date: '2020-10-02', address: '870 Birchwood Drive', commission: 1080.00, hst: 139.10, net: 1070.00, brokerage: 'KW Experience' },
+        { date: '2020-10-06', address: '1888 Ashwood Avenue', commission: 8812.50, hst: 1139.13, net: 8762.50, brokerage: 'KW Experience' },
+        { date: '2020-10-09', address: '30 Pennsylvania Avenue', commission: 4923.75, hst: 633.59, net: 4873.75, brokerage: 'KW Experience' },
+        { date: '2020-10-16', address: '699 Aberdeen Boulevard #302', commission: 5875.00, hst: 757.25, net: 5825.00, brokerage: 'KW Experience' },
+        { date: '2020-10-23', address: '7 Tan Avenue', commission: 8562.50, hst: 1106.63, net: 8512.50, brokerage: 'KW Experience' },
+        { date: '2020-10-23', address: '2 Dorcas Avenue', commission: 3250.00, hst: 419.25, net: 3225.00, brokerage: 'KW Experience' },
+        { date: '2020-10-27', address: '7 Bay Court', commission: 6500.00, hst: 838.50, net: 6450.00, brokerage: 'KW Experience' },
+        { date: '2020-10-30', address: '90 Hawthorne Drive', commission: 2500.00, hst: 312.00, net: 2400.00, brokerage: 'KW Experience' },
+        { date: '2020-10-30', address: '888 Hugel Avenue', commission: 8000.00, hst: 1033.50, net: 7950.00, brokerage: 'KW Experience' },
+        { date: '2020-11-03', address: '228 Forest Harbour Parkway', commission: 1750.00, hst: 226.20, net: 1740.00, brokerage: 'KW Experience' },
+        { date: '2020-11-06', address: '791 Ottawa Street', commission: 1728.13, hst: 221.41, net: 1703.13, brokerage: 'KW Experience' },
+        { date: '2020-11-13', address: '274 Elizabeth Street', commission: 878.75, hst: 112.94, net: 868.75, brokerage: 'KW Experience' },
+        { date: '2020-11-17', address: '21 56 Street', commission: 1600.00, hst: 206.70, net: 1590.00, brokerage: 'KW Experience' },
+        { date: '2020-11-20', address: '129 Sandhill Crane Drive', commission: 487.50, hst: 60.13, net: 462.50, brokerage: 'KW Experience' },
+        { date: '2020-11-23', address: '238 Bay Street', commission: 951.25, hst: 122.36, net: 941.25, brokerage: 'KW Experience' },
+        { date: '2020-11-30', address: 'Lot17 Faesulae Road', commission: 950.00, hst: 120.25, net: 925.00, brokerage: 'KW Experience (Official Realty)' },
+        { date: '2020-12-21', address: 'Lot 22 Concession 17 West', commission: 367.50, hst: 46.48, net: 357.50, brokerage: 'KW Experience (Official Realty)' },
+        { date: '2020-12-21', address: '249 Thunder Beach Road', commission: 8125.00, hst: 1049.75, net: 8075.00, brokerage: 'KW Experience (Official Realty)' },
+        { date: '2020-12-21', address: '856 Midland Point Road', commission: 14500.00, hst: 1872.00, net: 14400.00, brokerage: 'KW Experience (Official Realty)' },
+        { date: '2020-12-31', address: '601 Ninth Avenue', commission: 450.00, hst: 48.75, net: 375.00, brokerage: 'KW Experience (Official Realty)' },
+        { date: '2020-12-31', address: '230 Skylark Road', commission: 1358.00, hst: 175.24, net: 1348.00, brokerage: 'KW Experience (Official Realty)' },
+        { date: '2020-12-31', address: '146 Rue Eric', commission: 9889.97, hst: 1279.20, net: 9839.97, brokerage: 'KW Experience (Official Realty)' },
+        { date: '2020-12-31', address: 'Lot 17 Military Road', commission: 800.00, hst: 102.70, net: 790.00, brokerage: 'KW Experience (Official Realty)' },
+        { date: '2020-12-31', address: '226 Churchland Drive', commission: 8437.50, hst: 1088.75, net: 8375.00, brokerage: 'KW Experience (Official Realty)' },
+      ],
+    },
+    2021: {
+      brokerage: 'KW Experience',
+      ends: 100,
+      totalGCI: 505598.34,
+      totalHST: 63931.83,
+      deals: [
+        { date: '2021-01-08', address: '960 Cook Drive', commission: 5812.50, hst: 747.50, net: 5750.00 },
+        { date: '2021-03-09', address: '10 Glenn Howard Court', commission: 9112.50, hst: 876.62, net: 6743.25 },
+        { date: '2021-03-23', address: '77 Dock Lane #35', commission: 1312.50, hst: 126.26, net: 971.25 },
+        { date: '2021-04-01', address: '13 Simcoe Street', commission: 655.75, hst: 63.08, net: 485.25 },
+        { date: '2021-04-06', address: '619 Morningview Lane', commission: 15000.00, hst: 1443.00, net: 11100.00 },
+        { date: '2021-04-06', address: '91 Raglan Street #403', commission: 5500.00, hst: 570.20, net: 4386.15 },
+        { date: '2021-04-09', address: '18 Tonawanda Road', commission: 2740.00, hst: 318.58, net: 2450.60 },
+        { date: '2021-04-09', address: '66 Vents Beach Road', commission: 1012.50, hst: 122.10, net: 939.25 },
+        { date: '2021-04-09', address: '36 Birchwood Trail', commission: 7150.00, hst: 865.60, net: 6658.50 },
+        { date: '2021-04-16', address: '574 Balm Beach Road East', commission: 9873.75, hst: 1224.14, net: 9416.50 },
+        { date: '2021-04-16', address: '224 Church Street', commission: 937.50, hst: 110.51, net: 850.00 },
+        { date: '2021-04-20', address: '36 & 37 Methodist Island', commission: 512.50, hst: 53.62, net: 412.50 },
+        { date: '2021-04-23', address: '2741 Hodgins Road', commission: 1620.00, hst: 200.84, net: 1545.00 },
+        { date: '2021-05-07', address: '355 Eighth Street', commission: 1550.00, hst: 199.87, net: 1537.50 },
+        { date: '2021-05-07', address: 'Lot 26 Champlain Road', commission: 2750.00, hst: 349.37, net: 2687.50 },
+        { date: '2021-05-14', address: '874 Birchwood Drive', commission: 7250.00, hst: 934.37, net: 7187.50 },
+        { date: '2021-05-14', address: '458 West Street', commission: 5100.00, hst: 654.87, net: 5037.50 },
+        { date: '2021-05-19', address: '171 Fox Street', commission: 844.00, hst: 105.66, net: 812.75 },
+        { date: '2021-05-21', address: 'Lot 33 Giants Tomb Island', commission: 2475.00, hst: 312.00, net: 2400.00 },
+        { date: '2021-05-21', address: '111 Church Street', commission: 6937.50, hst: 889.69, net: 6843.75 },
+        { date: '2021-06-02', address: '543 O\'Leary Lane', commission: 5500.00, hst: 706.87, net: 5437.50 },
+        { date: '2021-06-04', address: '663 Norman Crescent', commission: 6750.00, hst: 869.37, net: 6687.50 },
+        { date: '2021-06-04', address: '458 Seguin Crescent', commission: 1243.75, hst: 153.56, net: 1181.25 },
+        { date: '2021-06-09', address: '68 Bourgeois Beach Road', commission: 8750.00, hst: 1129.37, net: 8687.50 },
+        { date: '2021-06-09', address: '8 Beaver Road', commission: 6787.50, hst: 874.25, net: 6725.00 },
+        { date: '2021-06-09', address: '267 Woodlands Avenue', commission: 906.25, hst: 113.75, net: 875.00 },
+        { date: '2021-06-11', address: '381 Lafontaine Road West', commission: 7437.50, hst: 958.75, net: 7375.00 },
+        { date: '2021-06-18', address: '611 Bayport Boulevard', commission: 16975.00, hst: 2190.49, net: 16850.00 },
+        { date: '2021-06-23', address: '77 Church Street', commission: 2806.25, hst: 360.75, net: 2775.00 },
+        { date: '2021-06-23', address: '163 Mcarthur Drive', commission: 18450.00, hst: 2390.37, net: 18387.50 },
+        { date: '2021-06-25', address: '6498 Line 4 North', commission: 5400.00, hst: 695.50, net: 5350.00 },
+        { date: '2021-06-25', address: '106 Palmer Street', commission: 4225.00, hst: 545.19, net: 4193.75 },
+        { date: '2021-06-25', address: 'Lot 34 Methodist Island', commission: 520.31, hst: 61.55, net: 473.44 },
+        { date: '2021-06-28', address: '691 Lafontaine Road West', commission: 9125.00, hst: 1178.12, net: 9062.50 },
+        { date: '2021-06-30', address: '314 Booth Road', commission: 1875.00, hst: 235.62, net: 1812.50 },
+        { date: '2021-07-07', address: '8 Mann Street', commission: 2156.25, hst: 276.25, net: 2125.00 },
+        { date: '2021-07-07', address: '11 Mundy Avenue', commission: 2843.75, hst: 365.63, net: 2812.50 },
+        { date: '2021-07-07', address: '58 Methodist Island', commission: 4687.50, hst: 605.32, net: 4656.25 },
+        { date: '2021-07-09', address: '35 Grew Crescent', commission: 6187.50, hst: 796.25, net: 6125.00 },
+        { date: '2021-07-12', address: '26 Jury Drive', commission: 14001.80, hst: 1812.10, net: 13939.30 },
+        { date: '2021-07-14', address: '320 Booth Road', commission: 1812.50, hst: 227.50, net: 1750.00 },
+        { date: '2021-07-14', address: '278 Woodlands Avenue', commission: 450.00, hst: 56.47, net: 434.37 },
+        { date: '2021-07-16', address: '256 Woodlands Avenue', commission: 387.50, hst: 46.32, net: 356.25 },
+        { date: '2021-07-19', address: '12864 County Road 16', commission: 2656.25, hst: 341.25, net: 2625.00 },
+        { date: '2021-07-19', address: '2814 Highway 320', commission: 961.72, hst: 120.96, net: 930.47 },
+        { date: '2021-07-21', address: '560 Concession Road 15 West', commission: 11375.00, hst: 1470.62, net: 11312.50 },
+        { date: '2021-07-21', address: '110 William Street', commission: 2531.25, hst: 325.00, net: 2500.00 },
+        { date: '2021-07-23', address: '56 Maria Street', commission: 10625.00, hst: 1373.12, net: 10562.50 },
+        { date: '2021-07-23', address: '3280 Fesserton Sideroad', commission: 11000.00, hst: 1421.87, net: 10937.50 },
+        { date: '2021-07-23', address: '778 William Street #95', commission: 4762.50, hst: 611.00, net: 4700.00 },
+        { date: '2021-07-23', address: '52 Dromore Crescent', commission: 8250.00, hst: 1064.37, net: 8187.50 },
+        { date: '2021-07-28', address: '10 Concession 19 East', commission: 3906.25, hst: 503.75, net: 3875.00 },
+        { date: '2021-07-28', address: '68 Wozniak Road', commission: 1031.25, hst: 130.00, net: 1000.00 },
+        { date: '2021-08-11', address: '132 Fox Street', commission: 2156.25, hst: 272.18, net: 2093.75 },
+        { date: '2021-08-13', address: '64 Meadows Avenue', commission: 2112.50, hst: 270.57, net: 2081.25 },
+        { date: '2021-08-18', address: '965 Drummond Drive', commission: 6150.00, hst: 795.44, net: 6118.75 },
+        { date: '2021-08-18', address: '136 Fox Street', commission: 4265.63, hst: 546.40, net: 4203.13 },
+        { date: '2021-08-20', address: 'Lot 1762 Arthur Avenue', commission: 718.75, hst: 89.38, net: 687.50 },
+        { date: '2021-08-20', address: 'Lot 1764 Arthur Avenue', commission: 718.75, hst: 89.38, net: 687.50 },
+        { date: '2021-08-20', address: 'Lot 67 Pinecone Avenue', commission: 1390.63, hst: 176.72, net: 1359.38 },
+        { date: '2021-08-23', address: 'Lot 28 Methodist Island', commission: 560.62, hst: 66.79, net: 513.75 },
+        { date: '2021-08-25', address: '51 Topaz Street', commission: 6250.00, hst: 804.37, net: 6187.50 },
+        { date: '2021-08-27', address: 'Lot 27 Methodist Island', commission: 412.50, hst: 49.57, net: 381.25 },
+        { date: '2021-08-30', address: '55 Rue Camille', commission: 3656.25, hst: 463.13, net: 3562.50 },
+        { date: '2021-09-03', address: '34 Oakwood Avenue', commission: 7250.00, hst: 938.44, net: 7218.75 },
+        { date: '2021-09-03', address: 'Lot 21 Methodist Island', commission: 362.50, hst: 43.07, net: 331.25 },
+        { date: '2021-09-10', address: '658 Oxbow Park Drive', commission: 19609.38, hst: 2539.06, net: 19531.26 },
+        { date: '2021-09-15', address: '1523 Champlain Road', commission: 13750.00, hst: 1779.37, net: 13687.50 },
+        { date: '2021-09-15', address: '15 Hillcrest Avenue', commission: 3687.50, hst: 471.25, net: 3625.00 },
+        { date: '2021-09-15', address: '374 Borden Street', commission: 3468.75, hst: 438.75, net: 3375.00 },
+        { date: '2021-09-24', address: '449 Birch Street', commission: 2650.00, hst: 340.44, net: 2618.75 },
+        { date: '2021-10-08', address: '172 Eighth Street #206', commission: 4993.75, hst: 641.06, net: 4931.25 },
+        { date: '2021-10-15', address: '123 Concession 15', commission: 12000.00, hst: 1551.87, net: 11937.50 },
+        { date: '2021-10-22', address: '3926 Horseshoe Valley Road West', commission: 4312.50, hst: 556.57, net: 4281.25 },
+        { date: '2021-10-25', address: '36 Viel Street', commission: 7862.50, hst: 1014.00, net: 7800.00 },
+        { date: '2021-10-27', address: '506 Shewfelt Crescent', commission: 4218.12, hst: 544.30, net: 4186.87 },
+        { date: '2021-10-29', address: '535 Johnson Street', commission: 3562.50, hst: 459.07, net: 3531.25 },
+        { date: '2021-10-29', address: 'Lot 26 Champlain Road (2)', commission: 3631.25, hst: 463.93, net: 3568.75 },
+        { date: '2021-11-05', address: '5 Severn River', commission: 4375.00, hst: 560.62, net: 4312.50 },
+        { date: '2021-11-05', address: '587 River Road West #8', commission: 1625.00, hst: 203.14, net: 1562.50 },
+        { date: '2021-11-10', address: '32 Lindsay Court', commission: 9400.00, hst: 1213.87, net: 9337.50 },
+        { date: '2021-11-10', address: '396 Keller Drive', commission: 7875.00, hst: 1015.62, net: 7812.50 },
+        { date: '2021-11-10', address: '120 Pillsbury Drive', commission: 1593.75, hst: 203.13, net: 1562.50 },
+        { date: '2021-11-10', address: '107 Vista Blvd.', commission: 1846.87, hst: 231.96, net: 1784.37 },
+        { date: '2021-11-12', address: '560 Johnson Street', commission: 5375.00, hst: 690.62, net: 5312.50 },
+        { date: '2021-11-15', address: '1255 Fuller Avenue', commission: 9200.00, hst: 1187.87, net: 9137.50 },
+        { date: '2021-11-22', address: '46 Hickling Trail', commission: 4573.12, hst: 590.45, net: 4541.87 },
+        { date: '2021-11-24', address: '230 Robins Point Road', commission: 6875.00, hst: 889.69, net: 6843.75 },
+        { date: '2021-11-26', address: '269 Dignard Avenue', commission: 438.19, hst: 54.93, net: 422.57 },
+        { date: '2021-11-30', address: '424 Assiniboia Street', commission: 3749.38, hst: 483.36, net: 3718.13 },
+        { date: '2021-12-01', address: '1591 Tiny Beaches Road North', commission: 5100.00, hst: 658.94, net: 5068.75 },
+        { date: '2021-12-06', address: '1 Dufferin Street', commission: 6065.63, hst: 780.40, net: 6003.13 },
+        { date: '2021-12-10', address: '39 Maria Street', commission: 5750.00, hst: 739.37, net: 5687.50 },
+        { date: '2021-12-13', address: '740 Midland Avenue', commission: 780.63, hst: 97.42, net: 749.38 },
+        { date: '2021-12-15', address: '4 Joliet Crescent', commission: 8250.00, hst: 1064.37, net: 8187.50 },
+        { date: '2021-12-17', address: '32 Hunter Avenue', commission: 9625.00, hst: 1243.12, net: 9562.50 },
+        { date: '2021-12-17', address: '411 Point Road', commission: 576.56, hst: 82.42, net: 545.31 },
+        { date: '2021-12-20', address: '1277 Flos Road 8 East', commission: 10000.00, hst: 1291.87, net: 9937.50 },
+        { date: '2021-12-23', address: '5760 County Road 90', commission: 5500.00, hst: 710.94, net: 5468.75 },
+        { date: '2021-12-29', address: '30 Macavalley Road', commission: 2750.00, hst: 353.44, net: 2718.75 },
+      ],
+    },
+    2023: {
+      brokerage: 'KW Co-Elevation + KW Experience',
+      ends: 46,
+      totalGCI: 231875.48,
+      totalHST: 28483.12,
+      deals: [
+        { date: '2023-01-04', address: '472 William St Upper', commission: 1025.00, hst: 113.76, net: 875.00, brokerage: '221097' },
+        { date: '2023-01-17', address: '7 Westmount Dr N', commission: 5712.50, hst: 732.88, net: 5637.50, brokerage: '221032' },
+        { date: '2023-01-30', address: '75 Mcdermitt Tr', commission: 1608.75, hst: 199.39, net: 1533.75, brokerage: '221037' },
+        { date: '2023-02-07', address: '85 Bellisle Rd', commission: 1450.00, hst: 139.49, net: 1073.00, brokerage: '221036' },
+        { date: '2023-03-03', address: '9 Cranbrooke Crt', commission: 8562.50, hst: 823.71, net: 6336.25, brokerage: '221104' },
+        { date: '2023-03-06', address: '9 Celestine Crt', commission: 8125.00, hst: 781.62, net: 6012.50, brokerage: '230042' },
+        { date: '2023-03-16', address: '8843 93 County Rd', commission: 7187.50, hst: 691.44, net: 5318.75, brokerage: '230043' },
+        { date: '2023-05-25', address: '17 Jury Drive', commission: 1250.00, hst: 120.25, net: 925.00, brokerage: '210133' },
+        { date: '2023-06-05', address: '226 Churchland Dr', commission: 8562.50, hst: 924.79, net: 7113.75, brokerage: '230184' },
+        { date: '2023-06-07', address: '895 Hammond St', commission: 1098.00, hst: 124.43, net: 957.12, brokerage: '230275' },
+        { date: '2023-06-15', address: '280 Aberdeen Blvd 111', commission: 4875.00, hst: 585.97, net: 4507.50, brokerage: '230355' },
+        { date: '2023-06-22', address: '39 Maria St', commission: 6750.00, hst: 815.10, net: 6270.00, brokerage: '230227' },
+        { date: '2023-06-23', address: '316 Seventh St', commission: 2875.00, hst: 341.57, net: 2627.50, brokerage: '230380' },
+        { date: '2023-06-26', address: '363 Lafontaine Rd W', commission: 8500.00, hst: 1091.24, net: 8394.13, brokerage: '230249' },
+        { date: '2023-06-28', address: '544 Keewatin Ave', commission: 625.00, hst: 71.50, net: 550.00, brokerage: '230444' },
+        { date: '2023-06-28', address: '540 Keewatin Ave', commission: 1187.50, hst: 144.63, net: 1112.50, brokerage: '230445' },
+        { date: '2023-06-29', address: '2224 Lakeshore Rd E', commission: 5684.38, hst: 729.22, net: 5609.38, brokerage: '230314' },
+        { date: '2023-07-12', address: '79 Bellisle Rd', commission: 9062.50, hst: 1168.38, net: 8987.50, brokerage: '230259' },
+        { date: '2023-07-12', address: '37 Easton Ave', commission: 7425.00, hst: 955.50, net: 7350.00, brokerage: '230285' },
+        { date: '2023-07-21', address: '140 Campbell St', commission: 10000.00, hst: 1290.25, net: 9925.00, brokerage: '230475' },
+        { date: '2023-07-21', address: '388 Robins Point Rd', commission: 11437.50, hst: 1477.13, net: 11362.50, brokerage: '230453' },
+        { date: '2023-08-09', address: '280 Aberdeen Blvd 208', commission: 3750.00, hst: 477.75, net: 3675.00, brokerage: '230482' },
+        { date: '2023-08-09', address: '14 Lisa St', commission: 600.00, hst: 68.25, net: 525.00, brokerage: '230572' },
+        { date: '2023-08-15', address: '539 Nelson St', commission: 7125.00, hst: 916.50, net: 7050.00, brokerage: '230403' },
+        { date: '2023-08-16', address: '28 Marchand Rd Upper', commission: 787.50, hst: 82.88, net: 637.50, brokerage: '230667' },
+        { date: '2023-08-16', address: '28 Marchand Rd Lower', commission: 600.00, hst: 58.50, net: 450.00, brokerage: '230669' },
+        { date: '2023-08-18', address: '578 Manly St', commission: 7562.50, hst: 973.38, net: 7487.50, brokerage: '230566' },
+        { date: '2023-08-24', address: '27 Clarissa St', commission: 2437.50, hst: 307.13, net: 2362.50, brokerage: '230618' },
+        { date: '2023-08-31', address: '829 8th Ave', commission: 1837.50, hst: 229.13, net: 1762.50, brokerage: '230515' },
+        { date: '2023-09-01', address: '65 Wendake Rd', commission: 5062.50, hst: 648.38, net: 4987.50, brokerage: '230631' },
+        { date: '2023-09-11', address: '70 Shoreline Rd (Opinion)', commission: 125.00, hst: 6.50, net: 50.00, brokerage: '230686' },
+        { date: '2023-09-15', address: '14 Grier St', commission: 5400.00, hst: 692.25, net: 5325.00, brokerage: '230643' },
+        { date: '2023-09-19', address: '1197 Shea Rd', commission: 4921.87, hst: 630.09, net: 4846.87, brokerage: '230664' },
+        { date: '2023-09-25', address: '15 Berts Rd', commission: 4123.75, hst: 526.34, net: 4048.75, brokerage: '230676' },
+        { date: '2023-09-27', address: '15 Vics Rd', commission: 1468.75, hst: 181.19, net: 1393.75, brokerage: '230712' },
+        { date: '2023-09-28', address: '60 Copeland Creek Dr', commission: 8015.00, hst: 1032.20, net: 7940.00, brokerage: '230726' },
+        { date: '2023-09-29', address: '415 17 Concession W', commission: 7361.86, hst: 947.29, net: 7286.86, brokerage: '230153' },
+        { date: '2023-11-08', address: '128 Burke St', commission: 16250.00, hst: 2093.00, net: 16100.00, brokerage: '230165' },
+        { date: '2023-11-08', address: '58 Nicort Rd', commission: 600.00, hst: 68.25, net: 525.00, brokerage: '230829' },
+        { date: '2023-11-21', address: 'Lot 577 Forest Circle', commission: 1249.37, hst: 152.67, net: 1174.37, brokerage: '230838' },
+        { date: '2023-11-22', address: '696 King St 93', commission: 6075.00, hst: 780.00, net: 6000.00, brokerage: '230812' },
+        { date: '2023-12-11', address: '28 James St', commission: 6093.75, hst: 772.69, net: 5943.75, brokerage: '230846' },
+        { date: '2023-12-11', address: '280 Aberdeen Blvd 208 (2)', commission: 425.00, hst: 45.50, net: 350.00, brokerage: '230961' },
+        { date: '2023-12-12', address: '883 Midland Point Rd', commission: 17500.00, hst: 2255.50, net: 17350.00, brokerage: '230814' },
+        { date: '2023-12-19', address: '91 Mitchells Beach Rd', commission: 6500.00, hst: 835.25, net: 6425.00, brokerage: '230876' },
+        { date: '2023-12-31', address: '245 William St', commission: 3000.00, hst: 380.25, net: 2925.00, brokerage: '230915' },
+      ],
+    },
   };
 
-  const years = [2025, 2024, 2022];
+  const years = [2025, 2024, 2023, 2022, 2021, 2020, 2019];
   const lifetimeGCI = years.reduce((s, y) => s + yearData[y].totalGCI, 0);
   const lifetimeEnds = years.reduce((s, y) => s + yearData[y].ends, 0);
   const lifetimeHST = years.reduce((s, y) => s + yearData[y].totalHST, 0);
@@ -6798,7 +7109,7 @@ function LifetimeStats() {
       <div style={{ background: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 100%)', borderRadius: 12, padding: '24px 28px', color: '#fff' }}>
         <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.1em', color: '#94a3b8', textTransform: 'uppercase' }}>Lifetime Career Stats</div>
         <div style={{ fontSize: 28, fontWeight: 800, marginTop: 6 }}>Jonathan Wallace</div>
-        <div style={{ fontSize: 13, color: '#cbd5e1', marginTop: 2 }}>Georgian Bay Real Estate — 2022 to Present</div>
+        <div style={{ fontSize: 13, color: '#cbd5e1', marginTop: 2 }}>Georgian Bay Real Estate — 2019 to Present</div>
       </div>
 
       {/* Big Numbers */}
@@ -6824,7 +7135,7 @@ function LifetimeStats() {
               style={{ display: 'flex', alignItems: 'center', padding: '16px 20px', cursor: 'pointer', gap: 16, background: isOpen ? '#f8fafc' : '#fff' }}
             >
               <div style={{ width: 48, height: 48, borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: 16, color: '#fff',
-                background: year === 2025 ? '#16a34a' : year === 2024 ? '#ea580c' : '#6366f1' }}>
+                background: year === 2025 ? '#16a34a' : year === 2024 ? '#ea580c' : year === 2023 ? '#0891b2' : year === 2022 ? '#6366f1' : year === 2021 ? '#d97706' : year === 2020 ? '#dc2626' : '#64748b' }}>
                 {String(year).slice(2)}
               </div>
               <div style={{ flex: 1 }}>
@@ -6864,7 +7175,7 @@ function LifetimeStats() {
                       <th style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 700, color: '#64748b', fontSize: 10, textTransform: 'uppercase' }}>Commission</th>
                       <th style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 700, color: '#64748b', fontSize: 10, textTransform: 'uppercase' }}>HST</th>
                       <th style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 700, color: '#64748b', fontSize: 10, textTransform: 'uppercase' }}>Net</th>
-                      {year === 2025 && <th style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 700, color: '#64748b', fontSize: 10, textTransform: 'uppercase' }}>Brokerage</th>}
+                      {(year === 2025 || year === 2023 || year === 2022 || year === 2020) && <th style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 700, color: '#64748b', fontSize: 10, textTransform: 'uppercase' }}>Brokerage</th>}
                     </tr>
                   </thead>
                   <tbody>
@@ -6877,7 +7188,7 @@ function LifetimeStats() {
                           <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 600, color: '#111827' }}>{fmt2(d.commission)}</td>
                           <td style={{ padding: '8px 12px', textAlign: 'right', color: '#6b7280' }}>{fmt2(d.hst)}</td>
                           <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 600, color: d.net >= 10000 ? '#16a34a' : '#374151' }}>{fmt2(d.net)}</td>
-                          {year === 2025 && <td style={{ padding: '8px 12px', textAlign: 'right', fontSize: 10, color: '#9ca3af' }}>{d.brokerage}</td>}
+                          {(year === 2025 || year === 2023 || year === 2022 || year === 2020) && <td style={{ padding: '8px 12px', textAlign: 'right', fontSize: 10, color: '#9ca3af' }}>{d.brokerage}</td>}
                         </tr>
                       );
                     })}
@@ -6889,7 +7200,7 @@ function LifetimeStats() {
                       <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 800, color: '#111827' }}>{fmt2(yd.totalGCI)}</td>
                       <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 700, color: '#6b7280' }}>{fmt2(yd.totalHST)}</td>
                       <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 800, color: '#16a34a' }}>{fmt2(yd.deals.reduce((s, d) => s + d.net, 0))}</td>
-                      {year === 2025 && <td />}
+                      {(year === 2025 || year === 2023 || year === 2022 || year === 2020) && <td />}
                     </tr>
                   </tfoot>
                 </table>
@@ -6899,15 +7210,11 @@ function LifetimeStats() {
         );
       })}
 
-      {/* 2023 Placeholder */}
-      <div style={{ background: '#fff', border: '1px dashed #d1d5db', borderRadius: 12, padding: '20px 24px', textAlign: 'center' }}>
-        <div style={{ fontSize: 14, fontWeight: 600, color: '#9ca3af' }}>2023 — Tax Worksheet Not Yet Uploaded</div>
-        <div style={{ fontSize: 12, color: '#d1d5db', marginTop: 4 }}>Upload your 2023 KW tax worksheet to fill in this year</div>
-      </div>
+
 
       {/* Footer note */}
       <div style={{ fontSize: 11, color: '#9ca3af', textAlign: 'center', padding: 8 }}>
-        Source: KW Experience, KW Co-Elevation &amp; Faris Team tax worksheets &amp; agent earnings reports
+        Source: KW Experience, KW Co-Elevation &amp; Faris Team tax worksheets &amp; agent earnings reports (2019–2025)
       </div>
     </div>
   );
