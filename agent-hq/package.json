@@ -11,6 +11,7 @@
         "start": "node server.js"
     },
     "dependencies": {
+        "@anthropic-ai/sdk": "^0.90.0",
         "express": "^4.21.0",
         "googleapis": "^144.0.0",
         "lucide-react": "^1.8.0",

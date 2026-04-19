@@ -5,8 +5,17 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import multer from 'multer';
 import { createRequire } from 'module';
+import Anthropic from '@anthropic-ai/sdk';
 const _require = createRequire(import.meta.url);
 const pdfParse = _require('pdf-parse');
+
+// ─────────────────────────────────────────────
+// Anthropic Claude API — used for AI-powered note synopsis
+// ─────────────────────────────────────────────
+const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || '';
+const anthropic = ANTHROPIC_API_KEY ? new Anthropic({ apiKey: ANTHROPIC_API_KEY }) : null;
+if (anthropic) console.log('[Claude] Anthropic API initialized — AI synopsis enabled');
+else console.log('[Claude] No ANTHROPIC_API_KEY — falling back to keyword synopsis');
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -3050,7 +3059,6 @@ app.get('/api/fub/calllist', async (req, res) => {
           const noteData = await noteResp.json();
           const notes = noteData.notes || [];
           if (notes.length > 0) {
-            // Build a synopsis from all notes
             const allNoteTexts = notes.map(n => {
               const clean = (n.body || '').replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim();
               const dateStr = n.created ? new Date(n.created).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '';
@@ -3058,44 +3066,53 @@ app.get('/api/fub/calllist', async (req, res) => {
             }).filter(n => n.text.length > 0);
 
             if (allNoteTexts.length > 0) {
-              // Build a Cole's Notes synopsis
-              const synopsisParts = [];
+              item.rawNotes = allNoteTexts.map(n => `${n.date ? n.date + ': ' : ''}${n.text}`);
 
-              // Most recent note — what's the latest?
-              const latest = allNoteTexts[0];
-              if (latest.date) synopsisParts.push(`Last note (${latest.date}): ${latest.text.slice(0, 100)}`);
-              else synopsisParts.push(latest.text.slice(0, 100));
-
-              // Extract key themes from older notes
-              const allText = allNoteTexts.map(n => n.text).join(' ').toLowerCase();
-
-              // Detect buying/selling intent
-              if (/\b(looking to buy|wants to buy|searching for|buyer|purchase|pre-?approved)\b/i.test(allText)) synopsisParts.push('Buyer intent');
-              if (/\b(looking to sell|wants to sell|listing|seller|thinking of selling|home value|cma)\b/i.test(allText)) synopsisParts.push('Seller intent');
-
-              // Detect property interests
-              const areaMatch = allText.match(/\b(midland|penetang|tiny|tay|wasaga|barrie|orillia|collingwood|georgian bay|lafontaine|balm beach|port mcnicoll)\b/i);
-              if (areaMatch) synopsisParts.push(`Area: ${areaMatch[1]}`);
-
-              // Detect price range
-              const priceMatch = allText.match(/\$[\d,]+k?|\b\d{3,}\s*k\b/i);
-              if (priceMatch) synopsisParts.push(`Budget: ${priceMatch[0]}`);
-
-              // Detect timeline
-              if (/\b(asap|urgent|right away|immediately|this month)\b/i.test(allText)) synopsisParts.push('Urgent timeline');
-              else if (/\b(spring|summer|fall|winter|next year|few months)\b/i.test(allText)) {
-                const seasonMatch = allText.match(/\b(spring|summer|fall|winter|next year)\b/i);
-                if (seasonMatch) synopsisParts.push(`Timeline: ${seasonMatch[1]}`);
+              // Try Claude AI synopsis first, fall back to keyword extraction
+              if (anthropic) {
+                try {
+                  const notesBlock = allNoteTexts.map(n => `[${n.date || 'undated'}] ${n.text}`).join('\n');
+                  const msg = await anthropic.messages.create({
+                    model: 'claude-haiku-4-5-20251001',
+                    max_tokens: 150,
+                    messages: [{
+                      role: 'user',
+                      content: `You are a real estate agent's assistant. Read these CRM notes about a contact named "${item.name}" and write a 1-2 sentence synopsis for the agent's call list. Focus on: what they're looking for (buy/sell), area, budget, timeline, last interaction, and anything the agent needs to know before calling. Be concise and direct — no filler.\n\nNotes:\n${notesBlock}`
+                    }],
+                  });
+                  const aiSynopsis = msg.content?.[0]?.text || '';
+                  if (aiSynopsis.length > 10) {
+                    item.context = aiSynopsis;
+                    item.synopsisSource = 'claude';
+                  }
+                } catch (aiErr) {
+                  console.log(`[Claude] Synopsis error for ${item.name}:`, aiErr.message);
+                }
               }
 
-              // Detect referral
-              if (/\b(referr|referred by|sent by)\b/i.test(allText)) synopsisParts.push('Referral');
-
-              // Show count of interactions
-              if (allNoteTexts.length > 1) synopsisParts.push(`${allNoteTexts.length} notes on file`);
-
-              item.context = synopsisParts.join(' · ');
-              item.rawNotes = allNoteTexts.map(n => `${n.date ? n.date + ': ' : ''}${n.text}`);
+              // Fallback: keyword-based synopsis if Claude didn't produce one
+              if (!item.context || item.synopsisSource !== 'claude') {
+                const synopsisParts = [];
+                const latest = allNoteTexts[0];
+                if (latest.date) synopsisParts.push(`Last note (${latest.date}): ${latest.text.slice(0, 100)}`);
+                else synopsisParts.push(latest.text.slice(0, 100));
+                const allText = allNoteTexts.map(n => n.text).join(' ').toLowerCase();
+                if (/\b(looking to buy|wants to buy|searching for|buyer|purchase|pre-?approved)\b/i.test(allText)) synopsisParts.push('Buyer intent');
+                if (/\b(looking to sell|wants to sell|listing|seller|thinking of selling|home value|cma)\b/i.test(allText)) synopsisParts.push('Seller intent');
+                const areaMatch = allText.match(/\b(midland|penetang|tiny|tay|wasaga|barrie|orillia|collingwood|georgian bay|lafontaine|balm beach|port mcnicoll)\b/i);
+                if (areaMatch) synopsisParts.push(`Area: ${areaMatch[1]}`);
+                const priceMatch = allText.match(/\$[\d,]+k?|\b\d{3,}\s*k\b/i);
+                if (priceMatch) synopsisParts.push(`Budget: ${priceMatch[0]}`);
+                if (/\b(asap|urgent|right away|immediately|this month)\b/i.test(allText)) synopsisParts.push('Urgent timeline');
+                else {
+                  const seasonMatch = allText.match(/\b(spring|summer|fall|winter|next year)\b/i);
+                  if (seasonMatch) synopsisParts.push(`Timeline: ${seasonMatch[1]}`);
+                }
+                if (/\b(referr|referred by|sent by)\b/i.test(allText)) synopsisParts.push('Referral');
+                if (allNoteTexts.length > 1) synopsisParts.push(`${allNoteTexts.length} notes on file`);
+                item.context = synopsisParts.join(' · ');
+                item.synopsisSource = 'keywords';
+              }
             }
           }
         }
