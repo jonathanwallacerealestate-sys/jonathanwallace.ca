@@ -380,6 +380,20 @@ app.get('/api/calendar/status', async (req, res) => {
 // API: Calendar Events
 // ─────────────────────────────────────────────
 
+// Helper: get start/end of "today" in Eastern Time as UTC ISO strings
+function getEasternDayRange(daysAhead = 0) {
+  const now = new Date();
+  const todayET = now.toLocaleDateString('en-CA', { timeZone: 'America/Toronto' }); // "YYYY-MM-DD"
+  const [y, m, d] = todayET.split('-').map(Number);
+  // Compute the ET→UTC offset dynamically (handles EST/EDT automatically)
+  const etNow = new Date(now.toLocaleString('en-US', { timeZone: 'America/Toronto' }));
+  const utcNow = new Date(now.toLocaleString('en-US', { timeZone: 'UTC' }));
+  const offsetHours = (utcNow - etNow) / (3600000); // 4 for EDT, 5 for EST
+  const startUTC = new Date(Date.UTC(y, m - 1, d + daysAhead, offsetHours, 0, 0));
+  const endUTC = new Date(Date.UTC(y, m - 1, d + daysAhead + 1, offsetHours, 0, 0));
+  return { startISO: startUTC.toISOString(), endISO: endUTC.toISOString() };
+}
+
 // Helper: fetch events from ALL calendars (primary + imported Outlook, etc.)
 async function fetchAllCalendarEvents(calendarApi, timeMin, timeMax, maxResults = 50) {
   // Get all calendar IDs the user has access to
@@ -399,6 +413,7 @@ async function fetchAllCalendarEvents(calendarApi, timeMin, timeMax, maxResults 
           maxResults,
           singleEvents: true,
           orderBy: 'startTime',
+          timeZone: 'America/Toronto',
         });
         return (evRes.data.items || []).map(ev => ({
           ...ev,
@@ -434,13 +449,11 @@ app.get('/api/calendar/events', async (req, res) => {
   try {
     const calendar = google.calendar({ version: 'v3', auth: oauth2Client });
 
-    // Default: today's events
-    const now = new Date();
-    const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+    // Default: today's events (in Eastern Time, since Railway runs UTC)
+    const { startISO, endISO } = getEasternDayRange();
 
-    const timeMin = req.query.timeMin || startOfDay.toISOString();
-    const timeMax = req.query.timeMax || endOfDay.toISOString();
+    const timeMin = req.query.timeMin || startISO;
+    const timeMax = req.query.timeMax || endISO;
 
     const allEvents = await fetchAllCalendarEvents(calendar, timeMin, timeMax, 50);
 
@@ -471,12 +484,10 @@ app.get('/api/calendar/events', async (req, res) => {
         oauth2Client.setCredentials(credentials);
         // Retry the request — fetch from all calendars
         const calendar = google.calendar({ version: 'v3', auth: oauth2Client });
-        const now = new Date();
-        const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-        const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+        const { startISO: retryStart, endISO: retryEnd } = getEasternDayRange();
         const retryEvents = await fetchAllCalendarEvents(calendar,
-          req.query.timeMin || startOfDay.toISOString(),
-          req.query.timeMax || endOfDay.toISOString(), 50);
+          req.query.timeMin || retryStart,
+          req.query.timeMax || retryEnd, 50);
         const events = retryEvents.map(ev => ({
           id: ev.id, title: ev.summary || '(No title)',
           start: ev.start.dateTime || ev.start.date,
@@ -502,10 +513,10 @@ app.get('/api/calendar/upcoming', async (req, res) => {
 
   try {
     const calendar = google.calendar({ version: 'v3', auth: oauth2Client });
-    const now = new Date();
-    const weekOut = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+    const { startISO: nowISO } = getEasternDayRange();
+    const { endISO: weekEndISO } = getEasternDayRange(7);
 
-    const allEvents = await fetchAllCalendarEvents(calendar, now.toISOString(), weekOut.toISOString(), 100);
+    const allEvents = await fetchAllCalendarEvents(calendar, nowISO, weekEndISO, 100);
 
     const events = allEvents.map(ev => ({
       id: ev.id,
@@ -832,11 +843,12 @@ app.get('/api/priorities/generate', async (req, res) => {
         if (!tokens) return null;
         try {
           const cal = google.calendar({ version: 'v3', auth: oauth2Client });
-          const now = new Date();
-          const tomorrow = new Date(now); tomorrow.setDate(tomorrow.getDate() + 2);
+          const { startISO: priCalStart } = getEasternDayRange();
+          const { endISO: priCalEnd } = getEasternDayRange(2);
           const evts = await cal.events.list({
-            calendarId: 'primary', timeMin: now.toISOString(), timeMax: tomorrow.toISOString(),
+            calendarId: 'primary', timeMin: priCalStart, timeMax: priCalEnd,
             singleEvents: true, orderBy: 'startTime', maxResults: 10,
+            timeZone: 'America/Toronto',
           });
           return (evts.data.items || []).map(e => ({
             summary: e.summary, start: e.start?.dateTime || e.start?.date, location: e.location || '',

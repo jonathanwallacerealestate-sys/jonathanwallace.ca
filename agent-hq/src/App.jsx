@@ -569,7 +569,7 @@ function MorningCalendarSnapshot() {
 
   const formatTime = (iso) => {
     if (!iso) return '';
-    return new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+    return new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'America/Toronto' });
   };
 
   const displayEvents = status.connected && events.length > 0 ? events : null;
@@ -2457,7 +2457,7 @@ function CalendarSection() {
   const formatTime = (iso) => {
     if (!iso) return '';
     const d = new Date(iso);
-    return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+    return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'America/Toronto' });
   };
 
   return (
