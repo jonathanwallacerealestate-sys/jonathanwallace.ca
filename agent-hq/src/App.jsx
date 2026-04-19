@@ -9,6 +9,7 @@ import {
   UserPlus, RotateCcw, Eye, EyeOff, ChevronUp, MoreHorizontal, Inbox,
   Flag, Trash2, PenLine, Check, ExternalLink, RefreshCw,
   GripVertical, ClipboardList, Home, Plus, Save, Loader2, Trash, RotateCw,
+  TrendingUp, BarChart3,
 } from "lucide-react";
 
 // ─────────────────────────────────────────────
@@ -349,6 +350,7 @@ const sidebarItems = [
   { id: "sellers", label: "Sellers", icon: Briefcase, badge: 3 },
   { id: "loo", label: "LOO", icon: FileText, badge: null },
   { id: "syncs", label: "Syncs & Routines", icon: RotateCw, badge: null },
+  { id: "lifetime", label: "Lifetime Stats", icon: TrendingUp, badge: null },
 ];
 
 // ─────────────────────────────────────────────
@@ -6639,6 +6641,278 @@ function QuickLinksPanel() {
 }
 
 // ─────────────────────────────────────────────
+// ─────────────────────────────────────────────
+// LIFETIME STATS — GCI, Deals, Commission by Year
+// ─────────────────────────────────────────────
+function LifetimeStats() {
+  const [expandedYear, setExpandedYear] = useState(null);
+  const [filter, setFilter] = useState('all');
+
+  const yearData = {
+    2025: {
+      brokerage: 'Faris Team + KW Co-Elevation',
+      ends: 33,
+      totalGCI: 171227.00,
+      totalHST: 21206.50,
+      deals: [
+        { date: '2025-01-07', address: '297 King Street', commission: 2212.92, hst: 287.68, net: 2500.60, brokerage: 'Faris Team' },
+        { date: '2025-01-10', address: '122 Hurontario Street', commission: 13466.67, hst: 1750.67, net: 15217.34, brokerage: 'Faris Team' },
+        { date: '2025-02-14', address: '380 Corrievale Road', commission: 3402.92, hst: 442.38, net: 3845.30, brokerage: 'Faris Team' },
+        { date: '2025-02-14', address: '525 Midland Point Road 41', commission: 1258.33, hst: 163.58, net: 1421.91, brokerage: 'Faris Team' },
+        { date: '2025-05-16', address: 'Lot 45 Tiny Beaches Road N', commission: 2040.00, hst: 265.20, net: 2305.20, brokerage: 'Faris Team' },
+        { date: '2025-05-21', address: '78 Stans Circle', commission: 1062.00, hst: 138.06, net: 1200.06, brokerage: 'Faris Team' },
+        { date: '2025-05-30', address: '90 Burke Street 14', commission: 7099.20, hst: 922.90, net: 7276.44, brokerage: 'Faris Team' },
+        { date: '2025-06-03', address: '422 Young Avenue', commission: 834.00, hst: 108.42, net: 942.42, brokerage: 'Faris Team' },
+        { date: '2025-06-06', address: '179 Fifth Street', commission: 6420.00, hst: 834.60, net: 7254.60, brokerage: 'Faris Team' },
+        { date: '2025-06-10', address: '40 Trott Boulevard 701', commission: 7219.17, hst: 938.49, net: 8157.66, brokerage: 'Faris Team' },
+        { date: '2025-06-24', address: '63 Julia Cres', commission: 3217.08, hst: 418.22, net: 3635.30, brokerage: 'Faris Team' },
+        { date: '2025-06-27', address: '20 Domar Road', commission: 3204.00, hst: 416.52, net: 3620.52, brokerage: 'Faris Team' },
+        { date: '2025-07-15', address: '61 Robert Street W', commission: 1715.42, hst: 223.00, net: 1938.42, brokerage: 'Faris Team' },
+        { date: '2025-08-08', address: '2752 Old Fort Road', commission: 7146.00, hst: 928.98, net: 8074.98, brokerage: 'Faris Team' },
+        { date: '2025-08-08', address: '954 Hugel Ave', commission: 6273.00, hst: 815.49, net: 7088.49, brokerage: 'Faris Team' },
+        { date: '2025-08-26', address: '114 Bay Street', commission: 7470.00, hst: 971.10, net: 8441.10, brokerage: 'Faris Team' },
+        { date: '2025-09-05', address: '493 7th Avenue', commission: 7164.00, hst: 931.32, net: 8095.32, brokerage: 'Faris Team' },
+        { date: '2025-09-09', address: '50 Mulligan Lane 110', commission: 7873.33, hst: 1023.53, net: 8896.86, brokerage: 'Faris Team' },
+        { date: '2025-09-12', address: '15765 Highway 12', commission: 2400.00, hst: 312.00, net: 2712.00, brokerage: 'Faris Team' },
+        { date: '2025-09-12', address: '3358 Muskoka Street', commission: 3480.00, hst: 452.40, net: 3932.40, brokerage: 'Faris Team' },
+        { date: '2025-10-07', address: '7466 Line 11', commission: 7092.00, hst: 921.96, net: 8013.96, brokerage: 'Faris Team' },
+        { date: '2025-10-17', address: '206 Bonneville Road', commission: 7020.00, hst: 912.60, net: 7932.60, brokerage: 'Faris Team' },
+        { date: '2025-10-24', address: '27 Julia Crescent', commission: 1296.00, hst: 168.48, net: 1464.48, brokerage: 'Faris Team' },
+        { date: '2025-11-04', address: '1321 Tiny Beaches Road', commission: 2580.00, hst: 335.40, net: 2915.40, brokerage: 'Faris Team' },
+        { date: '2025-11-14', address: 'Lot 17 Faesulae Road', commission: 1980.00, hst: 257.40, net: 2237.40, brokerage: 'Faris Team' },
+        { date: '2025-11-17', address: '7308 Main St', commission: 25000.00, hst: 2405.00, net: 18500.00, brokerage: 'KW Co-Elevation' },
+        { date: '2025-11-17', address: '7308 Main St (2nd)', commission: 10000.00, hst: 1092.00, net: 8400.00, brokerage: 'KW Co-Elevation' },
+        { date: '2025-11-18', address: '369 Manly Street', commission: 4244.40, hst: 551.77, net: 4796.17, brokerage: 'Faris Team' },
+        { date: '2025-12-02', address: '405 Bay Street', commission: 504.00, hst: 65.52, net: 569.52, brokerage: 'Faris Team' },
+        { date: '2025-12-02', address: '612 Bay Street Lower', commission: 792.00, hst: 102.96, net: 894.96, brokerage: 'Faris Team' },
+        { date: '2025-12-05', address: '707 9th Ave', commission: 4768.92, hst: 619.96, net: 5388.88, brokerage: 'Faris Team' },
+        { date: '2025-12-16', address: '8 Glen Forest Trail', commission: 6150.00, hst: 799.50, net: 6949.50, brokerage: 'Faris Team' },
+        { date: '2025-12-30', address: '1721 Newton Street', commission: 4841.64, hst: 629.41, net: 5471.05, brokerage: 'Faris Team' },
+      ],
+    },
+    2024: {
+      brokerage: 'KW Co-Elevation',
+      ends: 35,
+      totalGCI: 208081.62,
+      totalHST: 25682.38,
+      deals: [
+        { date: '2024-01-23', address: '382 Mary St', commission: 2625.00, hst: 331.50, net: 2881.50 },
+        { date: '2024-01-25', address: 'Lot 52 Silver Birch Dr', commission: 17812.50, hst: 2296.13, net: 19958.63 },
+        { date: '2024-01-26', address: '84 Nicole Blvd', commission: 9687.50, hst: 1249.63, net: 10862.13 },
+        { date: '2024-02-16', address: '472 William St Upper', commission: 537.50, hst: 51.71, net: 449.46 },
+        { date: '2024-02-29', address: '3536 Shady Crt', commission: 16125.00, hst: 1551.22, net: 13483.72 },
+        { date: '2024-03-25', address: '159 Church St 5', commission: 1921.87, hst: 184.88, net: 1607.07 },
+        { date: '2024-05-30', address: 'Lot 27 Poplar Dr', commission: 2362.50, hst: 227.27, net: 1975.52 },
+        { date: '2024-06-17', address: '255 Robins Point Rd', commission: 4416.00, hst: 424.82, net: 3692.66 },
+        { date: '2024-06-27', address: '159 Church St 8', commission: 4625.00, hst: 444.92, net: 3867.42 },
+        { date: '2024-07-04', address: 'Lot 26 Grant Ave', commission: 3687.50, hst: 450.30, net: 3914.12 },
+        { date: '2024-07-05', address: '97 Anderson Cres', commission: 18750.00, hst: 2300.41, net: 19995.93 },
+        { date: '2024-07-08', address: '78 Hurst Dr', commission: 10968.75, hst: 1416.19, net: 12309.94 },
+        { date: '2024-07-15', address: '2135 Ferguson St', commission: 8087.50, hst: 1041.63, net: 9054.13 },
+        { date: '2024-07-17', address: '1445 Margaret Cres', commission: 13125.00, hst: 1696.50, net: 14746.50 },
+        { date: '2024-07-28', address: '13 Robert St W', commission: 13875.00, hst: 1794.00, net: 15594.00 },
+        { date: '2024-08-07', address: '481 Trillium St', commission: 4562.50, hst: 583.38, net: 5070.88 },
+        { date: '2024-08-08', address: '678 Simcoe Ave', commission: 6873.75, hst: 883.84, net: 7682.59 },
+        { date: '2024-10-02', address: '98 Savannah Cres', commission: 10562.50, hst: 1363.38, net: 11850.88 },
+        { date: '2024-10-02', address: '201 Rustic Rd', commission: 17500.00, hst: 2265.25, net: 19690.25 },
+        { date: '2024-10-04', address: '2774 Old Fort Rd', commission: 8312.50, hst: 1070.88, net: 9308.38 },
+        { date: '2024-10-21', address: '50 Mulligan Ln 110', commission: 4450.00, hst: 568.75, net: 4943.75 },
+        { date: '2024-10-30', address: '249 King St Upper', commission: 475.00, hst: 52.00, net: 452.00 },
+        { date: '2024-11-04', address: '447 William St', commission: 3531.25, hst: 455.81, net: 3962.06 },
+        { date: '2024-11-12', address: '11 Richelieu St', commission: 9325.00, hst: 1202.50, net: 10452.50 },
+        { date: '2024-11-15', address: '35 Farlain Lake Rd E', commission: 2195.00, hst: 275.60, net: 2395.60 },
+        { date: '2024-11-26', address: '5418 Penetanguishene Rd', commission: 7250.00, hst: 932.75, net: 8107.75 },
+        { date: '2024-12-12', address: '352 Curry Rd', commission: 4437.50, hst: 567.13, net: 4929.63 },
+      ],
+    },
+    2022: {
+      brokerage: 'KW Experience + KW Co-Elevation',
+      ends: 44,
+      totalGCI: 309008.24,
+      totalHST: 38584.26,
+      deals: [
+        { date: '2022-01-19', address: '121 Robins Point Road', commission: 625.00, hst: 77.19, net: 593.75 },
+        { date: '2022-03-02', address: '176 Letitia Street', commission: 3500.00, hst: 336.70, net: 2590.00 },
+        { date: '2022-03-14', address: '329 Thunder Beach Road', commission: 5562.50, hst: 535.11, net: 4116.25 },
+        { date: '2022-03-16', address: '614 Taylor Drive', commission: 1875.00, hst: 180.37, net: 1387.50 },
+        { date: '2022-03-18', address: '751 Stone Street', commission: 20187.50, hst: 2160.30, net: 16617.67 },
+        { date: '2022-03-18', address: '12 Finley Drive', commission: 7269.60, hst: 699.34, net: 5379.50 },
+        { date: '2022-03-21', address: '19 Pine Street', commission: 10078.13, hst: 1267.90, net: 9753.06 },
+        { date: '2022-03-21', address: '374 Borden Street', commission: 7750.00, hst: 938.92, net: 7222.50 },
+        { date: '2022-03-21', address: '340 Borden Street', commission: 8500.00, hst: 1096.87, net: 8437.50 },
+        { date: '2022-03-30', address: '711 Yonge Street', commission: 2464.90, hst: 308.25, net: 2371.15 },
+        { date: '2022-03-31', address: '54 Timcourt Drive', commission: 9393.75, hst: 1213.06, net: 9331.25 },
+        { date: '2022-04-06', address: '414 First Avenue', commission: 799.30, hst: 99.85, net: 768.05 },
+        { date: '2022-04-08', address: '296 Colborne Street', commission: 5030.00, hst: 645.77, net: 4967.50 },
+        { date: '2022-04-08', address: '514 Johnson Street', commission: 10375.00, hst: 1340.62, net: 10312.50 },
+        { date: '2022-04-11', address: '346 Lescaut Road', commission: 7812.50, hst: 1007.50, net: 7750.00 },
+        { date: '2022-04-22', address: '21 Red Cedar Lane', commission: 14250.00, hst: 1844.37, net: 14187.50 },
+        { date: '2022-05-06', address: '565 Simcoe Avenue', commission: 4218.75, hst: 544.38, net: 4187.50 },
+        { date: '2022-05-20', address: '702 4th Avenue', commission: 3681.25, hst: 474.50, net: 3650.00 },
+        { date: '2022-05-27', address: '338 Tiny Beaches Road N', commission: 13703.49, hst: 1773.32, net: 13640.99 },
+        { date: '2022-05-27', address: '17 Gray Street', commission: 3671.88, hst: 473.28, net: 3640.63 },
+        { date: '2022-06-01', address: '222 Queen Street', commission: 16250.00, hst: 2104.37, net: 16187.50 },
+        { date: '2022-06-22', address: '485 Bayport Boulevard', commission: 19375.00, hst: 2510.62, net: 19312.50 },
+        { date: '2022-06-24', address: '358 Mary Street', commission: 3625.00, hst: 467.19, net: 3593.75 },
+        { date: '2022-07-06', address: '1255 Fuller Avenue', commission: 27587.50, hst: 3570.12, net: 27462.50 },
+        { date: '2022-07-13', address: '246 Spruce Street', commission: 4185.00, hst: 539.99, net: 4153.75 },
+        { date: '2022-07-29', address: '756 Hugel Ave', commission: 6562.50, hst: 843.38, net: 6487.50 },
+        { date: '2022-08-09', address: '26 Duquette Crt', commission: 3046.88, hst: 386.34, net: 2971.88 },
+        { date: '2022-08-12', address: 'Lot 53 Pinecone Ave', commission: 1562.50, hst: 193.38, net: 1487.50 },
+        { date: '2022-08-18', address: '65 Lackie Crescent', commission: 5625.00, hst: 721.50, net: 5550.00 },
+        { date: '2022-08-19', address: '4 Anne St', commission: 7187.50, hst: 924.63, net: 7112.50 },
+        { date: '2022-08-26', address: '101 Thompsons Road F306', commission: 4655.00, hst: 597.02, net: 4592.50 },
+        { date: '2022-08-31', address: '280 Aberdeen Blvd 107', commission: 4912.50, hst: 619.13, net: 4762.50 },
+        { date: '2022-09-06', address: '4961 5th Side Rd', commission: 3332.81, hst: 423.52, net: 3257.81 },
+        { date: '2022-09-22', address: '311 Concession 14 W', commission: 6900.00, hst: 887.25, net: 6825.00 },
+        { date: '2022-09-27', address: '49 James St', commission: 4640.62, hst: 593.53, net: 4565.62 },
+        { date: '2022-10-06', address: '1655 Dunns Line', commission: 2437.50, hst: 307.13, net: 2362.50 },
+        { date: '2022-10-07', address: '115 Palmer St', commission: 2968.75, hst: 376.19, net: 2893.75 },
+        { date: '2022-11-25', address: '296 Colborne St', commission: 8250.00, hst: 1053.00, net: 8100.00 },
+        { date: '2022-12-02', address: '7 Riverwalk Dr', commission: 1627.50, hst: 201.83, net: 1552.50 },
+        { date: '2022-12-07', address: '26 Beatrice Dr', commission: 700.00, hst: 81.25, net: 625.00 },
+        { date: '2022-12-16', address: '253 Lescaut Rd', commission: 7750.00, hst: 997.75, net: 7675.00 },
+        { date: '2022-12-22', address: '420 Lakewood Dr', commission: 12812.50, hst: 1655.88, net: 12737.50 },
+        { date: '2022-12-22', address: '8 Evans St', commission: 6703.13, hst: 861.66, net: 6628.13 },
+      ],
+    },
+  };
+
+  const years = [2025, 2024, 2022];
+  const lifetimeGCI = years.reduce((s, y) => s + yearData[y].totalGCI, 0);
+  const lifetimeEnds = years.reduce((s, y) => s + yearData[y].ends, 0);
+  const lifetimeHST = years.reduce((s, y) => s + yearData[y].totalHST, 0);
+  const fmt = (n) => n.toLocaleString('en-CA', { style: 'currency', currency: 'CAD', minimumFractionDigits: 0, maximumFractionDigits: 0 });
+  const fmt2 = (n) => n.toLocaleString('en-CA', { style: 'currency', currency: 'CAD', minimumFractionDigits: 2 });
+
+  const statBox = (label, value, color) => (
+    <div style={{ flex: 1, background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, padding: '16px 20px', textAlign: 'center' }}>
+      <div style={{ fontSize: 11, fontWeight: 600, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{label}</div>
+      <div style={{ fontSize: 22, fontWeight: 800, color: color || '#111827', marginTop: 4 }}>{value}</div>
+    </div>
+  );
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16, maxWidth: 900 }}>
+      {/* Lifetime Header */}
+      <div style={{ background: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 100%)', borderRadius: 12, padding: '24px 28px', color: '#fff' }}>
+        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.1em', color: '#94a3b8', textTransform: 'uppercase' }}>Lifetime Career Stats</div>
+        <div style={{ fontSize: 28, fontWeight: 800, marginTop: 6 }}>Jonathan Wallace</div>
+        <div style={{ fontSize: 13, color: '#cbd5e1', marginTop: 2 }}>Georgian Bay Real Estate — 2022 to Present</div>
+      </div>
+
+      {/* Big Numbers */}
+      <div style={{ display: 'flex', gap: 12 }}>
+        {statBox('Lifetime Ends', lifetimeEnds, '#ea580c')}
+        {statBox('Total GCI', fmt(lifetimeGCI), '#16a34a')}
+        {statBox('Avg GCI / End', fmt(Math.round(lifetimeGCI / lifetimeEnds)), '#2563eb')}
+        {statBox('Total HST', fmt(lifetimeHST), '#7c3aed')}
+      </div>
+
+      {/* Year by Year */}
+      {years.map(year => {
+        const yd = yearData[year];
+        const isOpen = expandedYear === year;
+        const avgPerDeal = yd.deals.length > 0 ? yd.totalGCI / yd.deals.length : 0;
+        const topDeal = [...yd.deals].sort((a, b) => b.commission - a.commission)[0];
+
+        return (
+          <div key={year} style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 12, overflow: 'hidden' }}>
+            {/* Year Header — clickable */}
+            <div
+              onClick={() => setExpandedYear(isOpen ? null : year)}
+              style={{ display: 'flex', alignItems: 'center', padding: '16px 20px', cursor: 'pointer', gap: 16, background: isOpen ? '#f8fafc' : '#fff' }}
+            >
+              <div style={{ width: 48, height: 48, borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: 16, color: '#fff',
+                background: year === 2025 ? '#16a34a' : year === 2024 ? '#ea580c' : '#6366f1' }}>
+                {String(year).slice(2)}
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 16, fontWeight: 700, color: '#111827' }}>{year}</div>
+                <div style={{ fontSize: 12, color: '#6b7280' }}>{yd.brokerage}</div>
+              </div>
+              <div style={{ textAlign: 'right', marginRight: 12 }}>
+                <div style={{ fontSize: 18, fontWeight: 800, color: '#111827' }}>{fmt(yd.totalGCI)}</div>
+                <div style={{ fontSize: 12, color: '#6b7280' }}>{yd.ends} ends &middot; {yd.deals.length} cheques</div>
+              </div>
+              <ChevronDown size={18} style={{ color: '#9ca3af', transform: isOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }} />
+            </div>
+
+            {/* Year Summary Bar */}
+            <div style={{ display: 'flex', gap: 1, padding: '0 20px 12px', borderBottom: isOpen ? '1px solid #e5e7eb' : 'none' }}>
+              {[
+                { l: 'Avg/Deal', v: fmt(Math.round(avgPerDeal)) },
+                { l: 'HST Collected', v: fmt(yd.totalHST) },
+                { l: 'Top Deal', v: topDeal ? fmt(Math.round(topDeal.commission)) : '—' },
+                { l: 'Top Address', v: topDeal ? topDeal.address.slice(0, 28) : '—' },
+              ].map((s, i) => (
+                <div key={i} style={{ flex: 1, padding: '6px 8px', background: '#f9fafb', borderRadius: 6, textAlign: 'center' }}>
+                  <div style={{ fontSize: 9, fontWeight: 600, color: '#9ca3af', textTransform: 'uppercase' }}>{s.l}</div>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: '#374151', marginTop: 2 }}>{s.v}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* Expanded Deal List */}
+            {isOpen && (
+              <div style={{ maxHeight: 500, overflowY: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                  <thead>
+                    <tr style={{ background: '#f1f5f9', position: 'sticky', top: 0 }}>
+                      <th style={{ padding: '8px 12px', textAlign: 'left', fontWeight: 700, color: '#64748b', fontSize: 10, textTransform: 'uppercase' }}>Date</th>
+                      <th style={{ padding: '8px 12px', textAlign: 'left', fontWeight: 700, color: '#64748b', fontSize: 10, textTransform: 'uppercase' }}>Address</th>
+                      <th style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 700, color: '#64748b', fontSize: 10, textTransform: 'uppercase' }}>Commission</th>
+                      <th style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 700, color: '#64748b', fontSize: 10, textTransform: 'uppercase' }}>HST</th>
+                      <th style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 700, color: '#64748b', fontSize: 10, textTransform: 'uppercase' }}>Net</th>
+                      {year === 2025 && <th style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 700, color: '#64748b', fontSize: 10, textTransform: 'uppercase' }}>Brokerage</th>}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {yd.deals.map((d, i) => {
+                      const dateStr = new Date(d.date + 'T12:00:00').toLocaleDateString('en-CA', { month: 'short', day: 'numeric' });
+                      return (
+                        <tr key={i} style={{ borderBottom: '1px solid #f1f5f9', background: i % 2 === 0 ? '#fff' : '#fafbfc' }}>
+                          <td style={{ padding: '8px 12px', color: '#6b7280', whiteSpace: 'nowrap' }}>{dateStr}</td>
+                          <td style={{ padding: '8px 12px', fontWeight: 600, color: '#111827' }}>{d.address}</td>
+                          <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 600, color: '#111827' }}>{fmt2(d.commission)}</td>
+                          <td style={{ padding: '8px 12px', textAlign: 'right', color: '#6b7280' }}>{fmt2(d.hst)}</td>
+                          <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 600, color: d.net >= 10000 ? '#16a34a' : '#374151' }}>{fmt2(d.net)}</td>
+                          {year === 2025 && <td style={{ padding: '8px 12px', textAlign: 'right', fontSize: 10, color: '#9ca3af' }}>{d.brokerage}</td>}
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                  <tfoot>
+                    <tr style={{ background: '#f8fafc', borderTop: '2px solid #e2e8f0' }}>
+                      <td style={{ padding: '10px 12px', fontWeight: 800, color: '#111827' }}>TOTAL</td>
+                      <td style={{ padding: '10px 12px', fontWeight: 700, color: '#6b7280' }}>{yd.deals.length} transactions</td>
+                      <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 800, color: '#111827' }}>{fmt2(yd.totalGCI)}</td>
+                      <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 700, color: '#6b7280' }}>{fmt2(yd.totalHST)}</td>
+                      <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 800, color: '#16a34a' }}>{fmt2(yd.deals.reduce((s, d) => s + d.net, 0))}</td>
+                      {year === 2025 && <td />}
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            )}
+          </div>
+        );
+      })}
+
+      {/* 2023 Placeholder */}
+      <div style={{ background: '#fff', border: '1px dashed #d1d5db', borderRadius: 12, padding: '20px 24px', textAlign: 'center' }}>
+        <div style={{ fontSize: 14, fontWeight: 600, color: '#9ca3af' }}>2023 — Tax Worksheet Not Yet Uploaded</div>
+        <div style={{ fontSize: 12, color: '#d1d5db', marginTop: 4 }}>Upload your 2023 KW tax worksheet to fill in this year</div>
+      </div>
+
+      {/* Footer note */}
+      <div style={{ fontSize: 11, color: '#9ca3af', textAlign: 'center', padding: 8 }}>
+        Source: KW Experience, KW Co-Elevation &amp; Faris Team tax worksheets &amp; agent earnings reports
+      </div>
+    </div>
+  );
+}
+
 // SYNCS & ROUTINES — Centralized status for all background sync jobs
 // ─────────────────────────────────────────────
 function SyncsSection() {
@@ -6837,6 +7111,7 @@ function SectionContent({ section }) {
     case "sellers": return <SellersSection />;
     case "loo": return <PlaceholderSection title="LOO" icon={FileText} />;
     case "syncs": return <SyncsSection />;
+    case "lifetime": return <LifetimeStats />;
     default: return <PlaceholderSection title={section} icon={FileText} />;
   }
 }
