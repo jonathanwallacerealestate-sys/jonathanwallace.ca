@@ -128,13 +128,30 @@ function useEaEmailTriage() {
     } catch {}
   };
 
+  const deleteThread = async (threadId) => {
+    try {
+      // Optimistically remove from UI
+      const oldThread = threads.find(t => t.threadId === threadId);
+      setThreads(prev => prev.filter(t => t.threadId !== threadId));
+      if (oldThread) {
+        setCounts(prev => {
+          const next = { ...prev };
+          if (next[oldThread.state] !== undefined) next[oldThread.state]--;
+          return next;
+        });
+      }
+      // Trash in Gmail + remove from EA cache
+      await fetch(`/api/ea/thread/${threadId}`, { method: 'DELETE' });
+    } catch {}
+  };
+
   useEffect(() => {
     fetchTriage();
     const interval = setInterval(fetchTriage, 5 * 60 * 1000); // Sweep every 5 min
     return () => clearInterval(interval);
   }, []);
 
-  return { threads, counts, status, lastSweep, fubSentTracked, refresh: fetchTriage, updateThreadState };
+  return { threads, counts, status, lastSweep, fubSentTracked, refresh: fetchTriage, updateThreadState, deleteThread };
 }
 
 // Hook for Claude Stuck ticker
@@ -1976,7 +1993,7 @@ function CallListSection() {
 // ─────────────────────────────────────────────
 function EmailEASection() {
   const eaData = useContext(EaContext);
-  const { threads: allThreads, counts, status, lastSweep, fubSentTracked, refresh, updateThreadState } = eaData || {};
+  const { threads: allThreads, counts, status, lastSweep, fubSentTracked, refresh, updateThreadState, deleteThread } = eaData || {};
   const [selectedThread, setSelectedThread] = useState(null);
   const [viewFilter, setViewFilter] = useState('awaiting_you');
   const [refreshing, setRefreshing] = useState(false);
@@ -2097,6 +2114,10 @@ function EmailEASection() {
                     <CheckCircle2 size={11} /> Done
                   </button>
                 )}
+                {/* Delete — trash in Gmail + remove from dashboard */}
+                <button onClick={(e) => { e.stopPropagation(); if (window.confirm('Delete this email from Gmail?')) { deleteThread?.(tid); setSelectedThread(null); } }} style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 24, height: 24, background: "none", color: "#d1d5db", border: "none", borderRadius: 6, cursor: "pointer", flexShrink: 0, transition: "all 0.15s" }} onMouseEnter={e => { e.currentTarget.style.color = '#ef4444'; e.currentTarget.style.background = '#fef2f2'; }} onMouseLeave={e => { e.currentTarget.style.color = '#d1d5db'; e.currentTarget.style.background = 'none'; }} title="Delete from Gmail">
+                  <X size={13} />
+                </button>
                 {isSelected ? <ChevronUp size={14} color="#9ca3af" /> : <ChevronDown size={14} color="#9ca3af" />}
               </div>
 
@@ -2118,6 +2139,7 @@ function EmailEASection() {
                       <button onClick={() => updateThreadState?.(tid, 'awaiting_you')} style={{ display: "flex", alignItems: "center", gap: 4, background: "#fef2f2", color: "#ef4444", border: "1px solid #fecaca", borderRadius: 6, padding: "6px 10px", fontSize: 11, fontWeight: 600, cursor: "pointer" }}><Reply size={11} /> Reopen</button>
                     )}
                     <a href={`https://mail.google.com/mail/u/0/#inbox/${tid}`} target="_blank" rel="noopener noreferrer" style={{ display: "flex", alignItems: "center", gap: 4, background: "#f3f4f6", color: "#6b7280", border: "1px solid #e5e7eb", borderRadius: 6, padding: "6px 10px", fontSize: 11, fontWeight: 600, cursor: "pointer", textDecoration: "none" }}><ExternalLink size={11} /> Open in Gmail</a>
+                    <button onClick={() => { if (window.confirm('Delete this email from Gmail?')) { deleteThread?.(tid); setSelectedThread(null); } }} style={{ display: "flex", alignItems: "center", gap: 4, background: "#fef2f2", color: "#ef4444", border: "1px solid #fecaca", borderRadius: 6, padding: "6px 10px", fontSize: 11, fontWeight: 600, cursor: "pointer" }}><Trash2 size={11} /> Delete</button>
                   </div>
                 </div>
               )}

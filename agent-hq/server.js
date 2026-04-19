@@ -2195,6 +2195,31 @@ app.post('/api/ea/thread/:threadId/state', (req, res) => {
   res.json({ success: true, threadId, state });
 });
 
+// DELETE /api/ea/thread/:threadId — Trash the email in Gmail and remove from EA dashboard
+app.delete('/api/ea/thread/:threadId', async (req, res) => {
+  const { threadId } = req.params;
+  if (!tokens) return res.json({ success: false, error: 'Gmail not connected' });
+
+  try {
+    const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
+
+    // Trash the entire thread in Gmail (moves to Trash, not permanent delete)
+    await gmail.users.threads.trash({ userId: 'me', id: threadId });
+
+    // Remove from EA thread cache so it disappears from the dashboard
+    if (eaThreadCache.threads[threadId]) {
+      delete eaThreadCache.threads[threadId];
+      saveEaThreads();
+    }
+
+    console.log(`[EA] Trashed thread ${threadId} in Gmail + removed from dashboard`);
+    res.json({ success: true, threadId, action: 'trashed' });
+  } catch (err) {
+    console.error(`[EA] Error trashing thread ${threadId}:`, err.message);
+    res.json({ success: false, error: err.message });
+  }
+});
+
 // ─────────────────────────────────────────────
 // "CLAUDE STUCK, NEEDS ANSWER" TICKER
 // Per framework §12.4 + §13.2: dashboard widget for blocked decisions
