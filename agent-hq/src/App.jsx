@@ -7434,7 +7434,15 @@ export default function Dashboard() {
   const [sidebarOrder, setSidebarOrder] = useState(() => {
     try {
       const saved = localStorage.getItem('agenthq-sidebar-order');
-      if (saved) { const parsed = JSON.parse(saved); if (Array.isArray(parsed) && parsed.length) return parsed; }
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length) {
+          // Append any new sidebar items not in saved order
+          const allIds = sidebarItems.map(i => i.id);
+          const missing = allIds.filter(id => !parsed.includes(id));
+          return [...parsed.filter(id => allIds.includes(id)), ...missing];
+        }
+      }
     } catch {}
     return sidebarItems.map(i => i.id);
   });
