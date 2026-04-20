@@ -809,7 +809,7 @@ function MorningBriefing() {
         </div>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 12 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
         {/* Listing Showings snapshot — LIVE from Gmail */}
         {(() => {
           // Filter to today's and upcoming showings (non-cancelled)
@@ -879,8 +879,6 @@ function MorningBriefing() {
           )}
         </div>
 
-        {/* Call list preview — LIVE from Follow Up Boss */}
-        <CallListPreview />
       </div>
     </Card>
   );
