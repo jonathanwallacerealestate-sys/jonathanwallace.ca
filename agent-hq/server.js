@@ -855,15 +855,8 @@ app.get('/api/priorities/generate', async (req, res) => {
           }));
         } catch { return null; }
       })(),
-      // Showings — pending requests, upcoming confirmed
-      (async () => {
-        if (!tokens) return null;
-        try {
-          const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
-          const r = await gmail.users.messages.list({ userId: 'me', q: 'from:brokerbay subject:(showing request) newer_than:7d', maxResults: 5 });
-          return { pendingCount: (r.data.messages || []).length };
-        } catch { return { pendingCount: 0 }; }
-      })(),
+      // Showings — skipped; handled by the Showings card, not priorities
+      Promise.resolve(null),
     ]);
 
     const contacts = callListData.status === 'fulfilled' ? callListData.value : null;
@@ -877,7 +870,7 @@ app.get('/api/priorities/generate', async (req, res) => {
     const dayName = today.toLocaleDateString('en-US', { weekday: 'long' });
     const dateStr = today.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
     contextParts.push(`Today is ${dayName}, ${dateStr}.`);
-    contextParts.push(`Jonathan Wallace is a high-producing real estate agent in Simcoe County / Georgian Bay, Ontario. He has ~19 active listings, 1 sold conditional, 1 buyer deal approaching closing, and ~6 new listings coming.`);
+    contextParts.push(`Jonathan Wallace is a high-producing real estate agent in Simcoe County / Georgian Bay, Ontario.`);
 
     if (contacts && contacts.length > 0) {
       contextParts.push(`\nFUB CONTACTS (sorted by least recent activity — these people need follow-up):`);
@@ -900,9 +893,8 @@ app.get('/api/priorities/generate', async (req, res) => {
       });
     }
 
-    if (showings) {
-      contextParts.push(`\nSHOWINGS: ${showings.pendingCount} pending showing requests in the last 7 days.`);
-    }
+    // NOTE: Showings are handled separately in the Showings card. Do NOT include them here —
+    // a vague count produces useless AI tasks like "follow up on pending showings."
 
     // Completed tasks from today — so Claude doesn't re-suggest them
     const completedToday = (taskState.doneIds || []);
@@ -933,6 +925,8 @@ CRITICAL RULES — READ CAREFULLY:
 1. Generate EXACTLY 5 tasks. No more.
 2. Every task must target ONE SPECIFIC person, listing, or email. Never say "call 10 people" or "review all listings."
 3. Each task is ONE sentence: the action + the specific target + the reason WHY.
+4. ONLY reference names, emails, phone numbers, and subjects that appear in the CONTEXT above. Never invent details or reference data you don't have.
+5. NEVER suggest showing-related tasks — showings are managed separately and don't belong here.
 
 EXAMPLES OF GOOD TASKS:
 - "Call Jim Beattie (705-555-1234) — hot lead, no activity in 12 days, may be losing interest"
@@ -943,9 +937,12 @@ EXAMPLES OF GOOD TASKS:
 
 EXAMPLES OF BAD TASKS (never do this):
 - "Call ten past clients for check-ins" ← too vague, pick ONE
-- "Review all 19 active listings for price adjustments" ← pick the ONE listing that needs it most
+- "Review all 19 active listings for price adjustments" ← never reference a count of listings
 - "Respond to awaiting emails" ← pick the single most important email
 - "Post on social media this week" ← specify what to post and about which listing
+- "Follow up on pending showing requests" ← showings are handled elsewhere, never suggest this
+- "Confirm showing is still active" ← never suggest showing-related tasks
+- Any task that invents details not present in the CONTEXT above ← only use real data
 
 HOW TO PICK:
 - Task 1: The single most urgent money-protecting action (deal at risk, deadline, or high-priority email)
