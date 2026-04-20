@@ -577,25 +577,52 @@ function MorningCalendarSnapshot() {
   const displayEvents = status.connected && events.length > 0 ? events : null;
   const fallbackEvents = todayCalendar;
 
+  // Group events by day for 3-day view
+  const groupByDay = (evts) => {
+    const groups = {};
+    const now = new Date();
+    evts.forEach(ev => {
+      const evDate = new Date(ev.start);
+      const dateKey = evDate.toLocaleDateString('en-CA', { timeZone: 'America/Toronto' });
+      if (!groups[dateKey]) groups[dateKey] = [];
+      groups[dateKey].push(ev);
+    });
+    // Sort keys and label them
+    const todayKey = now.toLocaleDateString('en-CA', { timeZone: 'America/Toronto' });
+    const tmrw = new Date(now); tmrw.setDate(tmrw.getDate() + 1);
+    const tmrwKey = tmrw.toLocaleDateString('en-CA', { timeZone: 'America/Toronto' });
+    return Object.entries(groups).sort(([a], [b]) => a.localeCompare(b)).map(([key, evts]) => ({
+      label: key === todayKey ? 'Today' : key === tmrwKey ? 'Tomorrow' : new Date(key + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' }),
+      events: evts,
+    }));
+  };
+
+  const dayGroups = displayEvents ? groupByDay(displayEvents) : null;
+
   return (
     <div style={{ background: "#fff", borderRadius: 10, padding: 14, border: "1px solid #fde68a" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 10 }}>
         <Calendar size={14} color="#d97706" />
         <span style={{ fontSize: 12, fontWeight: 700, color: "#92400e" }}>
-          {displayEvents ? events.length : fallbackEvents.length} event{(displayEvents ? events.length : fallbackEvents.length) !== 1 ? "s" : ""} today
+          {displayEvents ? events.length : fallbackEvents.length} event{(displayEvents ? events.length : fallbackEvents.length) !== 1 ? "s" : ""} — 3 day view
         </span>
         {status.connected
           ? <span style={{ fontSize: 9, fontWeight: 600, color: "#059669", background: "#ecfdf5", padding: "1px 5px", borderRadius: 3 }}>GCal live</span>
           : <span style={{ fontSize: 9, fontWeight: 600, color: "#d97706", background: "#fef3c7", padding: "1px 5px", borderRadius: 3 }}>GCal offline</span>
         }
       </div>
-      {displayEvents ? displayEvents.slice(0, 5).map((ev, i) => (
-        <div key={ev.id || i} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-          <div style={{ width: 3, height: 20, borderRadius: 2, background: "#2563eb", flexShrink: 0 }} />
-          <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 11, fontWeight: 600, color: "#374151" }}>{ev.title}</div>
-            <div style={{ fontSize: 10, color: "#9ca3af" }}>{ev.allDay ? "All day" : formatTime(ev.start)}</div>
-          </div>
+      {dayGroups ? dayGroups.map((group, gi) => (
+        <div key={gi} style={{ marginBottom: gi < dayGroups.length - 1 ? 8 : 0 }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: group.label === 'Today' ? '#d97706' : '#6b7280', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 4, marginTop: gi > 0 ? 4 : 0 }}>{group.label}</div>
+          {group.events.map((ev, i) => (
+            <div key={ev.id || i} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+              <div style={{ width: 3, height: 18, borderRadius: 2, background: group.label === 'Today' ? "#2563eb" : "#94a3b8", flexShrink: 0 }} />
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 11, fontWeight: 600, color: "#374151" }}>{ev.title}</div>
+                <div style={{ fontSize: 10, color: "#9ca3af" }}>{ev.allDay ? "All day" : formatTime(ev.start)}</div>
+              </div>
+            </div>
+          ))}
         </div>
       )) : fallbackEvents.map((ev, i) => (
         <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>

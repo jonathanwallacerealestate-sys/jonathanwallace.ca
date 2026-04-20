@@ -449,15 +449,23 @@ app.get('/api/calendar/events', async (req, res) => {
   try {
     const calendar = google.calendar({ version: 'v3', auth: oauth2Client });
 
-    // Default: today's events (in Eastern Time, since Railway runs UTC)
-    const { startISO, endISO } = getEasternDayRange();
+    // Default: today + 2 trailing days (3 days total) in Eastern Time
+    const { startISO } = getEasternDayRange();
+    const { endISO } = getEasternDayRange(2); // End of day+2
 
     const timeMin = req.query.timeMin || startISO;
     const timeMax = req.query.timeMax || endISO;
 
     const allEvents = await fetchAllCalendarEvents(calendar, timeMin, timeMax, 50);
 
-    const events = allEvents.map(ev => ({
+    // Filter out noise events (recurring links, placeholder entries)
+    const EXCLUDED_EVENT_TITLES = ['daily meeting link'];
+    const filteredEvents = allEvents.filter(ev => {
+      const title = (ev.summary || '').toLowerCase();
+      return !EXCLUDED_EVENT_TITLES.some(ex => title.includes(ex));
+    });
+
+    const events = filteredEvents.map(ev => ({
       id: ev.id,
       title: ev.summary || '(No title)',
       description: ev.description || '',
@@ -484,7 +492,8 @@ app.get('/api/calendar/events', async (req, res) => {
         oauth2Client.setCredentials(credentials);
         // Retry the request — fetch from all calendars
         const calendar = google.calendar({ version: 'v3', auth: oauth2Client });
-        const { startISO: retryStart, endISO: retryEnd } = getEasternDayRange();
+        const { startISO: retryStart } = getEasternDayRange();
+        const { endISO: retryEnd } = getEasternDayRange(2);
         const retryEvents = await fetchAllCalendarEvents(calendar,
           req.query.timeMin || retryStart,
           req.query.timeMax || retryEnd, 50);
