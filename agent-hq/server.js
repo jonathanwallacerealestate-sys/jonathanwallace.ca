@@ -1435,6 +1435,22 @@ app.get('/api/gmail/sent', async (req, res) => {
   }
 });
 
+// GET /api/gmail/brokerbay/debug — Debug: show raw body of latest BrokerBay confirmed showing
+app.get('/api/gmail/brokerbay/debug', async (req, res) => {
+  if (!tokens) return res.json({ status: 'disconnected' });
+  try {
+    const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
+    const listRes = await gmail.users.messages.list({ userId: 'me', q: 'from:brokerbay.com subject:"Showing Confirmed" newer_than:7d', maxResults: 1 });
+    const msg = (listRes.data.messages || [])[0];
+    if (!msg) return res.json({ error: 'No confirmed showing emails found' });
+    const detail = await gmail.users.messages.get({ userId: 'me', id: msg.id, format: 'full' });
+    const subject = (detail.data.payload.headers || []).find(h => h.name === 'Subject')?.value || '';
+    const body = getEmailBody(detail.data.payload);
+    const parsed = parseBrokerBayShowingEmail(body, subject);
+    res.json({ subject, parsed, bodyPreview: (body || '').substring(0, 3000) });
+  } catch (err) { res.json({ error: err.message }); }
+});
+
 // GET /api/gmail/brokerbay — All BrokerBay emails: showings, confirmations, cancellations, feedback
 app.get('/api/gmail/brokerbay', async (req, res) => {
   if (!tokens) return res.json({ status: 'disconnected', data: {} });

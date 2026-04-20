@@ -782,6 +782,7 @@ function MissedEmailsBanner() {
 
 function MorningBriefing() {
   const eaData = useContext(EaContext);
+  const { showings: briefShowings } = useBrokerBayShowings();
   const awaitingYou = eaData?.threads?.filter(t => t.state === 'awaiting_you') || [];
   const urgentEmails = awaitingYou.length > 0 ? awaitingYou.slice(0, 5) : emailInboxFallback;
   const todayKey = new Date().toISOString().slice(0, 10); // resets daily
@@ -810,22 +811,43 @@ function MorningBriefing() {
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 12 }}>
         {/* Listing Showings snapshot — LIVE from Gmail */}
-        <div style={{ background: "#fff", borderRadius: 10, padding: 14, border: "1px solid #fde68a" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 10 }}>
-            <MapPin size={14} color="#e11d48" />
-            <span style={{ fontSize: 12, fontWeight: 700, color: "#92400e" }}>Showings</span>
-            <span style={{ fontSize: 9, fontWeight: 700, color: "#fff", background: "#10b981", padding: "1px 5px", borderRadius: 3 }}>LIVE</span>
-          </div>
-          {brokerBayShowings.filter(s => s.date === "Today" && s.status !== "cancelled").slice(0, 3).map((s, i) => (
-            <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-              <div style={{ width: 3, height: 20, borderRadius: 2, background: s.status === "completed" ? "#2563eb" : s.status === "confirmed" ? "#059669" : "#d97706", flexShrink: 0 }} />
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 11, fontWeight: 600, color: "#374151", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{s.property.split(",")[0]}</div>
-                <div style={{ fontSize: 10, color: "#9ca3af" }}>{s.date} &middot; {s.time} &middot; {s.status}</div>
+        {(() => {
+          // Filter to today's and upcoming showings (non-cancelled)
+          const now = new Date();
+          const todayStr = now.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+          const activeShowings = briefShowings.filter(s => s.status !== "cancelled");
+          const todayShowings = activeShowings.filter(s => s.date === todayStr);
+          // If none today, show most recent confirmed showings
+          const displayShowings = todayShowings.length > 0 ? todayShowings : activeShowings;
+          const showingLabel = todayShowings.length > 0
+            ? `${todayShowings.length} today`
+            : `${activeShowings.length} this month`;
+          return (
+            <div style={{ background: "#fff", borderRadius: 10, padding: 14, border: "1px solid #fde68a" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 10 }}>
+                <MapPin size={14} color="#e11d48" />
+                <span style={{ fontSize: 12, fontWeight: 700, color: "#92400e" }}>Showings</span>
+                {activeShowings.length > 0 && <span style={{ fontSize: 9, fontWeight: 700, color: "#fff", background: "#10b981", padding: "1px 5px", borderRadius: 3 }}>LIVE</span>}
               </div>
+              {displayShowings.length > 0 ? (
+                <>
+                  <div style={{ fontSize: 10, color: "#92400e", fontWeight: 600, marginBottom: 6 }}>{showingLabel}</div>
+                  {displayShowings.slice(0, 3).map((s, i) => (
+                    <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                      <div style={{ width: 3, height: 20, borderRadius: 2, background: s.status === "confirmed" ? "#059669" : s.status === "requested" ? "#d97706" : "#2563eb", flexShrink: 0 }} />
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 11, fontWeight: 600, color: "#374151", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{s.property.split(",")[0]}</div>
+                        <div style={{ fontSize: 10, color: "#9ca3af" }}>{s.time || s.date} · {s.buyerAgent || s.status}</div>
+                      </div>
+                    </div>
+                  ))}
+                </>
+              ) : (
+                <div style={{ fontSize: 11, color: "#9ca3af", textAlign: "center", padding: "8px 0" }}>No showings found</div>
+              )}
             </div>
-          ))}
-        </div>
+          );
+        })()}
 
         {/* Calendar snapshot */}
         <MorningCalendarSnapshot />
