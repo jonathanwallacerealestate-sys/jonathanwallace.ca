@@ -1795,9 +1795,10 @@ const JONATHAN_EMAILS = [
 // subject: regex that MUST match to filter (null = all emails from this sender)
 // subjectExclude: regex — if it matches, the email is NOT filtered (overrides subject match)
 const AUTO_ARCHIVE_PATTERNS = [
-  // BrokerBay — ALL showing emails (requests, confirmations, cancellations, modifications)
+  // BrokerBay — ALL showing emails (requests, confirmations, cancellations, modifications, feedback)
   // These are already tracked in the Showings card via /api/gmail/brokerbay
   { from: 'info@mg.brokerbay.com', subject: null, action: 'archive_file', label: 'property' },
+  { from: 'mg2.brokerbay.com', subject: null, action: 'archive', label: null },
   { from: 'brokerbay.com', subject: null, action: 'archive', label: null },
   // Netlify — deployment notifications, not actionable
   { from: 'netlify', subject: null, action: 'archive', label: null },
@@ -1862,6 +1863,16 @@ function classifySenderType(email) {
 // Check if an email matches auto-archive patterns
 function shouldAutoArchive(fromEmail, subject) {
   const from = (fromEmail || '').toLowerCase();
+  const subj = (subject || '').toLowerCase();
+
+  // Subject-only rules: BrokerBay showing emails (any sender)
+  // These are tracked in the Showings card — never show in Email AI
+  if (/^showing (confirmed|request|cancel|modified|feedback|accepted)/i.test(subject) ||
+      /^feedback submitted/i.test(subject) ||
+      /^showing time change/i.test(subject)) {
+    return { from: 'brokerbay-subject', action: 'archive', label: null };
+  }
+
   for (const pattern of AUTO_ARCHIVE_PATTERNS) {
     if (from.includes(pattern.from.toLowerCase())) {
       // Check subject inclusion filter (if set, subject must match)
