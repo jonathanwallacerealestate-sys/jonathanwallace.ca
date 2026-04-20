@@ -921,35 +921,44 @@ app.get('/api/priorities/generate', async (req, res) => {
     // Call Claude to generate prioritized task list
     const msg = await anthropic.messages.create({
       model: 'claude-haiku-4-5-20251001',
-      max_tokens: 1200,
+      max_tokens: 800,
       messages: [{
         role: 'user',
-        content: `You are Jonathan Wallace's AI business assistant. Your job is to generate his priority task list for today.
+        content: `You are Jonathan Wallace's AI business assistant. Generate his TOP 5 priorities for today.
 
 CONTEXT:
 ${contextBlock}
 
-RULES:
-1. Generate EXACTLY 10 tasks, ranked from most urgent/impactful to least.
-2. Every task must be specific and actionable — include names, phone numbers, addresses, subjects when available.
-3. Categories to cover (aim for variety across these):
-   - DEALS: Active transaction tasks (conditions, inspections, closings, offers)
-   - LEADS: Follow up with stale contacts, call hot leads, respond to new inquiries
-   - EMAIL: Reply to specific emails awaiting response
-   - MARKETING: Post on social media (2x/week goal), create listing content, video walkthroughs
-   - PROSPECTING: Past client check-ins, expired listing outreach, sphere of influence calls
-   - STRATEGY: Database cleanup, review monthly goals, plan campaigns, review market stats
-4. Top 3 should be the most urgent money-making or deal-protecting tasks.
-5. Items 4-6 should be important business-building activities.
-6. Items 7-10 should be growth activities, marketing, or strategic thinking.
-7. If there are emails awaiting reply, at least one should be in the top 5.
-8. If there are stale contacts (>7 days for hot, >14 days for warm), include follow-up tasks.
-9. Always include at least one marketing task and one prospecting task.
-10. Never suggest tasks that sound generic — always tie to real data from the context above.
+CRITICAL RULES — READ CAREFULLY:
+1. Generate EXACTLY 5 tasks. No more.
+2. Every task must target ONE SPECIFIC person, listing, or email. Never say "call 10 people" or "review all listings."
+3. Each task is ONE sentence: the action + the specific target + the reason WHY.
+
+EXAMPLES OF GOOD TASKS:
+- "Call Jim Beattie (705-555-1234) — hot lead, no activity in 12 days, may be losing interest"
+- "Reply to Sarah Chen's email about 123 King St conditional waiver — she's waiting on your approval"
+- "Price-check 45 Maple Dr — 38 days on market with only 2 showings, consider $15K reduction"
+- "Shoot a 30-second walkthrough reel at 99 Bayshore — your newest listing has no video content yet"
+- "Check in with Mike & Lisa (past clients, closed 2024) — anniversary of their purchase is this week"
+
+EXAMPLES OF BAD TASKS (never do this):
+- "Call ten past clients for check-ins" ← too vague, pick ONE
+- "Review all 19 active listings for price adjustments" ← pick the ONE listing that needs it most
+- "Respond to awaiting emails" ← pick the single most important email
+- "Post on social media this week" ← specify what to post and about which listing
+
+HOW TO PICK:
+- Task 1: The single most urgent money-protecting action (deal at risk, deadline, or high-priority email)
+- Task 2: The single most important follow-up call (pick the contact with oldest last activity or hottest stage)
+- Task 3: The one email that matters most right now
+- Task 4: The one listing that needs attention (most days on market, fewest showings, or missing content)
+- Task 5: One relationship-building or marketing action tied to a specific person or property
+
+If the data doesn't support a category, skip it and double up on another. Quality over coverage.
 
 OUTPUT FORMAT:
-Return a JSON array of exactly 10 objects. Each object has:
-- "text": The task description (specific, actionable, 1 sentence)
+Return a JSON array of exactly 5 objects:
+- "text": One specific, actionable sentence
 - "category": One of "deal", "lead", "email", "marketing", "prospecting", "strategy"
 
 Return ONLY the JSON array, no other text.`
@@ -1018,40 +1027,29 @@ function generateRuleBasedPriorities(contacts, emails, calendar, showings) {
     list.push({ id: id++, text: `Reply to ${top.from} — ${top.subject}`, category: 'email', categoryColor: catColors.email, done: false, rank: list.length + 1 });
   }
 
-  // Stale contacts
+  // Stale contact — pick the single most overdue one
   if (contacts && contacts.length > 0) {
-    contacts.slice(0, 3).forEach(c => {
-      list.push({ id: id++, text: `Follow up with ${c.name} (${c.stage}) — ${c.phone || 'no phone'}`, category: 'lead', categoryColor: catColors.lead, done: false, rank: list.length + 1 });
-    });
+    const c = contacts[0];
+    const daysAgo = c.lastActivity ? Math.floor((Date.now() - new Date(c.lastActivity).getTime()) / 86400000) : null;
+    const reason = daysAgo ? `no activity in ${daysAgo} days` : 'no recent activity';
+    list.push({ id: id++, text: `Call ${c.name}${c.phone ? ' (' + c.phone + ')' : ''} — ${c.stage}, ${reason}`, category: 'lead', categoryColor: catColors.lead, done: false, rank: list.length + 1 });
   }
 
-  // Calendar prep
+  // Calendar prep — next upcoming event
   if (calendar && calendar.length > 0) {
     const next = calendar[0];
-    list.push({ id: id++, text: `Prepare for: ${next.summary}`, category: 'deal', categoryColor: catColors.deal, done: false, rank: list.length + 1 });
+    list.push({ id: id++, text: `Prepare for: ${next.summary}${next.location ? ' at ' + next.location : ''}`, category: 'deal', categoryColor: catColors.deal, done: false, rank: list.length + 1 });
   }
 
-  // Marketing
-  list.push({ id: id++, text: 'Post a listing highlight or market update on Instagram and Google Business', category: 'marketing', categoryColor: catColors.marketing, done: false, rank: list.length + 1 });
+  // Marketing — specific
+  list.push({ id: id++, text: 'Shoot a 30-second walkthrough reel for your newest listing', category: 'marketing', categoryColor: catColors.marketing, done: false, rank: list.length + 1 });
 
-  // Prospecting
-  list.push({ id: id++, text: 'Call 3 past clients — check in and ask for referrals', category: 'prospecting', categoryColor: catColors.prospecting, done: false, rank: list.length + 1 });
-
-  // Strategy
-  list.push({ id: id++, text: 'Review this week\'s GCI progress against monthly target', category: 'strategy', categoryColor: catColors.strategy, done: false, rank: list.length + 1 });
-  list.push({ id: id++, text: 'Clean up 10 contacts in FUB — add tags, update stages', category: 'strategy', categoryColor: catColors.strategy, done: false, rank: list.length + 1 });
-
-  // More emails
+  // Second email if available
   if (emails && emails.length > 1) {
     list.push({ id: id++, text: `Reply to ${emails[1].from} — ${emails[1].subject}`, category: 'email', categoryColor: catColors.email, done: false, rank: list.length + 1 });
   }
 
-  // Pad to 10
-  while (list.length < 10) {
-    list.push({ id: id++, text: 'Review new listings on REALM for buyer matches', category: 'prospecting', categoryColor: catColors.prospecting, done: false, rank: list.length + 1 });
-  }
-
-  return list.slice(0, 10);
+  return list.slice(0, 5);
 }
 
 // ─────────────────────────────────────────────
