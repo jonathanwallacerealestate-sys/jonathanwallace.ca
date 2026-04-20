@@ -1773,6 +1773,30 @@ const EA_STUCK_PATH = path.join(__dirname, '.ea-stuck-queue.json');
 let eaThreadCache = { threads: {}, lastSweep: null, sweepCount: 0 };
 let eaStuckQueue = [];
 
+// Gmail label for durable "Done" state — survives deploys and re-inbox events
+const EA_DONE_LABEL_NAME = 'AgentHQ-Done';
+let eaDoneLabelId = null;
+
+async function getOrCreateDoneLabel(gmail) {
+  if (eaDoneLabelId) return eaDoneLabelId;
+  try {
+    const labels = await gmail.users.labels.list({ userId: 'me' });
+    const existing = (labels.data.labels || []).find(l => l.name === EA_DONE_LABEL_NAME);
+    if (existing) { eaDoneLabelId = existing.id; return eaDoneLabelId; }
+    // Create label
+    const created = await gmail.users.labels.create({
+      userId: 'me',
+      requestBody: { name: EA_DONE_LABEL_NAME, labelListVisibility: 'labelHide', messageListVisibility: 'hide' },
+    });
+    eaDoneLabelId = created.data.id;
+    console.log(`[EA] Created Gmail label "${EA_DONE_LABEL_NAME}" (${eaDoneLabelId})`);
+    return eaDoneLabelId;
+  } catch (err) {
+    console.error(`[EA] Failed to get/create Done label: ${err.message}`);
+    return null;
+  }
+}
+
 function loadEaState() {
   try {
     if (fs.existsSync(EA_THREADS_PATH)) eaThreadCache = JSON.parse(fs.readFileSync(EA_THREADS_PATH, 'utf8'));
@@ -1910,10 +1934,14 @@ app.get('/api/ea/triage', async (req, res) => {
     const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
     const days = parseInt(req.query.days) || 14;
 
-    // Step 1: Fetch inbox threads (not individual messages)
+    // Ensure Done label exists for filtering
+    await getOrCreateDoneLabel(gmail);
+
+    // Step 1: Fetch inbox threads — exclude threads already marked Done via label
+    const doneFilter = eaDoneLabelId ? ` -label:${EA_DONE_LABEL_NAME}` : '';
     const inboxRes = await gmail.users.threads.list({
       userId: 'me',
-      q: `in:inbox newer_than:${days}d`,
+      q: `in:inbox newer_than:${days}d${doneFilter}`,
       maxResults: 80,
     });
     const inboxThreads = inboxRes.data.threads || [];
@@ -2195,10 +2223,14 @@ async function runScheduledSweep(trigger = 'scheduled') {
     const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
     const days = 14;
 
-    // Step 1: Fetch inbox threads
+    // Ensure Done label exists for filtering
+    await getOrCreateDoneLabel(gmail);
+
+    // Step 1: Fetch inbox threads — exclude threads already marked Done via label
+    const sweepDoneFilter = eaDoneLabelId ? ` -label:${EA_DONE_LABEL_NAME}` : '';
     const inboxRes = await gmail.users.threads.list({
       userId: 'me',
-      q: `in:inbox newer_than:${days}d`,
+      q: `in:inbox newer_than:${days}d${sweepDoneFilter}`,
       maxResults: 80,
     });
     const inboxThreads = inboxRes.data.threads || [];
@@ -2537,19 +2569,23 @@ app.post('/api/ea/thread/:threadId/state', async (req, res) => {
   eaThreadCache.threads[threadId].state = state;
   if (state === 'closed') {
     eaThreadCache.threads[threadId].closedAt = Date.now();
-    // Also archive in Gmail — remove from inbox so it survives server restarts.
-    // Without this, every deploy wipes the state file and closed threads reappear.
+    // Apply AgentHQ-Done label + remove from inbox.
+    // The label is the durable marker — survives deploys and re-inbox events.
+    // Even if a new message arrives on the thread, the label exclusion in the
+    // query prevents it from showing in Email AI.
     if (tokens) {
       try {
         const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
+        const labelId = await getOrCreateDoneLabel(gmail);
+        const addLabelIds = labelId ? [labelId] : [];
         await gmail.users.threads.modify({
           userId: 'me',
           id: threadId,
-          requestBody: { removeLabelIds: ['INBOX'] },
+          requestBody: { removeLabelIds: ['INBOX'], addLabelIds },
         });
-        console.log(`[EA] Thread ${threadId} archived in Gmail (Done clicked)`);
+        console.log(`[EA] Thread ${threadId} archived + labeled Done in Gmail`);
       } catch (archErr) {
-        console.log(`[EA] Gmail archive failed for ${threadId}: ${archErr.message}`);
+        console.log(`[EA] Gmail archive/label failed for ${threadId}: ${archErr.message}`);
         // Non-fatal — state is still saved locally
       }
     }
