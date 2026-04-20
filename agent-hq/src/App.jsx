@@ -634,15 +634,6 @@ function MorningCalendarSnapshot() {
           </div>
         </div>
       ))}
-      {!status.connected && (
-        <button onClick={() => { window.location.href = '/api/auth/google'; }} style={{
-          marginTop: 6, background: "linear-gradient(135deg, #2563eb, #1d4ed8)", color: "#fff", border: "none",
-          padding: "6px 12px", borderRadius: 6, fontSize: 10, fontWeight: 700, cursor: "pointer",
-          display: "flex", alignItems: "center", gap: 4, width: "100%", justifyContent: "center",
-        }}>
-          <RefreshCw size={10} /> Reconnect to Google
-        </button>
-      )}
     </div>
   );
 }
@@ -682,6 +673,48 @@ function CallListPreview() {
 
 // ─── MISSED EMAILS RECOVERY BANNER ───
 // Shows up after Gmail reconnects from downtime, with all emails that came in while offline
+// ─────────────────────────────────────────────
+// GOOGLE CONNECTION BANNER — single reconnect point for Calendar + Gmail
+// ─────────────────────────────────────────────
+function GoogleConnectionBanner() {
+  const [status, setStatus] = useState(null);
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch('/api/calendar/status');
+        const data = await res.json();
+        setStatus(data);
+      } catch { setStatus({ connected: false, configured: false }); }
+    })();
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch('/api/calendar/status');
+        const data = await res.json();
+        setStatus(data);
+      } catch {}
+    }, 5 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, []);
+  if (!status || status.connected) return null;
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 16px", borderRadius: 10, background: "#fffbeb", border: "1px solid #fde68a", marginBottom: 12 }}>
+      <AlertTriangle size={16} color="#d97706" />
+      <div style={{ flex: 1 }}>
+        <span style={{ fontSize: 12, fontWeight: 600, color: "#92400e" }}>Google disconnected</span>
+        <span style={{ fontSize: 11, color: "#b45309", marginLeft: 8 }}>Calendar, Gmail, and Email AI need a reconnect.</span>
+      </div>
+      <button onClick={() => { window.location.href = '/api/auth/google'; }} style={{
+        background: "linear-gradient(135deg, #2563eb, #1d4ed8)", color: "#fff", border: "none",
+        padding: "8px 18px", borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: "pointer",
+        display: "flex", alignItems: "center", gap: 6, whiteSpace: "nowrap",
+        boxShadow: "0 2px 8px rgba(37,99,235,0.3)",
+      }}>
+        <RefreshCw size={12} /> Reconnect to Google
+      </button>
+    </div>
+  );
+}
+
 function MissedEmailsBanner() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -900,9 +933,7 @@ function MorningBriefing() {
             </div>
           )) : (
             <div style={{ textAlign: "center", padding: "8px 0" }}>
-              <AlertTriangle size={16} color="#f59e0b" style={{ margin: "0 auto 6px" }} />
-              <div style={{ fontSize: 11, color: "#92400e", fontWeight: 600, marginBottom: 6 }}>Gmail disconnected</div>
-              <a href="/api/auth/google" style={{ fontSize: 10, color: "#2563eb", textDecoration: "underline" }}>Reconnect to Google</a>
+              <div style={{ fontSize: 11, color: "#9ca3af" }}>Gmail offline — reconnect above</div>
             </div>
           )}
         </div>
@@ -2112,10 +2143,7 @@ function EmailEASection() {
           <div style={{ textAlign: "center", padding: 40 }}>
             <AlertTriangle size={24} color="#f59e0b" style={{ margin: "0 auto 10px" }} />
             <div style={{ fontSize: 14, fontWeight: 600, color: "#374151", marginBottom: 6 }}>Gmail disconnected</div>
-            <div style={{ fontSize: 12, color: "#9ca3af", marginBottom: 12 }}>Session expired — reconnect to see your email threads.</div>
-            <a href="/api/auth/google" style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 20px", background: "#2563eb", color: "#fff", borderRadius: 8, fontSize: 12, fontWeight: 600, textDecoration: "none" }}>
-              <RefreshCw size={13} /> Reconnect to Google
-            </a>
+            <div style={{ fontSize: 12, color: "#9ca3af" }}>Use the Reconnect to Google banner at the top of the page.</div>
           </div>
         )}
         {threads.length === 0 && isLive && (
@@ -2526,28 +2554,11 @@ function CalendarSection() {
         </div>
       </div>
 
-      {/* Connection Status Banner */}
+      {/* Connection status — reconnect banner is at page top */}
       {!gcalStatus.connected && !loading && (
-        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 14px", borderRadius: 10, background: "#fffbeb", border: "1px solid #fde68a", marginBottom: 12 }}>
-          <AlertTriangle size={16} color="#d97706" />
-          <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 12, fontWeight: 600, color: "#92400e" }}>Google disconnected</div>
-            <div style={{ fontSize: 11, color: "#b45309" }}>
-              {gcalStatus.configured
-                ? "Session expired — one click to reconnect."
-                : "Set up OAuth credentials in Railway, then connect."}
-            </div>
-          </div>
-          {gcalStatus.configured && (
-            <button onClick={reconnect} style={{
-              background: "linear-gradient(135deg, #2563eb, #1d4ed8)", color: "#fff", border: "none",
-              padding: "8px 16px", borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: "pointer",
-              display: "flex", alignItems: "center", gap: 6, whiteSpace: "nowrap",
-              boxShadow: "0 2px 8px rgba(37,99,235,0.3)",
-            }}>
-              <RefreshCw size={12} /> Reconnect to Google
-            </button>
-          )}
+        <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 10px", borderRadius: 6, background: "#fffbeb", border: "1px solid #fde68a", marginBottom: 12 }}>
+          <AlertTriangle size={13} color="#d97706" />
+          <span style={{ fontSize: 11, color: "#92400e" }}>Google disconnected — use the banner at the top to reconnect.</span>
         </div>
       )}
 
@@ -7807,6 +7818,9 @@ export default function Dashboard() {
 
         {/* Content */}
         <div style={{ flex: 1, overflowY: "auto", padding: 22 }}>
+          {/* Google reconnect banner — single place for all Google services */}
+          <GoogleConnectionBanner />
+
           {/* Hour of Power — always visible */}
           <HourOfPowerBar />
 
