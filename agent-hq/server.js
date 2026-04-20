@@ -1447,7 +1447,9 @@ app.get('/api/gmail/brokerbay/debug', async (req, res) => {
     const subject = (detail.data.payload.headers || []).find(h => h.name === 'Subject')?.value || '';
     const body = getEmailBody(detail.data.payload);
     const parsed = parseBrokerBayShowingEmail(body, subject);
-    res.json({ subject, parsed, bodyPreview: (body || '').substring(0, 3000) });
+    // Strip HTML to get readable text
+    const textContent = (body || '').replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim();
+    res.json({ subject, parsed, bodyLength: (body || '').length, textContent, bodyPreview: (body || '').substring(0, 15000) });
   } catch (err) { res.json({ error: err.message }); }
 });
 
