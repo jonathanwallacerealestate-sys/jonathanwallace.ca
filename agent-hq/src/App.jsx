@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo, createContext, useContext } from "react";
+import { useState, useEffect, useRef, useMemo, createContext, useContext, Fragment } from "react";
 import {
   Mail, Users, Calendar, Target, DollarSign, User, Dumbbell,
   UtensilsCrossed, Megaphone, BookOpen, Briefcase, Clock, Settings, Bell,
@@ -347,6 +347,7 @@ const sidebarItems = [
   { id: "marketing", label: "Marketing", icon: Megaphone, badge: null },
   { id: "learning", label: "Learning", icon: BookOpen, badge: null },
   { id: "listing-form", label: "Listing Form", icon: ClipboardList, badge: null },
+  { id: "contracts", label: "Contracts (APS)", icon: FileText, badge: null },
   { id: "sellers", label: "Sellers", icon: Briefcase, badge: 3 },
   { id: "loo", label: "LOO", icon: FileText, badge: null },
   { id: "syncs", label: "Syncs & Routines", icon: RotateCw, badge: null },
@@ -7427,6 +7428,237 @@ function SyncsSection() {
   );
 }
 
+// ─────────────────────────────────────────────
+// CONTRACTS (APS) — manual PDF upload + milestone task creation
+// Per framework/skills/contract-milestones.md
+// ─────────────────────────────────────────────
+function ContractsSection() {
+  const [deals, setDeals] = useState([]);
+  const [uploading, setUploading] = useState(false);
+  const [uploadMsg, setUploadMsg] = useState(null);
+  const [expandedId, setExpandedId] = useState(null);
+  const fileRef = useRef(null);
+
+  const loadDeals = async () => {
+    try {
+      const res = await fetch('/api/aps/deals');
+      const data = await res.json();
+      setDeals(data.deals || []);
+    } catch (e) { console.error('[APS UI] load failed:', e); }
+  };
+
+  useEffect(() => { loadDeals(); }, []);
+
+  const handleUpload = async (file) => {
+    if (!file) return;
+    setUploading(true);
+    setUploadMsg({ type: 'info', text: `Parsing ${file.name}… (5–15s)` });
+    try {
+      const fd = new FormData();
+      fd.append('pdf', file);
+      const res = await fetch('/api/aps/upload', { method: 'POST', body: fd });
+      const data = await res.json();
+      if (!data.success) {
+        setUploadMsg({ type: 'error', text: data.error || 'Parse failed' });
+      } else if (data.blocked) {
+        setUploadMsg({ type: 'warn', text: `Parsed but blocked: ${data.blockReasons.length} issue(s) — sent to Claude Stuck ticker` });
+      } else {
+        setUploadMsg({ type: 'ok', text: `Parsed + ${data.tasksCreated} FUB tasks created` });
+      }
+      await loadDeals();
+      setTimeout(() => setUploadMsg(null), 8000);
+    } catch (e) {
+      setUploadMsg({ type: 'error', text: e.message });
+    }
+    setUploading(false);
+    if (fileRef.current) fileRef.current.value = '';
+  };
+
+  const deleteDeal = async (id) => {
+    if (!confirm('Delete this parsed APS? FUB tasks already created will NOT be removed.')) return;
+    await fetch(`/api/aps/deals/${id}`, { method: 'DELETE' });
+    await loadDeals();
+  };
+
+  const msgColor = { ok: '#10b981', warn: '#f59e0b', error: '#dc2626', info: '#2563eb' };
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <Card>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+          <FileText size={22} color="#c8a96e" />
+          <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>Contracts — APS Upload</h2>
+        </div>
+        <p style={{ fontSize: 13, color: '#6b7280', margin: '0 0 12px', lineHeight: 1.5 }}>
+          Drop an OREA Form 100, Amendment, Waiver, or Notice of Fulfillment PDF. Claude reads every page, extracts buyer/seller/prices/dates/conditions, and (if nothing is ambiguous) creates FUB reminder tasks for every milestone. If anything is unclear, it blocks and asks you via the <strong>Claude Stuck</strong> ticker.
+        </p>
+
+        <input
+          ref={fileRef}
+          type="file"
+          accept=".pdf,application/pdf"
+          style={{ display: 'none' }}
+          onChange={(e) => handleUpload(e.target.files?.[0])}
+        />
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <button
+            onClick={() => fileRef.current?.click()}
+            disabled={uploading}
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: 6,
+              background: uploading ? '#9ca3af' : '#c8a96e',
+              color: '#fff', border: 'none', borderRadius: 8,
+              padding: '8px 14px', fontSize: 13, fontWeight: 600,
+              cursor: uploading ? 'wait' : 'pointer',
+            }}
+          >
+            {uploading ? <Loader2 size={14} className="spin" /> : <Plus size={14} />}
+            {uploading ? 'Parsing…' : 'Upload APS PDF'}
+          </button>
+          {uploadMsg && (
+            <span style={{ fontSize: 12, color: msgColor[uploadMsg.type] || '#6b7280', fontWeight: 500 }}>
+              {uploadMsg.text}
+            </span>
+          )}
+        </div>
+      </Card>
+
+      <Card>
+        <h3 style={{ margin: '0 0 12px', fontSize: 15, fontWeight: 700 }}>
+          Parsed Deals ({deals.length})
+        </h3>
+        {deals.length === 0 ? (
+          <p style={{ fontSize: 13, color: '#9ca3af', margin: 0 }}>No contracts parsed yet.</p>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {deals.map((d) => {
+              const expanded = expandedId === d.id;
+              const addr = d.data?.property?.address || d.filename;
+              const price = d.data?.prices?.purchasePrice;
+              const closing = d.data?.dates?.closingDate;
+              const dt = d.data?.dealType;
+              return (
+                <div key={d.id} style={{
+                  background: '#fff', border: `1px solid ${d.blocked ? '#f59e0b' : '#e5e7eb'}`,
+                  borderRadius: 8, overflow: 'hidden',
+                }}>
+                  <div
+                    onClick={() => setExpandedId(expanded ? null : d.id)}
+                    style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', cursor: 'pointer' }}
+                  >
+                    {d.blocked ? (
+                      <span style={{ fontSize: 9, fontWeight: 700, color: '#fff', background: '#f59e0b', borderRadius: 4, padding: '2px 6px' }}>BLOCKED</span>
+                    ) : (
+                      <span style={{ fontSize: 9, fontWeight: 700, color: '#fff', background: '#10b981', borderRadius: 4, padding: '2px 6px' }}>OK</span>
+                    )}
+                    <span style={{ fontSize: 13, fontWeight: 600, flex: 1 }}>{addr}</span>
+                    {dt && <span style={{ fontSize: 11, color: dt === 'conditional' ? '#f59e0b' : '#10b981', fontWeight: 600 }}>{dt.toUpperCase()}</span>}
+                    {price && <span style={{ fontSize: 11, color: '#6b7280' }}>${Number(price).toLocaleString()}</span>}
+                    {closing && <span style={{ fontSize: 11, color: '#6b7280' }}>close {closing}</span>}
+                    <ChevronDown size={14} color="#9ca3af" style={{ transform: expanded ? 'rotate(180deg)' : 'rotate(0)', transition: 'transform 0.2s' }} />
+                  </div>
+                  {expanded && (
+                    <div style={{ padding: '8px 12px 12px', borderTop: '1px solid #f3f4f6', fontSize: 12 }}>
+                      {d.blocked && (
+                        <div style={{ background: '#fef3c7', border: '1px solid #f59e0b', borderRadius: 6, padding: 8, marginBottom: 8 }}>
+                          <strong style={{ color: '#92400e' }}>Block reasons:</strong>
+                          <ul style={{ margin: '4px 0 0 16px', padding: 0 }}>
+                            {d.blockReasons.map((r, i) => <li key={i} style={{ color: '#78350f' }}>{r}</li>)}
+                          </ul>
+                        </div>
+                      )}
+                      <ContractsFieldGrid data={d.data} />
+                      {Array.isArray(d.tasksCreated) && d.tasksCreated.length > 0 && (
+                        <div style={{ marginTop: 10 }}>
+                          <strong>FUB tasks created:</strong> {d.tasksCreated.filter(t => t.success).length} / {d.tasksCreated.length}
+                          <details style={{ marginTop: 4 }}>
+                            <summary style={{ cursor: 'pointer', color: '#6b7280' }}>show all</summary>
+                            <ul style={{ margin: '4px 0 0 16px', padding: 0 }}>
+                              {d.tasksCreated.map((t, i) => (
+                                <li key={i} style={{ color: t.success ? '#111827' : '#dc2626' }}>
+                                  {t.title} — <em>{t.dueDate}</em> {!t.success && `(failed: ${t.error})`}
+                                </li>
+                              ))}
+                            </ul>
+                          </details>
+                        </div>
+                      )}
+                      <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+                        <a href={`/api/aps/deals/${d.id}/pdf`} target="_blank" rel="noreferrer"
+                           style={{ fontSize: 11, color: '#2563eb', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                          <ExternalLink size={12} /> View PDF
+                        </a>
+                        <button onClick={() => deleteDeal(d.id)}
+                          style={{ marginLeft: 'auto', fontSize: 11, color: '#dc2626', background: 'none', border: 'none', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                          <Trash2 size={12} /> Delete
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </Card>
+    </div>
+  );
+}
+
+function ContractsFieldGrid({ data }) {
+  if (!data) return null;
+  const rows = [
+    ['Buyer',   (data.buyer?.names || []).join(' & ')],
+    ['Seller',  (data.seller?.names || []).join(' & ')],
+    ['Address', [data.property?.address, data.property?.city, data.property?.province, data.property?.postalCode].filter(Boolean).join(', ')],
+    ['Price',   data.prices?.purchasePrice != null ? `$${Number(data.prices.purchasePrice).toLocaleString()}` : ''],
+    ['Deposit', data.prices?.deposit != null ? `$${Number(data.prices.deposit).toLocaleString()} (${data.prices?.depositHolder || 'n/a'})` : ''],
+    ['Accepted', data.dates?.acceptedDate],
+    ['Irrevocable', data.dates?.irrevocableDate],
+    ['Closing', data.dates?.closingDate],
+    ['Title search', data.dates?.titleSearchDate],
+    ['Possession', data.dates?.possessionDate],
+    ['Listing brokerage', data.brokerages?.listing ? `${data.brokerages.listing.name}${data.brokerages.listing.agent ? ' — ' + data.brokerages.listing.agent : ''}` : ''],
+    ['Coop brokerage',    data.brokerages?.cooperating ? `${data.brokerages.cooperating.name}${data.brokerages.cooperating.agent ? ' — ' + data.brokerages.cooperating.agent : ''}` : ''],
+    ['Coop commission',   data.commission?.cooperatingSideRaw || (data.commission?.cooperatingSide != null ? `${data.commission.cooperatingSide}${data.commission.cooperatingSideUnit === 'percent' ? '%' : ''}${data.commission.hstTreatment ? ' ' + data.commission.hstTreatment : ''}` : '')],
+    ['Rep structure',     data.cooperation?.commissionStructure || ''],
+  ].filter(([, v]) => v);
+
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: '140px 1fr', gap: '4px 12px' }}>
+      {rows.map(([k, v]) => (
+        <Fragment key={k}>
+          <div style={{ color: '#6b7280', fontWeight: 500 }}>{k}</div>
+          <div style={{ color: '#111827' }}>{v}</div>
+        </Fragment>
+      ))}
+      {Array.isArray(data.conditions) && data.conditions.length > 0 && (
+        <Fragment>
+          <div style={{ color: '#6b7280', fontWeight: 500, gridColumn: '1 / -1', marginTop: 6 }}>Conditions</div>
+          <div style={{ gridColumn: '1 / -1' }}>
+            <ul style={{ margin: 0, padding: '0 0 0 16px' }}>
+              {data.conditions.map((c, i) => (
+                <li key={i} style={{ color: '#111827' }}>
+                  <strong>{c.type}</strong> — removal {c.removalDate}
+                  {c.description ? <span style={{ color: '#6b7280' }}> — {c.description}</span> : null}
+                </li>
+              ))}
+            </ul>
+          </div>
+        </Fragment>
+      )}
+      {Array.isArray(data.customScheduleItems) && data.customScheduleItems.length > 0 && (
+        <Fragment>
+          <div style={{ color: '#6b7280', fontWeight: 500, gridColumn: '1 / -1', marginTop: 6 }}>Schedule items</div>
+          <ul style={{ gridColumn: '1 / -1', margin: 0, padding: '0 0 0 16px' }}>
+            {data.customScheduleItems.map((s, i) => <li key={i} style={{ color: '#111827' }}>{s}</li>)}
+          </ul>
+        </Fragment>
+      )}
+    </div>
+  );
+}
+
 function SectionContent({ section }) {
   switch (section) {
     case "briefing": return (
@@ -7462,6 +7694,7 @@ function SectionContent({ section }) {
     case "marketing": return <MarketingSection />;
     case "learning": return <PlaceholderSection title="Learning" icon={BookOpen} />;
     case "listing-form": return <ListingForm />;
+    case "contracts": return <ContractsSection />;
     case "sellers": return <SellersSection />;
     case "loo": return <PlaceholderSection title="LOO" icon={FileText} />;
     case "syncs": return <SyncsSection />;

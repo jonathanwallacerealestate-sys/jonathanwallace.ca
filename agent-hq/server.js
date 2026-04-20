@@ -6,6 +6,7 @@ import { fileURLToPath } from 'url';
 import multer from 'multer';
 import { createRequire } from 'module';
 import Anthropic from '@anthropic-ai/sdk';
+import { parseApsPdf, buildMilestoneTasks, createDealStore, createFubTask } from './parsers/aps-parser.js';
 const _require = createRequire(import.meta.url);
 const pdfParse = _require('pdf-parse');
 
@@ -6158,6 +6159,116 @@ app.get('/api/listing-form/:id/sisu-export', async (req, res) => {
     console.error('[Sisu Export] Error:', err.message);
     res.json({ success: false, error: err.message });
   }
+});
+
+// ─────────────────────────────────────────────
+// APS (Agreement of Purchase and Sale) — manual upload + parse + milestone tasks
+// Per framework/skills/contract-milestones.md
+// ─────────────────────────────────────────────
+
+const apsStore = createDealStore(__dirname);
+const apsUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 30 * 1024 * 1024 } });
+
+app.get('/api/aps/deals', (req, res) => {
+  res.json({ deals: apsStore.all() });
+});
+
+app.get('/api/aps/deals/:id', (req, res) => {
+  const deal = apsStore.get(req.params.id);
+  if (!deal) return res.status(404).json({ error: 'Not found' });
+  res.json({ deal });
+});
+
+app.get('/api/aps/deals/:id/pdf', (req, res) => {
+  const deal = apsStore.get(req.params.id);
+  if (!deal || !deal.pdfPath || !fs.existsSync(deal.pdfPath)) return res.status(404).send('Not found');
+  res.setHeader('Content-Type', 'application/pdf');
+  res.sendFile(path.resolve(deal.pdfPath));
+});
+
+app.post('/api/aps/upload', apsUpload.single('pdf'), async (req, res) => {
+  if (!req.file) return res.json({ success: false, error: 'No file uploaded' });
+  if (!anthropic) return res.json({ success: false, error: 'ANTHROPIC_API_KEY not configured' });
+
+  const id = `aps-${Date.now()}`;
+  const originalName = req.file.originalname || 'aps.pdf';
+  console.log(`[APS] Parsing ${originalName} (${(req.file.size / 1024).toFixed(0)} KB)`);
+
+  const t0 = Date.now();
+  const result = await parseApsPdf(anthropic, req.file.buffer, originalName);
+  const ms = Date.now() - t0;
+
+  if (!result.success) {
+    console.error(`[APS] Parse failed: ${result.error}`);
+    return res.json({ success: false, error: result.error, raw: result.raw });
+  }
+
+  // Persist the PDF alongside the parsed record
+  const pdfPath = apsStore.pdfPath(id, originalName);
+  try { fs.writeFileSync(pdfPath, req.file.buffer); }
+  catch (e) { console.error('[APS] Failed to save PDF:', e.message); }
+
+  const deal = {
+    id,
+    filename: originalName,
+    pdfPath,
+    parsedAt: new Date().toISOString(),
+    parseMs: ms,
+    blocked: result.blocked,
+    blockReasons: result.blockReasons || [],
+    data: result.data,
+    tasksCreated: [],
+    stuckQueueId: null,
+  };
+
+  // If blocked: push to Claude-stuck ticker; do NOT create FUB tasks yet.
+  if (result.blocked) {
+    const summary = `APS parse needs review: ${result.data?.property?.address || originalName}`;
+    const question = {
+      id: `stuck-${Date.now()}`,
+      summary,
+      context: `File: ${originalName}\nReasons:\n- ${result.blockReasons.join('\n- ')}\n\nParsed so far:\n${JSON.stringify(result.data, null, 2).slice(0, 2000)}`,
+      options: [
+        { label: 'Re-upload corrected PDF', description: 'Replace the source and re-parse' },
+        { label: 'Fill gaps manually', description: 'I will edit the parsed fields inline' },
+        { label: 'Skip this deal', description: 'Do not create FUB tasks' },
+      ],
+      priority: 'p0',
+      workflow: 'contract-milestones',
+      createdAt: new Date().toISOString(),
+      resolved: false,
+      resolvedAt: null,
+      answer: null,
+      apsId: id,
+    };
+    eaStuckQueue.push(question);
+    saveEaStuck();
+    deal.stuckQueueId = question.id;
+    console.log(`[APS] BLOCKED → pushed to stuck queue: ${result.blockReasons.join('; ')}`);
+    apsStore.add(deal);
+    return res.json({ success: true, deal, blocked: true, blockReasons: result.blockReasons });
+  }
+
+  // Clean parse → generate FUB tasks for every milestone.
+  const tasks = buildMilestoneTasks(result.data);
+  console.log(`[APS] Clean parse (${ms}ms) → creating ${tasks.length} FUB tasks`);
+
+  for (const t of tasks) {
+    const r = await createFubTask(FUB_API_KEY, t);
+    deal.tasksCreated.push({ ...t, fubTaskId: r.fubTaskId || null, error: r.error || null, success: r.success });
+    if (!r.success) console.warn(`[APS] FUB task failed: ${t.title} — ${r.error}`);
+  }
+
+  apsStore.add(deal);
+  res.json({ success: true, deal, blocked: false, tasksCreated: deal.tasksCreated.length });
+});
+
+app.delete('/api/aps/deals/:id', (req, res) => {
+  const deal = apsStore.get(req.params.id);
+  if (!deal) return res.status(404).json({ error: 'Not found' });
+  if (deal.pdfPath && fs.existsSync(deal.pdfPath)) { try { fs.unlinkSync(deal.pdfPath); } catch {} }
+  apsStore.remove(req.params.id);
+  res.json({ success: true });
 });
 
 // ─────────────────────────────────────────────
