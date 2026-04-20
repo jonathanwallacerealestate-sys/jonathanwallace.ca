@@ -2679,37 +2679,101 @@ function parseBrokerBayShowingEmail(body, subject) {
   if (!body) return {};
   const info = {};
 
-  // Try to extract showing date/time
+  // Strip HTML to get readable text for some patterns
+  const textContent = body.replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/&ndash;/g, '–').replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim();
+
+  // ═══════════════════════════════════════════════════════════════
+  // FORMAT 1: Labeled fields (showing requests, some cancellations)
+  //   Date: Mon, Apr 21st
+  //   Time: 10:00 AM - 11:00 AM
+  //   Agent: John Smith
+  // ═══════════════════════════════════════════════════════════════
   const dateMatch = body.match(/Date:\s*([^\n<]+)/i);
   if (dateMatch) info.showingDate = dateMatch[1].trim();
 
   const timeMatch = body.match(/Time:\s*([^\n<]+)/i);
   if (timeMatch) info.showingTime = timeMatch[1].trim();
 
-  // Agent name
   const agentMatch = body.match(/Agent:\s*([^\n<]+)/i) || body.match(/requested by\s*([^\n<]+)/i);
   if (agentMatch) info.agentName = agentMatch[1].trim();
 
-  // Brokerage
   const brokerageMatch = body.match(/Brokerage:\s*([^\n<]+)/i) || body.match(/from\s+([\w\s]+(?:Realty|Real Estate|RE\/MAX|Keller|Century|Royal|Sutton)[^\n<]*)/i);
   if (brokerageMatch) info.brokerage = brokerageMatch[1].trim();
 
-  // Type (regular, home inspection, etc.)
   const typeMatch = body.match(/Type:\s*([^\n<]+)/i);
   if (typeMatch) info.showingType = typeMatch[1].trim();
 
-  // Agent phones — cell (personal) comes first, brokerage phone second
-  // BrokerBay emails typically list two numbers: the agent's cell and the brokerage office
+  // ═══════════════════════════════════════════════════════════════
+  // FORMAT 2: Confirmation/accepted emails (styled HTML blocks)
+  //   <span>Sun, April 26th</span> • <span>10:45 AM – 11:45 AM (EDT)</span>
+  //   <h3><strong>Agent</strong></h3> <div>JIM HAWKE</div>
+  //   <div>Team Hawke Realty</div>
+  // ═══════════════════════════════════════════════════════════════
+
+  // Date/time from confirmation format: "Sun, April 26th • 10:45 AM – 11:45 AM (EDT)"
+  if (!info.showingDate || !info.showingTime) {
+    // Match: <span...>Sun, April 26th</span> • <span>10:45 AM – 11:45 AM (EDT)</span>
+    const confirmDateMatch = body.match(/<span[^>]*>\s*((?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)[^<]*\d{1,2}(?:st|nd|rd|th)?)\s*<\/span>/i);
+    if (confirmDateMatch && !info.showingDate) {
+      info.showingDate = confirmDateMatch[1].trim();
+    }
+
+    // Time: after the date span, look for time pattern
+    const confirmTimeMatch = body.match(/<span[^>]*>\s*(\d{1,2}:\d{2}\s*(?:AM|PM)\s*(?:&ndash;|–|-)\s*\d{1,2}:\d{2}\s*(?:AM|PM)(?:\s*\([A-Z]+\))?)\s*<\/span>/i);
+    if (confirmTimeMatch && !info.showingTime) {
+      info.showingTime = confirmTimeMatch[1].replace(/&ndash;/g, '–').trim();
+    }
+
+    // Also try text content fallback: "Sun, April 26th • 10:45 AM – 11:45 AM (EDT)"
+    if (!info.showingDate || !info.showingTime) {
+      const textDateTimeMatch = textContent.match(/((?:Mon|Tue|Wed|Thu|Fri|Sat|Sun),?\s+\w+\s+\d{1,2}(?:st|nd|rd|th)?)\s*•\s*(\d{1,2}:\d{2}\s*(?:AM|PM)\s*[–-]\s*\d{1,2}:\d{2}\s*(?:AM|PM)(?:\s*\([A-Z]+\))?)/i);
+      if (textDateTimeMatch) {
+        if (!info.showingDate) info.showingDate = textDateTimeMatch[1].trim();
+        if (!info.showingTime) info.showingTime = textDateTimeMatch[2].trim();
+      }
+    }
+  }
+
+  // Agent name from confirmation format: <h3><strong>Agent</strong></h3> followed by <div>NAME</div>
+  if (!info.agentName) {
+    const agentBlockMatch = body.match(/<strong>\s*Agent\s*<\/strong>[\s\S]*?<div[^>]*>\s*([A-Z][A-Za-z\s.''-]+?)\s*<\/div>/);
+    if (agentBlockMatch) {
+      info.agentName = agentBlockMatch[1].trim();
+    }
+  }
+
+  // Brokerage from confirmation format: after agent phone, a div with brokerage name
+  if (!info.brokerage) {
+    // Look for the brokerage div after the agent email/phone section
+    const brokerageBlockMatch = body.match(/tel:\d+[^>]*>[^<]*<\/a>\s*<\/div>\s*<div[^>]*>\s*([A-Za-z][\w\s.''-]+(?:Realty|Real Estate|RE\/MAX|Keller|Century|Royal|Sutton|Brokerage|Group|Inc|Ltd|Corp)[^<]*)<\/div>/i);
+    if (brokerageBlockMatch) {
+      info.brokerage = brokerageBlockMatch[1].trim();
+    }
+    // Broader fallback: any text between agent phone and next phone that looks like a brokerage
+    if (!info.brokerage) {
+      const brokerageFallback = textContent.match(/\d{3}-\d{3}-\d{4}\s+([A-Z][\w\s.''-]+(?:Realty|Real Estate|RE\/MAX|Keller|Century|Royal|Sutton|Brokerage|Group|Inc|Ltd|Corp)[^\d]*?)\s+\d{3}/i);
+      if (brokerageFallback) info.brokerage = brokerageFallback[1].trim();
+    }
+  }
+
+  // Showing type from confirmation format: <span>Buyer/Broker</span> or similar
+  if (!info.showingType) {
+    const typeBlockMatch = body.match(/(?:Confirmed|Requested|Cancelled)\s*<\/span>\s*•\s*<span>\s*([^<]+)<\/span>/i)
+      || textContent.match(/(?:Confirmed|Requested|Cancelled)\s*•\s*([A-Za-z/\s]+?)(?:\s+\d|$)/i);
+    if (typeBlockMatch) info.showingType = typeBlockMatch[1].trim();
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // Phone numbers (works for both formats)
+  // ═══════════════════════════════════════════════════════════════
   const allPhones = body.match(/\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}/g) || [];
-  // Deduplicate
   const uniquePhones = [...new Set(allPhones.map(p => p.replace(/[\s.-]/g, '')))];
   const uniquePhonesRaw = uniquePhones.map(norm => allPhones.find(p => p.replace(/[\s.-]/g, '') === norm));
 
-  // First phone = agent cell (most important — direct line), second = brokerage office
-  info.agentPhone = uniquePhonesRaw[0] || null;        // Cell / direct
-  info.brokeragePhone = uniquePhonesRaw[1] || null;    // Office
+  info.agentPhone = uniquePhonesRaw[0] || null;
+  info.brokeragePhone = uniquePhonesRaw[1] || null;
 
-  // Also try labeled fields for more accuracy
+  // Labeled phone fields override generic extraction
   const cellMatch = body.match(/Cell:\s*([^\n<]+)/i) || body.match(/Mobile:\s*([^\n<]+)/i);
   if (cellMatch) {
     const cellNum = cellMatch[1].trim().match(/\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}/);
@@ -2721,11 +2785,23 @@ function parseBrokerBayShowingEmail(body, subject) {
     if (officeNum) info.brokeragePhone = officeNum[0];
   }
 
-  // Agent email
+  // ═══════════════════════════════════════════════════════════════
+  // Agent email (works for both formats)
+  // ═══════════════════════════════════════════════════════════════
   const emailField = body.match(/Email:\s*([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/i);
   if (emailField) info.agentEmail = emailField[1].trim();
   if (!info.agentEmail) {
-    // Fallback: find email addresses excluding BrokerBay system emails
+    // Try mailto: links (confirmation format)
+    const mailtoMatch = body.match(/href="mailto:([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})"/i);
+    if (mailtoMatch) {
+      const email = mailtoMatch[1];
+      if (!email.includes('brokerbay.com') && !email.includes('noreply') &&
+          !email.includes('jonathanwallacerealestate') && !email.includes('faristeam.ca')) {
+        info.agentEmail = email;
+      }
+    }
+  }
+  if (!info.agentEmail) {
     const allEmails = body.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g) || [];
     const agentEmails = allEmails.filter(e =>
       !e.includes('brokerbay.com') && !e.includes('noreply') &&
