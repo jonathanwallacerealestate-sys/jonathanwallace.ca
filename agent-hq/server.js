@@ -2515,7 +2515,7 @@ app.get('/api/ea/outlook-sent', (req, res) => {
 });
 
 // POST /api/ea/thread/:threadId/state — Manually update thread state (snooze, close, etc.)
-app.post('/api/ea/thread/:threadId/state', (req, res) => {
+app.post('/api/ea/thread/:threadId/state', async (req, res) => {
   const { threadId } = req.params;
   const { state, snoozeUntil } = req.body;
   if (!eaThreadCache.threads[threadId]) {
@@ -2527,7 +2527,23 @@ app.post('/api/ea/thread/:threadId/state', (req, res) => {
   }
   eaThreadCache.threads[threadId].state = state;
   if (state === 'closed') {
-    eaThreadCache.threads[threadId].closedAt = Date.now(); // Track manual close time
+    eaThreadCache.threads[threadId].closedAt = Date.now();
+    // Also archive in Gmail — remove from inbox so it survives server restarts.
+    // Without this, every deploy wipes the state file and closed threads reappear.
+    if (tokens) {
+      try {
+        const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
+        await gmail.users.threads.modify({
+          userId: 'me',
+          id: threadId,
+          requestBody: { removeLabelIds: ['INBOX'] },
+        });
+        console.log(`[EA] Thread ${threadId} archived in Gmail (Done clicked)`);
+      } catch (archErr) {
+        console.log(`[EA] Gmail archive failed for ${threadId}: ${archErr.message}`);
+        // Non-fatal — state is still saved locally
+      }
+    }
   }
   if (state === 'snoozed' && snoozeUntil) {
     eaThreadCache.threads[threadId].snoozeUntil = snoozeUntil;
