@@ -5963,6 +5963,52 @@ app.post('/api/listing-form/import-pdf', upload.single('pdf'), async (req, res) 
 });
 
 // ─────────────────────────────────────────────
+// APS PARSER — Parse Ontario OREA Form 100 Agreements of Purchase and Sale
+// ─────────────────────────────────────────────
+const { parseApsPdf } = _require('./parsers/aps-parser.cjs');
+
+// Store parsed deals in memory + disk
+const APS_DEALS_PATH = path.join(__dirname, '.aps-deals.json');
+let apsParsedDeals = [];
+try { if (fs.existsSync(APS_DEALS_PATH)) apsParsedDeals = JSON.parse(fs.readFileSync(APS_DEALS_PATH, 'utf8')); } catch { apsParsedDeals = []; }
+function saveApsDeals() { try { fs.writeFileSync(APS_DEALS_PATH, JSON.stringify(apsParsedDeals, null, 2)); } catch {} }
+
+app.post('/api/aps/parse', upload.single('pdf'), async (req, res) => {
+  if (!req.file) return res.json({ ok: false, error: 'No PDF file uploaded' });
+
+  try {
+    console.log(`[APS] Parsing: ${req.file.originalname} (${(req.file.size / 1024).toFixed(0)} KB)`);
+    const result = await parseApsPdf(req.file.buffer, {
+      filename: req.file.originalname,
+      anthropicClient: anthropic,
+    });
+
+    // Store the parsed deal
+    const deal = { id: Date.now(), ...result };
+    apsParsedDeals.unshift(deal);
+    if (apsParsedDeals.length > 50) apsParsedDeals = apsParsedDeals.slice(0, 50);
+    saveApsDeals();
+
+    console.log(`[APS] Parsed successfully: ${result.fields?.property?.address || 'unknown address'} | ${result.status} | confidence: ${result.confidence} | extractor: ${result.extractor}`);
+    res.json({ ok: true, deal });
+  } catch (err) {
+    console.error('[APS] Parse error:', err.message);
+    res.json({ ok: false, error: err.message });
+  }
+});
+
+app.get('/api/aps/deals', (req, res) => {
+  res.json({ ok: true, deals: apsParsedDeals });
+});
+
+app.delete('/api/aps/deals/:id', (req, res) => {
+  const id = Number(req.params.id);
+  apsParsedDeals = apsParsedDeals.filter(d => d.id !== id);
+  saveApsDeals();
+  res.json({ ok: true });
+});
+
+// ─────────────────────────────────────────────
 // SISU EXPORT — Generate field mapping for Chrome automation
 // ─────────────────────────────────────────────
 app.get('/api/listing-form/:id/sisu-export', async (req, res) => {

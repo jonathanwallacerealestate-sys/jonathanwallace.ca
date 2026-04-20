@@ -346,6 +346,7 @@ const sidebarItems = [
   { id: "meals", label: "Meals", icon: UtensilsCrossed, badge: null },
   { id: "marketing", label: "Marketing", icon: Megaphone, badge: null },
   { id: "learning", label: "Learning", icon: BookOpen, badge: null },
+  { id: "aps-parser", label: "APS Parser", icon: FileText, badge: null },
   { id: "listing-form", label: "Listing Form", icon: ClipboardList, badge: null },
   { id: "sellers", label: "Sellers", icon: Briefcase, badge: 3 },
   { id: "loo", label: "LOO", icon: FileText, badge: null },
@@ -5688,6 +5689,210 @@ const selectStyle = { ...inputStyle, appearance: 'auto' };
 const textareaStyle = { ...inputStyle, minHeight: 70, resize: 'vertical', fontFamily: 'inherit' };
 const gridStyle = (cols = 3) => ({ display: 'grid', gridTemplateColumns: `repeat(${cols}, 1fr)`, gap: '12px 16px' });
 
+// ─────────────────────────────────────────────
+// APS PARSER — Parse OREA Form 100 PDFs
+// ─────────────────────────────────────────────
+function ApsParser() {
+  const [deals, setDeals] = useState([]);
+  const [parsing, setParsing] = useState(false);
+  const [selectedDeal, setSelectedDeal] = useState(null);
+  const [dragOver, setDragOver] = useState(false);
+  const fileRef = useRef();
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch('/api/aps/deals');
+        const data = await res.json();
+        if (data.ok) setDeals(data.deals || []);
+      } catch {}
+    })();
+  }, []);
+
+  const handleParse = async (file) => {
+    if (!file) return;
+    setParsing(true);
+    try {
+      const formData = new FormData();
+      formData.append('pdf', file);
+      const res = await fetch('/api/aps/parse', { method: 'POST', body: formData });
+      const data = await res.json();
+      if (data.ok) {
+        setDeals(prev => [data.deal, ...prev]);
+        setSelectedDeal(data.deal);
+      } else {
+        alert('Parse failed: ' + (data.error || 'unknown error'));
+      }
+    } catch (err) {
+      alert('Upload failed: ' + err.message);
+    }
+    setParsing(false);
+  };
+
+  const handleDrop = (e) => { e.preventDefault(); setDragOver(false); const f = e.dataTransfer.files[0]; if (f) handleParse(f); };
+  const handleDelete = async (id) => {
+    await fetch(`/api/aps/deals/${id}`, { method: 'DELETE' });
+    setDeals(prev => prev.filter(d => d.id !== id));
+    if (selectedDeal?.id === id) setSelectedDeal(null);
+  };
+
+  const priorityColors = { critical: '#ef4444', high: '#f59e0b', medium: '#3b82f6', low: '#6b7280' };
+  const condColors = { financing: '#8b5cf6', inspection: '#f59e0b', insurance: '#3b82f6', lawyer_review: '#6366f1', water_test: '#06b6d4', septic: '#84cc16', well: '#14b8a6', survey: '#ec4899', other: '#6b7280' };
+
+  return (
+    <div style={{ padding: 20 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
+        <div>
+          <h2 style={{ fontSize: 20, fontWeight: 700, color: "#111827", margin: 0 }}>APS Parser</h2>
+          <p style={{ fontSize: 12, color: "#6b7280", margin: "4px 0 0" }}>Upload signed OREA Form 100 PDFs to extract deal details, conditions, and milestones</p>
+        </div>
+        <button onClick={() => fileRef.current?.click()} disabled={parsing} style={{ display: "flex", alignItems: "center", gap: 6, background: "linear-gradient(135deg, #2563eb, #1d4ed8)", color: "#fff", border: "none", padding: "8px 16px", borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: parsing ? "wait" : "pointer", opacity: parsing ? 0.7 : 1 }}>
+          {parsing ? <><Loader2 size={14} style={{ animation: "spin 1s linear infinite" }} /> Parsing...</> : <><Plus size={14} /> Upload APS</>}
+        </button>
+        <input ref={fileRef} type="file" accept=".pdf" style={{ display: "none" }} onChange={e => { if (e.target.files[0]) handleParse(e.target.files[0]); e.target.value = ''; }} />
+      </div>
+
+      {/* Drop zone */}
+      <div onDragOver={e => { e.preventDefault(); setDragOver(true); }} onDragLeave={() => setDragOver(false)} onDrop={handleDrop}
+        style={{ border: `2px dashed ${dragOver ? '#2563eb' : '#d1d5db'}`, borderRadius: 12, padding: 24, textAlign: 'center', marginBottom: 20, background: dragOver ? '#eff6ff' : '#fafafa', transition: 'all 0.2s' }}>
+        <FileText size={24} color={dragOver ? '#2563eb' : '#9ca3af'} style={{ margin: '0 auto 8px' }} />
+        <div style={{ fontSize: 13, fontWeight: 600, color: dragOver ? '#2563eb' : '#6b7280' }}>Drop APS PDF here</div>
+        <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 4 }}>Accepted offer, signed by both parties</div>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: selectedDeal ? '320px 1fr' : '1fr', gap: 16 }}>
+        {/* Deal list */}
+        <div>
+          <div style={{ fontSize: 11, fontWeight: 700, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 8 }}>{deals.length} Parsed Deal{deals.length !== 1 ? 's' : ''}</div>
+          {deals.length === 0 && <div style={{ fontSize: 12, color: '#9ca3af', padding: 16, textAlign: 'center' }}>No deals parsed yet. Upload an APS PDF to get started.</div>}
+          {deals.map(d => (
+            <div key={d.id} onClick={() => setSelectedDeal(d)} style={{ background: selectedDeal?.id === d.id ? '#eff6ff' : '#fff', border: `1px solid ${selectedDeal?.id === d.id ? '#bfdbfe' : '#e5e7eb'}`, borderRadius: 10, padding: 12, marginBottom: 8, cursor: 'pointer', transition: 'all 0.15s' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: '#111827' }}>{d.fields?.property?.address || d.filename || 'Unknown property'}</div>
+                <span style={{ fontSize: 9, fontWeight: 700, padding: '2px 6px', borderRadius: 4, background: d.status === 'firm' ? '#ecfdf5' : '#fef3c7', color: d.status === 'firm' ? '#059669' : '#d97706' }}>{d.status?.toUpperCase()}</span>
+              </div>
+              <div style={{ fontSize: 11, color: '#6b7280', marginTop: 4 }}>
+                {d.fields?.buyers?.join(' & ') || '?'} → {d.fields?.sellers?.join(' & ') || '?'}
+              </div>
+              <div style={{ display: 'flex', gap: 8, marginTop: 6, fontSize: 10, color: '#9ca3af' }}>
+                {d.fields?.purchasePrice?.amountCad && <span>${d.fields.purchasePrice.amountCad.toLocaleString()}</span>}
+                {d.fields?.completionDate && <span>Close: {d.fields.completionDate}</span>}
+                <span>Confidence: {Math.round((d.confidence || 0) * 100)}%</span>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Deal detail */}
+        {selectedDeal && (
+          <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 12, padding: 20 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
+              <div>
+                <h3 style={{ fontSize: 18, fontWeight: 700, color: '#111827', margin: 0 }}>{selectedDeal.fields?.property?.address || 'Property'}</h3>
+                <div style={{ fontSize: 12, color: '#6b7280', marginTop: 4 }}>{selectedDeal.filename} — parsed {new Date(selectedDeal.parsedAt).toLocaleDateString()}</div>
+              </div>
+              <div style={{ display: 'flex', gap: 6 }}>
+                <span style={{ fontSize: 10, fontWeight: 700, padding: '3px 8px', borderRadius: 4, background: selectedDeal.status === 'firm' ? '#ecfdf5' : '#fef3c7', color: selectedDeal.status === 'firm' ? '#059669' : '#d97706' }}>{selectedDeal.status?.toUpperCase()}</span>
+                <span style={{ fontSize: 10, fontWeight: 600, padding: '3px 8px', borderRadius: 4, background: '#f3f4f6', color: '#6b7280' }}>{selectedDeal.extractor?.toUpperCase()}</span>
+                <button onClick={() => handleDelete(selectedDeal.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#d1d5db', padding: 2 }}><Trash2 size={14} /></button>
+              </div>
+            </div>
+
+            {/* Key fields grid */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 20 }}>
+              {[
+                { label: 'Purchase Price', value: selectedDeal.fields?.purchasePrice?.amountCad ? `$${selectedDeal.fields.purchasePrice.amountCad.toLocaleString()}` : '—' },
+                { label: 'Deposit', value: selectedDeal.fields?.deposit?.amountCad ? `$${selectedDeal.fields.deposit.amountCad.toLocaleString()}` : '—' },
+                { label: 'Closing Date', value: selectedDeal.fields?.completionDate || '—' },
+                { label: 'Title Search', value: selectedDeal.fields?.titleSearchDate || '—' },
+                { label: 'Agreement Date', value: selectedDeal.fields?.agreementDate || '—' },
+                { label: 'Deposit Holder', value: selectedDeal.fields?.depositHolder || '—' },
+                { label: 'Buyer(s)', value: (selectedDeal.fields?.buyers || []).join(', ') || '—' },
+                { label: 'Seller(s)', value: (selectedDeal.fields?.sellers || []).join(', ') || '—' },
+                { label: 'Form Type', value: selectedDeal.fields?.form || '—' },
+              ].map((item, i) => (
+                <div key={i} style={{ background: '#f9fafb', borderRadius: 8, padding: 10 }}>
+                  <div style={{ fontSize: 10, fontWeight: 600, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.3px' }}>{item.label}</div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: '#111827', marginTop: 2 }}>{item.value}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* Conditions */}
+            {selectedDeal.conditions?.length > 0 && (
+              <div style={{ marginBottom: 20 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: '#374151', marginBottom: 8 }}>Conditions ({selectedDeal.conditions.length})</div>
+                {selectedDeal.conditions.map((c, i) => (
+                  <div key={i} style={{ background: '#fefce8', border: '1px solid #fde68a', borderRadius: 8, padding: 10, marginBottom: 6 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <span style={{ fontSize: 9, fontWeight: 700, padding: '2px 6px', borderRadius: 3, background: condColors[c.category] || '#6b7280', color: '#fff' }}>{c.category?.replace(/_/g, ' ').toUpperCase()}</span>
+                      <span style={{ fontSize: 12, fontWeight: 600, color: '#374151' }}>{c.label}</span>
+                    </div>
+                    <div style={{ fontSize: 11, color: '#6b7280', marginTop: 4 }}>
+                      {c.businessDays && <span>{c.businessDays} business days</span>}
+                      {c.waiverByIso && <span style={{ marginLeft: 8, fontWeight: 600, color: '#d97706' }}>Waive by: {c.waiverByIso}</span>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Milestones timeline */}
+            {selectedDeal.milestones?.length > 0 && (
+              <div style={{ marginBottom: 20 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: '#374151', marginBottom: 8 }}>Milestones Timeline</div>
+                {selectedDeal.milestones.map((ms, i) => (
+                  <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginBottom: 8 }}>
+                    <div style={{ width: 10, height: 10, borderRadius: '50%', background: priorityColors[ms.priority] || '#6b7280', flexShrink: 0, marginTop: 4 }} />
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: '#111827' }}>{ms.title}</div>
+                      <div style={{ fontSize: 11, color: '#6b7280' }}>{ms.date} — {ms.priority}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Chattels & extras */}
+            {(selectedDeal.fields?.chattelsIncluded || selectedDeal.fields?.fixturesExcluded) && (
+              <div style={{ marginBottom: 20 }}>
+                {selectedDeal.fields.chattelsIncluded && (
+                  <div style={{ marginBottom: 8 }}>
+                    <div style={{ fontSize: 10, fontWeight: 600, color: '#9ca3af', textTransform: 'uppercase' }}>Chattels Included</div>
+                    <div style={{ fontSize: 12, color: '#374151', marginTop: 2 }}>{selectedDeal.fields.chattelsIncluded}</div>
+                  </div>
+                )}
+                {selectedDeal.fields.fixturesExcluded && (
+                  <div>
+                    <div style={{ fontSize: 10, fontWeight: 600, color: '#9ca3af', textTransform: 'uppercase' }}>Fixtures Excluded</div>
+                    <div style={{ fontSize: 12, color: '#374151', marginTop: 2 }}>{selectedDeal.fields.fixturesExcluded}</div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Lawyers & emails */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              {selectedDeal.fields?.lawyers?.buyer && (
+                <div style={{ background: '#f9fafb', borderRadius: 8, padding: 10 }}>
+                  <div style={{ fontSize: 10, fontWeight: 600, color: '#9ca3af', textTransform: 'uppercase' }}>Buyer's Lawyer</div>
+                  <div style={{ fontSize: 12, color: '#374151', marginTop: 2 }}>{selectedDeal.fields.lawyers.buyer}</div>
+                </div>
+              )}
+              {selectedDeal.fields?.lawyers?.seller && (
+                <div style={{ background: '#f9fafb', borderRadius: 8, padding: 10 }}>
+                  <div style={{ fontSize: 10, fontWeight: 600, color: '#9ca3af', textTransform: 'uppercase' }}>Seller's Lawyer</div>
+                  <div style={{ fontSize: 12, color: '#374151', marginTop: 2 }}>{selectedDeal.fields.lawyers.seller}</div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function ListingForm() {
   const [properties, setProperties] = useState([]);
   const [activePropertyId, setActivePropertyId] = useState(null);
@@ -7461,6 +7666,7 @@ function SectionContent({ section }) {
     case "meals": return <PlaceholderSection title="Meals" icon={UtensilsCrossed} />;
     case "marketing": return <MarketingSection />;
     case "learning": return <PlaceholderSection title="Learning" icon={BookOpen} />;
+    case "aps-parser": return <ApsParser />;
     case "listing-form": return <ListingForm />;
     case "sellers": return <SellersSection />;
     case "loo": return <PlaceholderSection title="LOO" icon={FileText} />;
