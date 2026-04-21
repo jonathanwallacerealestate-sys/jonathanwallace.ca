@@ -20,6 +20,21 @@ else console.log('[Claude] No ANTHROPIC_API_KEY — falling back to keyword syno
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// ─────────────────────────────────────────────
+// Persistent Data Directory
+// Set DATA_DIR env var to a Railway Volume mount path (e.g. /data) to make
+// Agent HQ's state survive deploys. Falls back to __dirname for local dev.
+// ─────────────────────────────────────────────
+const DATA_DIR = (() => {
+  const envDir = process.env.DATA_DIR;
+  if (envDir) {
+    try { fs.mkdirSync(envDir, { recursive: true }); return envDir; }
+    catch (e) { console.error('[DATA_DIR] cannot create', envDir, '— falling back to __dirname:', e.message); }
+  }
+  return __dirname;
+})();
+console.log(`[Agent HQ] DATA_DIR = ${DATA_DIR}${DATA_DIR === __dirname ? ' (EPHEMERAL — set DATA_DIR env + mount Railway volume for persistence)' : ' (persistent)'}`);
+
 const app = express();
 const PORT = process.env.PORT || 3000;
 
@@ -34,7 +49,7 @@ const SCOPES = [
   'https://www.googleapis.com/auth/gmail.readonly',
   'https://www.googleapis.com/auth/gmail.labels',
 ];
-const TOKEN_PATH = path.join(__dirname, '.gcal-tokens.json');
+const TOKEN_PATH = path.join(DATA_DIR, '.gcal-tokens.json');
 
 const oauth2Client = new google.auth.OAuth2(GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, REDIRECT_URI);
 
@@ -51,7 +66,7 @@ let consecutiveFailures = 0;
 
 // ─── Gmail Connection State Tracking ───
 // Tracks when Gmail was last connected/disconnected so we can backfill missed emails on reconnect
-const GMAIL_STATE_PATH = path.join(__dirname, '.gmail-connection-state.json');
+const GMAIL_STATE_PATH = path.join(DATA_DIR, '.gmail-connection-state.json');
 let gmailConnectionState = { lastConnected: null, lastDisconnected: null, wasConnected: false };
 
 function loadGmailState() {
@@ -571,7 +586,7 @@ app.get('/api/calendar/list', async (req, res) => {
 // Server-managed links with automatic health checks.
 // Dead links get removed, updated paths get corrected.
 // ─────────────────────────────────────────────
-const QUICKLINKS_PATH = path.join(__dirname, '.quicklinks.json');
+const QUICKLINKS_PATH = path.join(DATA_DIR, '.quicklinks.json');
 
 const DEFAULT_QUICKLINKS = [
   { id: 'cal-list', group: 'Calendar', label: 'All Calendars', url: '/api/calendar/list', desc: 'See every calendar being pulled (primary + Outlook)' },
@@ -770,7 +785,7 @@ app.post('/api/quicklinks/health-check', async (req, res) => {
 // ─────────────────────────────────────────────
 // API: Task State Persistence
 // ─────────────────────────────────────────────
-const TASKS_PATH = path.join(__dirname, '.task-state.json');
+const TASKS_PATH = path.join(DATA_DIR, '.task-state.json');
 let taskState = null;
 
 function loadTaskState() {
@@ -1061,7 +1076,7 @@ function generateRuleBasedPriorities(contacts, emails, calendar, showings) {
 // ─────────────────────────────────────────────
 // Feedback Submitted State Persistence
 // ─────────────────────────────────────────────
-const FEEDBACK_STATE_PATH = path.join(__dirname, '.feedback-submitted.json');
+const FEEDBACK_STATE_PATH = path.join(DATA_DIR, '.feedback-submitted.json');
 
 let submittedFeedbackIds = [];
 try {
@@ -1768,8 +1783,8 @@ app.get('/api/gmail/activity', async (req, res) => {
 // States: awaiting_you | draft_ready | awaiting_them | closed | snoozed
 // ─────────────────────────────────────────────
 
-const EA_THREADS_PATH = path.join(__dirname, '.ea-thread-state.json');
-const EA_STUCK_PATH = path.join(__dirname, '.ea-stuck-queue.json');
+const EA_THREADS_PATH = path.join(DATA_DIR, '.ea-thread-state.json');
+const EA_STUCK_PATH = path.join(DATA_DIR, '.ea-stuck-queue.json');
 let eaThreadCache = { threads: {}, lastSweep: null, sweepCount: 0 };
 let eaStuckQueue = [];
 
@@ -2442,7 +2457,7 @@ app.post('/api/ea/sweep-now', async (req, res) => {
 // Receives scraped sent emails from Chrome extension, stores them,
 // and cross-references against EA thread cache to fix missed states.
 // ─────────────────────────────────────────────
-const OUTLOOK_SCRAPE_PATH = path.join(__dirname, '.outlook-sent-scrape.json');
+const OUTLOOK_SCRAPE_PATH = path.join(DATA_DIR, '.outlook-sent-scrape.json');
 let outlookSentCache = { emails: [], lastScrape: null, scrapeCount: 0, corrections: [] };
 
 function loadOutlookSent() {
@@ -2881,7 +2896,7 @@ function parseBrokerBayShowingEmail(body, subject) {
 }
 
 // ── Auto-create realtor contacts in FUB from BrokerBay showing emails ──
-const BB_AGENTS_PROCESSED_PATH = path.join(__dirname, '.bb-agents-processed.json');
+const BB_AGENTS_PROCESSED_PATH = path.join(DATA_DIR, '.bb-agents-processed.json');
 let bbAgentsProcessed = {};
 try {
   if (fs.existsSync(BB_AGENTS_PROCESSED_PATH)) {
@@ -2998,7 +3013,7 @@ async function ensureRealtorInFub(agentName, agentEmail, agentPhone, brokeragePh
 // everything that came in while offline so nothing slips through.
 // ─────────────────────────────────────────────
 
-const MISSED_EMAILS_PATH = path.join(__dirname, '.gmail-missed-emails.json');
+const MISSED_EMAILS_PATH = path.join(DATA_DIR, '.gmail-missed-emails.json');
 let missedEmailsCache = { emails: [], backfillTimestamp: null, fromDate: null, toDate: null, dismissed: false };
 
 function loadMissedEmails() {
@@ -3729,7 +3744,7 @@ async function runFubLeadScan(trigger = 'manual') {
 
     // Load already-processed email IDs from file (or memory)
     let processedIds = [];
-    const processedPath = path.join(__dirname, '.fub-processed-leads.json');
+    const processedPath = path.join(DATA_DIR, '.fub-processed-leads.json');
     try {
       if (fs.existsSync(processedPath)) {
         processedIds = JSON.parse(fs.readFileSync(processedPath, 'utf8'));
@@ -3983,7 +3998,7 @@ app.get('/api/fub/leads/scan-status', (req, res) => {
 
 // GET /api/fub/leads/processed — check what's already been imported
 app.get('/api/fub/leads/processed', (req, res) => {
-  const processedPath = path.join(__dirname, '.fub-processed-leads.json');
+  const processedPath = path.join(DATA_DIR, '.fub-processed-leads.json');
   try {
     if (fs.existsSync(processedPath)) {
       const ids = JSON.parse(fs.readFileSync(processedPath, 'utf8'));
@@ -3997,7 +4012,7 @@ app.get('/api/fub/leads/processed', (req, res) => {
 // TEAM JORDAN BATCH IMPORT — 38K emails → FUB
 // ─────────────────────────────────────────────
 
-const TJ_STATE_PATH = path.join(__dirname, '.tj-import-state.json');
+const TJ_STATE_PATH = path.join(DATA_DIR, '.tj-import-state.json');
 const TJ_BATCH_SIZE = 1000;
 
 // Load/save import state
@@ -5071,7 +5086,7 @@ app.get('/api/fub/listing-appointments', async (req, res) => {
     });
 
     // Check which ones already have listing forms created
-    const LISTING_FORMS_DIR_CHECK = path.join(__dirname, '.listing-forms');
+    const LISTING_FORMS_DIR_CHECK = path.join(DATA_DIR, '.listing-forms');
     const existingForms = new Set();
     try {
       const files = fs.readdirSync(LISTING_FORMS_DIR_CHECK).filter(f => f.endsWith('.json'));
@@ -5122,7 +5137,7 @@ app.post('/api/fub/listing-appointments/import/:fubId', async (req, res) => {
       + '-' + slugCity.toLowerCase().replace(/[^a-z0-9]+/g, '-');
 
     // Check if form already exists
-    const LISTING_FORMS_DIR_IMPORT = path.join(__dirname, '.listing-forms');
+    const LISTING_FORMS_DIR_IMPORT = path.join(DATA_DIR, '.listing-forms');
     if (!fs.existsSync(LISTING_FORMS_DIR_IMPORT)) fs.mkdirSync(LISTING_FORMS_DIR_IMPORT, { recursive: true });
     const filePath = path.join(LISTING_FORMS_DIR_IMPORT, `${propertyId}.json`);
 
@@ -5293,7 +5308,7 @@ app.get('/api/ea/fub-sent-diagnostic', async (req, res) => {
 // LISTING FORM — Pre-Listing Data Management
 // ─────────────────────────────────────────────
 
-const LISTING_FORMS_DIR = path.join(__dirname, '.listing-forms');
+const LISTING_FORMS_DIR = path.join(DATA_DIR, '.listing-forms');
 if (!fs.existsSync(LISTING_FORMS_DIR)) fs.mkdirSync(LISTING_FORMS_DIR, { recursive: true });
 
 function slugify(str) {
@@ -6004,7 +6019,7 @@ app.post('/api/listing-form/import-pdf', upload.single('pdf'), async (req, res) 
 const { parseApsPdf } = _require('./parsers/aps-parser.cjs');
 
 // Store parsed deals in memory + disk
-const APS_DEALS_PATH = path.join(__dirname, '.aps-deals.json');
+const APS_DEALS_PATH = path.join(DATA_DIR, '.aps-deals.json');
 let apsParsedDeals = [];
 try { if (fs.existsSync(APS_DEALS_PATH)) apsParsedDeals = JSON.parse(fs.readFileSync(APS_DEALS_PATH, 'utf8')); } catch { apsParsedDeals = []; }
 function saveApsDeals() { try { fs.writeFileSync(APS_DEALS_PATH, JSON.stringify(apsParsedDeals, null, 2)); } catch {} }
@@ -6246,7 +6261,7 @@ app.get('/api/listing-form/:id/sisu-export', async (req, res) => {
 // ACTIVE LISTINGS — Synced from BrokerBay, linked to FUB contacts
 // Skill: brokerbay-active-listings scrapes and POSTs to /api/listings/ingest
 // ─────────────────────────────────────────────
-const LISTINGS_PATH = path.join(__dirname, '.listings.json');
+const LISTINGS_PATH = path.join(DATA_DIR, '.listings.json');
 let listingsState = { listings: [], lastSyncedAt: null, source: null };
 try {
   if (fs.existsSync(LISTINGS_PATH)) {
@@ -6596,7 +6611,7 @@ app.get('/api/listings/contacts/search', async (req, res) => {
 // RUN COMPS / CMA — Comparative Market Analyses
 // Skill: realm-cma-runner scrapes REALM and posts scraped comp data back here.
 // ─────────────────────────────────────────────
-const CMAS_PATH = path.join(__dirname, '.cmas.json');
+const CMAS_PATH = path.join(DATA_DIR, '.cmas.json');
 let cmasState = { cmas: [] };
 try {
   if (fs.existsSync(CMAS_PATH)) {
