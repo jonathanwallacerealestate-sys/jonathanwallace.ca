@@ -6410,6 +6410,14 @@ Days on Market: ${listing.dom}
 Availability: ${listing.availability}
 MLS: ${listing.mlsId}
 
+${listing.stats ? `Online activity (ListTrac, last 30 days):
+- Views: ${listing.stats.views}${listing.stats.viewsChangePct !== null && listing.stats.viewsChangePct !== undefined ? ` (${listing.stats.viewsChangePct >= 0 ? '+' : ''}${listing.stats.viewsChangePct}%)` : ''}
+- Inquiries: ${listing.stats.inquiries}
+- Favorites: ${listing.stats.favorites}
+- Shares: ${listing.stats.shares}
+- Ad impressions: ${listing.stats.adImpressions}
+${listing.stats.topCities?.length ? `- Top visitor cities: ${listing.stats.topCities.slice(0, 5).map(c => `${c.city} (${c.views})`).join(', ')}` : ''}` : ''}
+
 ${listing.notes?.length ? `Recent notes from Jonathan:\n${listing.notes.slice(0, 5).map(n => `- ${n.text}`).join('\n')}` : ''}
 
 ${listing.linkedContacts?.length ? `Linked FUB contacts:\n${listing.linkedContacts.map(c => `- ${c.name} (${c.role})`).join('\n')}` : ''}
@@ -6438,6 +6446,32 @@ Be direct. No clichés. No "won't last" or "priced to sell". Reference Georgian 
     console.error('[Listings] insight error:', err.message);
     res.json({ ok: false, error: err.message });
   }
+});
+
+// POST /api/listings/:mlsId/stats — attach ListTrac online-activity metrics to a listing
+// Called by the realm-listtrac-stats skill
+app.post('/api/listings/:mlsId/stats', express.json({ limit: '1mb' }), (req, res) => {
+  const listing = listingsState.listings.find(l => l.mlsId === req.params.mlsId);
+  if (!listing) return res.status(404).json({ ok: false, error: 'listing not found' });
+  const body = req.body || {};
+  const stats = {
+    source: body.source || 'listtrac',
+    scrapedAt: body.scrapedAt || new Date().toISOString(),
+    views: Number(body.views) || 0,
+    viewsChangePct: body.viewsChangePct === null || body.viewsChangePct === undefined ? null : Number(body.viewsChangePct),
+    inquiries: Number(body.inquiries) || 0,
+    favorites: Number(body.favorites) || 0,
+    shares: Number(body.shares) || 0,
+    adImpressions: Number(body.adImpressions) || 0,
+    topCities: Array.isArray(body.topCities) ? body.topCities.slice(0, 15).map(c => ({
+      postalPrefix: String(c.postalPrefix || '').slice(0, 5),
+      city: String(c.city || '').slice(0, 60),
+      views: Number(c.views) || 0,
+    })) : [],
+  };
+  listing.stats = stats;
+  saveListings();
+  res.json({ ok: true, stats });
 });
 
 // GET /api/listings/contacts/search?q= — search FUB to find a contact to link

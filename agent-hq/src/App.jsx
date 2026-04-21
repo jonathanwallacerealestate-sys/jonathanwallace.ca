@@ -7785,6 +7785,42 @@ function ActiveListingsSection() {
               </div>
               <div style={{ fontSize: 10, color: '#9ca3af', letterSpacing: 0.3 }}>MLS {l.mlsId} · {l.type}</div>
 
+              {/* ListTrac stats strip */}
+              {l.stats ? (
+                <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 6 }}>
+                    <div style={{ textAlign: 'center' }}>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: '#0f172a' }}>{l.stats.views.toLocaleString()}</div>
+                      <div style={{ fontSize: 9, color: '#64748b', textTransform: 'uppercase', letterSpacing: 0.4 }}>Views{l.stats.viewsChangePct !== null && l.stats.viewsChangePct !== undefined ? ` ${l.stats.viewsChangePct >= 0 ? '+' : ''}${l.stats.viewsChangePct}%` : ''}</div>
+                    </div>
+                    <div style={{ textAlign: 'center' }}>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: l.stats.inquiries > 0 ? '#16a34a' : '#0f172a' }}>{l.stats.inquiries}</div>
+                      <div style={{ fontSize: 9, color: '#64748b', textTransform: 'uppercase', letterSpacing: 0.4 }}>Inquiries</div>
+                    </div>
+                    <div style={{ textAlign: 'center' }}>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: '#0f172a' }}>{l.stats.favorites}</div>
+                      <div style={{ fontSize: 9, color: '#64748b', textTransform: 'uppercase', letterSpacing: 0.4 }}>Favorites</div>
+                    </div>
+                    <div style={{ textAlign: 'center' }}>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: '#0f172a' }}>{l.stats.shares}</div>
+                      <div style={{ fontSize: 9, color: '#64748b', textTransform: 'uppercase', letterSpacing: 0.4 }}>Shares</div>
+                    </div>
+                  </div>
+                  {l.stats.topCities?.length > 0 && (
+                    <div style={{ fontSize: 10, color: '#475569', lineHeight: 1.4 }}>
+                      <strong style={{ color: '#0f172a', fontSize: 9, textTransform: 'uppercase', letterSpacing: 0.4, marginRight: 4 }}>Buyers from:</strong>
+                      {l.stats.topCities.slice(0, 4).map((c, i) => (
+                        <span key={c.postalPrefix + i}>{i > 0 ? ', ' : ''}{c.city} ({c.views})</span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div style={{ background: '#fefce8', border: '1px dashed #eab308', borderRadius: 8, padding: 6, fontSize: 10, color: '#854d0e', textAlign: 'center' }}>
+                  No ListTrac data yet · ask Claude to "pull listtrac"
+                </div>
+              )}
+
               {/* Linked contacts */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                 {(l.linkedContacts || []).map(c => (
