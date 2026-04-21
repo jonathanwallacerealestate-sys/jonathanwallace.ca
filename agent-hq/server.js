@@ -48,6 +48,7 @@ const SCOPES = [
   'https://www.googleapis.com/auth/calendar.readonly',
   'https://www.googleapis.com/auth/gmail.readonly',
   'https://www.googleapis.com/auth/gmail.labels',
+  'https://www.googleapis.com/auth/drive.file', // For state backups — only files Agent HQ creates
 ];
 const TOKEN_PATH = path.join(DATA_DIR, '.gcal-tokens.json');
 
@@ -7100,6 +7101,199 @@ ${(() => {
 
 </body></html>`);
 });
+
+// ─────────────────────────────────────────────
+// GOOGLE DRIVE DAILY BACKUP — State snapshots to /Agent HQ Backups/ folder
+// Uses drive.file scope (only touches files Agent HQ created). 14-day retention.
+// ─────────────────────────────────────────────
+const BACKUP_STATE_PATH = path.join(DATA_DIR, '.backup-state.json');
+let backupState = { lastBackupAt: null, lastBackupId: null, lastError: null, folderId: null, folderUrl: null };
+try {
+  if (fs.existsSync(BACKUP_STATE_PATH)) backupState = { ...backupState, ...JSON.parse(fs.readFileSync(BACKUP_STATE_PATH, 'utf8')) };
+} catch {}
+function saveBackupState() { try { fs.writeFileSync(BACKUP_STATE_PATH, JSON.stringify(backupState, null, 2)); } catch {} }
+
+const BACKUP_FILES = [
+  '.listings.json',
+  '.cmas.json',
+  '.aps-deals.json',
+  '.ea-thread-state.json',
+  '.ea-stuck-queue.json',
+  '.fub-processed-leads.json',
+  '.tj-import-state.json',
+  '.task-state.json',
+  '.feedback-submitted.json',
+  '.quicklinks.json',
+  '.bb-agents-processed.json',
+  '.gmail-missed-emails.json',
+  '.outlook-sent-scrape.json',
+  '.gmail-connection-state.json',
+];
+const BACKUP_RETENTION_DAYS = 14;
+const BACKUP_FOLDER_NAME = 'Agent HQ Backups';
+
+function hasDriveScope() {
+  if (!tokens) return false;
+  const scope = tokens.scope || '';
+  return scope.includes('drive.file') || scope.includes('drive');
+}
+
+async function ensureBackupFolder(drive) {
+  if (backupState.folderId) {
+    // Verify folder still exists
+    try {
+      await drive.files.get({ fileId: backupState.folderId, fields: 'id,name,webViewLink,trashed' });
+      return backupState.folderId;
+    } catch { backupState.folderId = null; }
+  }
+  // Look up by name
+  const list = await drive.files.list({ q: `name='${BACKUP_FOLDER_NAME}' and mimeType='application/vnd.google-apps.folder' and trashed=false`, fields: 'files(id,name,webViewLink)', pageSize: 10 });
+  if (list.data.files?.length) {
+    backupState.folderId = list.data.files[0].id;
+    backupState.folderUrl = list.data.files[0].webViewLink;
+    saveBackupState();
+    return backupState.folderId;
+  }
+  // Create
+  const created = await drive.files.create({
+    requestBody: { name: BACKUP_FOLDER_NAME, mimeType: 'application/vnd.google-apps.folder' },
+    fields: 'id,webViewLink',
+  });
+  backupState.folderId = created.data.id;
+  backupState.folderUrl = created.data.webViewLink;
+  saveBackupState();
+  return backupState.folderId;
+}
+
+async function runBackup() {
+  if (!hasDriveScope()) {
+    const msg = 'Drive scope missing — user must re-authorize Google with drive.file scope';
+    backupState.lastError = msg;
+    saveBackupState();
+    return { ok: false, error: msg };
+  }
+  try {
+    const drive = google.drive({ version: 'v3', auth: oauth2Client });
+    const folderId = await ensureBackupFolder(drive);
+
+    // Build state bundle
+    const bundle = {
+      version: 1,
+      timestamp: new Date().toISOString(),
+      dataDir: DATA_DIR,
+      files: {},
+    };
+    for (const name of BACKUP_FILES) {
+      const p = path.join(DATA_DIR, name);
+      if (fs.existsSync(p)) {
+        try { bundle.files[name] = JSON.parse(fs.readFileSync(p, 'utf8')); }
+        catch (e) { bundle.files[name] = { _parseError: e.message }; }
+      }
+    }
+
+    const content = JSON.stringify(bundle, null, 2);
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    const filename = `agenthq-state-${stamp}.json`;
+
+    const up = await drive.files.create({
+      requestBody: { name: filename, parents: [folderId] },
+      media: { mimeType: 'application/json', body: content },
+      fields: 'id,name,webViewLink,size,createdTime',
+    });
+
+    backupState.lastBackupAt = new Date().toISOString();
+    backupState.lastBackupId = up.data.id;
+    backupState.lastBackupFilename = up.data.name;
+    backupState.lastBackupUrl = up.data.webViewLink;
+    backupState.lastBackupSize = up.data.size;
+    backupState.lastError = null;
+    saveBackupState();
+
+    // Prune old backups
+    const cutoff = Date.now() - BACKUP_RETENTION_DAYS * 24 * 60 * 60 * 1000;
+    try {
+      const all = await drive.files.list({
+        q: `'${folderId}' in parents and trashed=false and name contains 'agenthq-state-'`,
+        fields: 'files(id,name,createdTime)',
+        pageSize: 100,
+      });
+      for (const f of all.data.files || []) {
+        if (f.createdTime && new Date(f.createdTime).getTime() < cutoff && f.id !== up.data.id) {
+          try { await drive.files.delete({ fileId: f.id }); } catch {}
+        }
+      }
+    } catch (e) { console.error('[Backup] prune error:', e.message); }
+
+    console.log(`[Backup] Uploaded ${filename} (${Math.round((up.data.size || content.length) / 1024)} KB)`);
+    return { ok: true, file: up.data, bundleSize: content.length };
+  } catch (err) {
+    console.error('[Backup] error:', err.message);
+    backupState.lastError = err.message;
+    saveBackupState();
+    return { ok: false, error: err.message };
+  }
+}
+
+// GET /api/backup/status — shows last backup state + whether Drive scope is granted
+app.get('/api/backup/status', (req, res) => {
+  res.json({
+    ok: true,
+    driveScopeGranted: hasDriveScope(),
+    lastBackupAt: backupState.lastBackupAt,
+    lastBackupFilename: backupState.lastBackupFilename,
+    lastBackupUrl: backupState.lastBackupUrl,
+    lastBackupSize: backupState.lastBackupSize,
+    lastError: backupState.lastError,
+    folderUrl: backupState.folderUrl,
+    retentionDays: BACKUP_RETENTION_DAYS,
+    filesTracked: BACKUP_FILES.length,
+    dataDirMode: DATA_DIR === __dirname ? 'ephemeral' : 'persistent',
+  });
+});
+
+// POST /api/backup/now — manual trigger
+app.post('/api/backup/now', async (req, res) => {
+  const result = await runBackup();
+  res.json(result);
+});
+
+// GET /api/backup/list — list recent backups in Drive
+app.get('/api/backup/list', async (req, res) => {
+  if (!hasDriveScope()) return res.json({ ok: false, error: 'Drive scope not granted', backups: [] });
+  try {
+    const drive = google.drive({ version: 'v3', auth: oauth2Client });
+    const folderId = await ensureBackupFolder(drive);
+    const list = await drive.files.list({
+      q: `'${folderId}' in parents and trashed=false and name contains 'agenthq-state-'`,
+      fields: 'files(id,name,size,createdTime,webViewLink)',
+      orderBy: 'createdTime desc',
+      pageSize: 30,
+    });
+    res.json({ ok: true, backups: list.data.files || [], folderUrl: backupState.folderUrl });
+  } catch (err) {
+    res.json({ ok: false, error: err.message, backups: [] });
+  }
+});
+
+// Auto-daily backup: fire at boot (if last was >23h ago) and then every 24h
+async function scheduleBackups() {
+  const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+  const last = backupState.lastBackupAt ? new Date(backupState.lastBackupAt).getTime() : 0;
+  const since = Date.now() - last;
+  // Run once if it's been >23h since last (first-boot or daily drift)
+  if (since > 23 * 60 * 60 * 1000 && hasDriveScope()) {
+    console.log('[Backup] Running initial/overdue backup…');
+    try { await runBackup(); } catch (e) { console.error('[Backup] initial error:', e.message); }
+  }
+  // Then schedule every 24h
+  setInterval(async () => {
+    if (hasDriveScope()) {
+      try { await runBackup(); } catch (e) { console.error('[Backup] scheduled error:', e.message); }
+    }
+  }, ONE_DAY_MS);
+}
+// Fire 60s after boot so OAuth tokens are loaded
+setTimeout(() => { scheduleBackups().catch(e => console.error('[Backup] schedule init:', e.message)); }, 60_000);
 
 // ─────────────────────────────────────────────
 // SPA Fallback — serve index.html for all other routes
