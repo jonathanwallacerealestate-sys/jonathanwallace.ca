@@ -8281,8 +8281,9 @@ function CmaIntakeModal({ onClose, onCreated }) {
 function CmaDetailModal({ id, onClose }) {
   const [cma, setCma] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState({});
+  const [addCompKind, setAddCompKind] = useState(null); // 'sold' | 'active' | null
+  const [compDraft, setCompDraft] = useState({});
+  const [copiedRun, setCopiedRun] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -8339,7 +8340,7 @@ function CmaDetailModal({ id, onClose }) {
         </div>
 
         {/* Subject Summary */}
-        <div style={{ background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 10, padding: 14, marginBottom: 16 }}>
+        <div style={{ background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 10, padding: 14, marginBottom: 12 }}>
           <div style={{ fontSize: 10, fontWeight: 700, color: '#6b7280', textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 8 }}>Subject Property</div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, fontSize: 12 }}>
             <div><strong>Style:</strong> {cma.style || '—'}</div>
@@ -8355,35 +8356,36 @@ function CmaDetailModal({ id, onClose }) {
           </div>
         </div>
 
-        {/* Price Range — editable */}
-        {cma.priceRange?.mid && (
-          <div style={{ background: 'linear-gradient(135deg,#fef3c7,#fefce8)', border: '1px solid #fde68a', borderRadius: 10, padding: 14, marginBottom: 16 }}>
-            <div style={{ fontSize: 10, fontWeight: 700, color: '#78350f', textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 8 }}>Estimated Sale Price Range</div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
-              <div>
-                <div style={{ fontSize: 10, color: '#92400e' }}>Low</div>
-                <input type="number" value={cma.priceRange.low || ''} onChange={e => patch({ priceRange: { ...cma.priceRange, low: Number(e.target.value) || null } })} style={{ width: '100%', padding: '6px 8px', border: '1px solid #fde68a', borderRadius: 6, fontSize: 13, fontWeight: 700 }} />
-              </div>
-              <div>
-                <div style={{ fontSize: 10, color: '#92400e' }}>Most Likely</div>
-                <input type="number" value={cma.priceRange.mid || ''} onChange={e => patch({ priceRange: { ...cma.priceRange, mid: Number(e.target.value) || null } })} style={{ width: '100%', padding: '6px 8px', border: '1px solid #fde68a', borderRadius: 6, fontSize: 14, fontWeight: 700, color: '#0f172a' }} />
-              </div>
-              <div>
-                <div style={{ fontSize: 10, color: '#92400e' }}>High</div>
-                <input type="number" value={cma.priceRange.high || ''} onChange={e => patch({ priceRange: { ...cma.priceRange, high: Number(e.target.value) || null } })} style={{ width: '100%', padding: '6px 8px', border: '1px solid #fde68a', borderRadius: 6, fontSize: 13, fontWeight: 700 }} />
-              </div>
-              <div>
-                <div style={{ fontSize: 10, color: '#92400e' }}>Est. DOM</div>
-                <input type="number" value={cma.estimatedDom || ''} onChange={e => patch({ estimatedDom: Number(e.target.value) || null })} style={{ width: '100%', padding: '6px 8px', border: '1px solid #fde68a', borderRadius: 6, fontSize: 13, fontWeight: 700 }} />
-              </div>
+        {/* Pending banner with run prompt */}
+        {cma.status === 'pending' && (
+          <div style={{ background: '#fefce8', border: '1px solid #fde68a', borderRadius: 10, padding: 12, marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
+            <div style={{ fontSize: 12, color: '#78350f' }}>
+              <strong>Pending.</strong> To have Claude execute this CMA (drive REALM, pull comps, generate pricing), copy the prompt and paste into this chat.
             </div>
+            <button onClick={async () => {
+              try {
+                await navigator.clipboard.writeText(`run my pending CMAs`);
+                setCopiedRun(true);
+                setTimeout(() => setCopiedRun(false), 2000);
+              } catch { alert('Clipboard blocked — copy "run my pending CMAs" manually'); }
+            }} style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'linear-gradient(135deg,#c8a96e,#d4b878)', color: '#fff', border: 'none', borderRadius: 6, padding: '6px 12px', fontSize: 11, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+              {copiedRun ? <><Check size={11} />Copied</> : <>Copy "run my pending CMAs"</>}
+            </button>
           </div>
+        )}
+
+        {/* Price Range — interactive slider */}
+        {cma.priceRange?.mid && (
+          <PriceRangeSlider cma={cma} onPatch={patch} />
         )}
 
         {/* Comp lists */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 16 }}>
           <div>
-            <div style={{ fontSize: 10, fontWeight: 700, color: '#166534', textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 6 }}>Recent Solds ({cma.comps?.solds?.length || 0})</div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: '#166534', textTransform: 'uppercase', letterSpacing: 0.4 }}>Recent Solds ({cma.comps?.solds?.length || 0})</div>
+              <button onClick={() => { setAddCompKind('sold'); setCompDraft({}); }} style={{ fontSize: 10, background: '#dcfce7', color: '#166534', border: '1px solid #bbf7d0', borderRadius: 4, padding: '3px 8px', cursor: 'pointer', fontWeight: 700 }}>+ Add</button>
+            </div>
             {(cma.comps?.solds || []).map((s, i) => (
               <div key={s.id || i} style={{ padding: 8, borderBottom: '1px solid #f1f5f9', fontSize: 11, display: 'flex', justifyContent: 'space-between', gap: 6 }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
@@ -8393,10 +8395,13 @@ function CmaDetailModal({ id, onClose }) {
                 <button onClick={() => removeComp(s.id)} title="Remove" style={{ background: 'transparent', border: 'none', color: '#9ca3af', cursor: 'pointer' }}><X size={12} /></button>
               </div>
             ))}
-            {!cma.comps?.solds?.length && <div style={{ fontSize: 11, color: '#9ca3af', fontStyle: 'italic', padding: 8 }}>No sold comps yet. Ask Claude to "run my pending CMAs".</div>}
+            {!cma.comps?.solds?.length && <div style={{ fontSize: 11, color: '#9ca3af', fontStyle: 'italic', padding: 8 }}>No sold comps yet. Ask Claude to "run my pending CMAs" or click + Add.</div>}
           </div>
           <div>
-            <div style={{ fontSize: 10, fontWeight: 700, color: '#1e40af', textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 6 }}>Current Actives ({cma.comps?.actives?.length || 0})</div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: '#1e40af', textTransform: 'uppercase', letterSpacing: 0.4 }}>Current Actives ({cma.comps?.actives?.length || 0})</div>
+              <button onClick={() => { setAddCompKind('active'); setCompDraft({}); }} style={{ fontSize: 10, background: '#dbeafe', color: '#1e40af', border: '1px solid #bfdbfe', borderRadius: 4, padding: '3px 8px', cursor: 'pointer', fontWeight: 700 }}>+ Add</button>
+            </div>
             {(cma.comps?.actives || []).map((a, i) => (
               <div key={a.id || i} style={{ padding: 8, borderBottom: '1px solid #f1f5f9', fontSize: 11, display: 'flex', justifyContent: 'space-between', gap: 6 }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
@@ -8409,6 +8414,14 @@ function CmaDetailModal({ id, onClose }) {
             {!cma.comps?.actives?.length && <div style={{ fontSize: 11, color: '#9ca3af', fontStyle: 'italic', padding: 8 }}>No actives yet.</div>}
           </div>
         </div>
+
+        {/* Add Comp form */}
+        {addCompKind && (
+          <AddCompForm kind={addCompKind} onCancel={() => setAddCompKind(null)} onAdd={async (data) => {
+            await patch({ addComp: { kind: addCompKind, data } });
+            setAddCompKind(null);
+          }} />
+        )}
 
         {/* Pricing narrative */}
         {cma.pricingNarrative && (
@@ -8430,6 +8443,130 @@ function CmaDetailModal({ id, onClose }) {
         <div>
           <div style={{ fontSize: 10, fontWeight: 700, color: '#374151', textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 6 }}>Notes</div>
           <textarea value={cma.notes || ''} onChange={e => patch({ notes: e.target.value })} placeholder="Anything worth capturing — seller motivation, deferred maintenance, timing preferences, showing feedback, etc." style={{ width: '100%', minHeight: 100, padding: 10, border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 12, fontFamily: 'inherit', resize: 'vertical' }} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PriceRangeSlider({ cma, onPatch }) {
+  const { low, mid, high } = cma.priceRange || {};
+  // Compute slider min/max from comp prices + current range
+  const compPrices = [...(cma.comps?.solds || []), ...(cma.comps?.actives || [])]
+    .map(c => {
+      if (c.priceNumeric) return c.priceNumeric;
+      const m = String(c.price || '').match(/\$?([\d,.]+)([KM])?/);
+      if (!m) return 0;
+      const v = parseFloat(m[1].replace(/,/g, ''));
+      return m[2] === 'M' ? v * 1_000_000 : m[2] === 'K' ? v * 1000 : v;
+    })
+    .filter(n => n > 0);
+  const allRefs = [...compPrices, low, high, mid, cma.listPrice].filter(Boolean);
+  const sliderMin = allRefs.length ? Math.floor(Math.min(...allRefs) * 0.85 / 5000) * 5000 : 300000;
+  const sliderMax = allRefs.length ? Math.ceil(Math.max(...allRefs) * 1.15 / 5000) * 5000 : 1500000;
+  const fmt = (n) => n ? '$' + Number(n).toLocaleString() : '—';
+
+  const [dragLow, setDragLow] = useState(low || sliderMin);
+  const [dragMid, setDragMid] = useState(mid || (low + high) / 2 || (sliderMin + sliderMax) / 2);
+  const [dragHigh, setDragHigh] = useState(high || sliderMax);
+  const [dragDom, setDragDom] = useState(cma.estimatedDom || 30);
+
+  useEffect(() => {
+    setDragLow(low || sliderMin);
+    setDragMid(mid || (sliderMin + sliderMax) / 2);
+    setDragHigh(high || sliderMax);
+    setDragDom(cma.estimatedDom || 30);
+  }, [low, mid, high, cma.estimatedDom, sliderMin, sliderMax]);
+
+  const commit = () => {
+    onPatch({ priceRange: { low: dragLow, mid: dragMid, high: dragHigh }, estimatedDom: dragDom });
+  };
+
+  const lowPct = ((dragLow - sliderMin) / (sliderMax - sliderMin)) * 100;
+  const midPct = ((dragMid - sliderMin) / (sliderMax - sliderMin)) * 100;
+  const highPct = ((dragHigh - sliderMin) / (sliderMax - sliderMin)) * 100;
+
+  return (
+    <div style={{ background: 'linear-gradient(135deg,#fef3c7,#fefce8)', border: '1px solid #fde68a', borderRadius: 10, padding: 16, marginBottom: 16 }}>
+      <div style={{ fontSize: 10, fontWeight: 700, color: '#78350f', textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 12 }}>Estimated Sale Price Range — drag the handles</div>
+
+      {/* Labels row showing the 3 current values */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 14, textAlign: 'center' }}>
+        <div><div style={{ fontSize: 10, color: '#92400e', textTransform: 'uppercase' }}>Low</div><div style={{ fontSize: 18, fontWeight: 700, color: '#78350f' }}>{fmt(dragLow)}</div></div>
+        <div><div style={{ fontSize: 10, color: '#92400e', textTransform: 'uppercase' }}>Most Likely</div><div style={{ fontSize: 24, fontWeight: 800, color: '#0f172a' }}>{fmt(dragMid)}</div></div>
+        <div><div style={{ fontSize: 10, color: '#92400e', textTransform: 'uppercase' }}>High</div><div style={{ fontSize: 18, fontWeight: 700, color: '#78350f' }}>{fmt(dragHigh)}</div></div>
+      </div>
+
+      {/* Dual slider track with 3 handles */}
+      <div style={{ position: 'relative', height: 48, marginBottom: 8 }}>
+        {/* base track */}
+        <div style={{ position: 'absolute', left: 0, right: 0, top: 22, height: 4, background: '#fde68a', borderRadius: 2 }} />
+        {/* range band (low to high) */}
+        <div style={{ position: 'absolute', left: `${lowPct}%`, width: `${highPct - lowPct}%`, top: 22, height: 4, background: '#c8a96e', borderRadius: 2 }} />
+        {/* Mid indicator line */}
+        <div style={{ position: 'absolute', left: `calc(${midPct}% - 2px)`, top: 12, width: 4, height: 24, background: '#0f172a', borderRadius: 2 }} />
+        {/* 3 range inputs stacked and interleaved */}
+        <input type="range" min={sliderMin} max={sliderMax} step="1000" value={dragLow} onChange={e => { const v = Math.min(Number(e.target.value), dragMid); setDragLow(v); }} onMouseUp={commit} onTouchEnd={commit}
+          style={{ position: 'absolute', left: 0, right: 0, top: 16, width: '100%', appearance: 'none', background: 'transparent', pointerEvents: 'auto', zIndex: 3 }} />
+        <input type="range" min={sliderMin} max={sliderMax} step="1000" value={dragMid} onChange={e => { const v = Math.max(dragLow, Math.min(Number(e.target.value), dragHigh)); setDragMid(v); }} onMouseUp={commit} onTouchEnd={commit}
+          style={{ position: 'absolute', left: 0, right: 0, top: 16, width: '100%', appearance: 'none', background: 'transparent', pointerEvents: 'auto', zIndex: 4 }} />
+        <input type="range" min={sliderMin} max={sliderMax} step="1000" value={dragHigh} onChange={e => { const v = Math.max(Number(e.target.value), dragMid); setDragHigh(v); }} onMouseUp={commit} onTouchEnd={commit}
+          style={{ position: 'absolute', left: 0, right: 0, top: 16, width: '100%', appearance: 'none', background: 'transparent', pointerEvents: 'auto', zIndex: 3 }} />
+      </div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: '#92400e' }}>
+        <span>{fmt(sliderMin)}</span>
+        <span>{fmt(sliderMax)}</span>
+      </div>
+
+      {/* DOM row */}
+      <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px solid #fde68a', display: 'flex', alignItems: 'center', gap: 12 }}>
+        <span style={{ fontSize: 11, fontWeight: 700, color: '#78350f', textTransform: 'uppercase', letterSpacing: 0.4 }}>Est. DOM:</span>
+        <input type="range" min="3" max="180" value={dragDom} onChange={e => setDragDom(Number(e.target.value))} onMouseUp={commit} onTouchEnd={commit} style={{ flex: 1 }} />
+        <span style={{ fontSize: 14, fontWeight: 700, color: '#0f172a', minWidth: 50, textAlign: 'right' }}>{dragDom} days</span>
+      </div>
+    </div>
+  );
+}
+
+function AddCompForm({ kind, onCancel, onAdd }) {
+  const [d, setD] = useState({ address: '', price: '', beds: '', baths: '', sqft: '', style: '', dom: '', soldDate: '', status: '', priceChange: '' });
+  const submit = () => {
+    if (!d.address || !d.price) { alert('Address and price required'); return; }
+    onAdd(d);
+  };
+  const isSold = kind === 'sold';
+  return (
+    <div style={{ background: isSold ? '#f0fdf4' : '#eff6ff', border: `1px solid ${isSold ? '#bbf7d0' : '#bfdbfe'}`, borderRadius: 10, padding: 12, marginBottom: 16 }}>
+      <div style={{ fontSize: 11, fontWeight: 700, color: isSold ? '#166534' : '#1e40af', marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.4 }}>Add {isSold ? 'Sold' : 'Active'} Comp</div>
+      <div style={{ display: 'grid', gridTemplateColumns: '3fr 1fr 1fr 1fr 1fr 1fr', gap: 6, marginBottom: 6 }}>
+        <input placeholder="Address" value={d.address} onChange={e => setD({ ...d, address: e.target.value })} style={{ padding: '6px 8px', border: '1px solid #e5e7eb', borderRadius: 4, fontSize: 11 }} />
+        <input placeholder="Price ($529K)" value={d.price} onChange={e => setD({ ...d, price: e.target.value })} style={{ padding: '6px 8px', border: '1px solid #e5e7eb', borderRadius: 4, fontSize: 11 }} />
+        <input placeholder="Beds" value={d.beds} onChange={e => setD({ ...d, beds: e.target.value })} style={{ padding: '6px 8px', border: '1px solid #e5e7eb', borderRadius: 4, fontSize: 11 }} />
+        <input placeholder="Baths" value={d.baths} onChange={e => setD({ ...d, baths: e.target.value })} style={{ padding: '6px 8px', border: '1px solid #e5e7eb', borderRadius: 4, fontSize: 11 }} />
+        <input placeholder="Sqft" value={d.sqft} onChange={e => setD({ ...d, sqft: e.target.value })} style={{ padding: '6px 8px', border: '1px solid #e5e7eb', borderRadius: 4, fontSize: 11 }} />
+        <input placeholder="DOM" value={d.dom} onChange={e => setD({ ...d, dom: e.target.value })} style={{ padding: '6px 8px', border: '1px solid #e5e7eb', borderRadius: 4, fontSize: 11 }} />
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: '2fr 2fr 1fr 1fr', gap: 6 }}>
+        <input placeholder="Style (e.g. Bungalow)" value={d.style} onChange={e => setD({ ...d, style: e.target.value })} style={{ padding: '6px 8px', border: '1px solid #e5e7eb', borderRadius: 4, fontSize: 11 }} />
+        {isSold ? (
+          <>
+            <input placeholder="Sold date (MM/DD/YYYY)" value={d.soldDate} onChange={e => setD({ ...d, soldDate: e.target.value })} style={{ padding: '6px 8px', border: '1px solid #e5e7eb', borderRadius: 4, fontSize: 11 }} />
+            <input placeholder="Price change (-$15K)" value={d.priceChange} onChange={e => setD({ ...d, priceChange: e.target.value })} style={{ padding: '6px 8px', border: '1px solid #e5e7eb', borderRadius: 4, fontSize: 11 }} />
+          </>
+        ) : (
+          <>
+            <select value={d.status} onChange={e => setD({ ...d, status: e.target.value })} style={{ padding: '6px 8px', border: '1px solid #e5e7eb', borderRadius: 4, fontSize: 11 }}>
+              <option value="">Status</option>
+              <option value="Active">Active</option>
+              <option value="SC">Sold Conditional</option>
+              <option value="Price Change">Price Change</option>
+            </select>
+            <div />
+          </>
+        )}
+        <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end' }}>
+          <button onClick={onCancel} style={{ background: 'transparent', border: '1px solid #e5e7eb', borderRadius: 4, padding: '4px 10px', fontSize: 11, cursor: 'pointer', color: '#6b7280' }}>Cancel</button>
+          <button onClick={submit} style={{ background: isSold ? '#166534' : '#1e40af', color: '#fff', border: 'none', borderRadius: 4, padding: '4px 10px', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>Add</button>
         </div>
       </div>
     </div>
