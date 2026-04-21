@@ -347,6 +347,7 @@ const sidebarItems = [
   { id: "marketing", label: "Marketing", icon: Megaphone, badge: null },
   { id: "learning", label: "Learning", icon: BookOpen, badge: null },
   { id: "active-listings", label: "Active Listings", icon: Home, badge: null },
+  { id: "run-comps", label: "Run Comps", icon: BarChart3, badge: null },
   { id: "aps-parser", label: "APS Parser", icon: FileText, badge: null },
   { id: "listing-form", label: "Listing Form", icon: ClipboardList, badge: null },
   { id: "sellers", label: "Sellers", icon: Briefcase, badge: 3 },
@@ -8070,6 +8071,371 @@ function LinkFubContactModal({ mlsId, onClose, onLinked }) {
   );
 }
 
+// ─────────────────────────────────────────────
+// RUN COMPS / CMA SECTION
+// ─────────────────────────────────────────────
+function RunCompsSection() {
+  const [cmas, setCmas] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [intakeOpen, setIntakeOpen] = useState(false);
+  const [detailId, setDetailId] = useState(null);
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const r = await fetch('/api/cma');
+      const j = await r.json();
+      if (j.ok) setCmas(j.cmas || []);
+    } catch (e) { console.error(e); }
+    setLoading(false);
+  };
+  useEffect(() => { load(); }, []);
+
+  const statusColor = (s) => {
+    if (s === 'ready') return { bg: '#dcfce7', fg: '#166534' };
+    if (s === 'running') return { bg: '#dbeafe', fg: '#1e40af' };
+    if (s === 'pending') return { bg: '#fef3c7', fg: '#92400e' };
+    if (s === 'error') return { bg: '#fee2e2', fg: '#991b1b' };
+    return { bg: '#f3f4f6', fg: '#374151' };
+  };
+  const timeAgo = (iso) => {
+    if (!iso) return '—';
+    const mins = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
+    if (mins < 1) return 'just now';
+    if (mins < 60) return `${mins}m ago`;
+    const hrs = Math.round(mins / 60);
+    if (hrs < 24) return `${hrs}h ago`;
+    return `${Math.round(hrs / 24)}d ago`;
+  };
+  const money = (n) => n ? '$' + Number(n).toLocaleString() : '—';
+
+  return (
+    <div style={{ background: '#fff', borderRadius: 14, padding: 20, boxShadow: '0 1px 3px rgba(0,0,0,0.05)', border: '1px solid #f0f0f0' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, flexWrap: 'wrap', gap: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <BarChart3 size={20} color="#c8a96e" />
+          <h2 style={{ fontSize: 18, fontWeight: 700, margin: 0 }}>Run Comps — CMA</h2>
+          <span style={{ fontSize: 12, color: '#6b7280', background: '#f3f4f6', padding: '2px 8px', borderRadius: 6, fontWeight: 600 }}>
+            {cmas.length}
+          </span>
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={load} title="Reload" style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'transparent', border: '1px solid #e5e7eb', borderRadius: 8, padding: '6px 12px', cursor: 'pointer', fontSize: 12, color: '#374151' }}>
+            <RotateCw size={12} />Reload
+          </button>
+          <button onClick={() => setIntakeOpen(true)} style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'linear-gradient(135deg,#c8a96e,#d4b878)', color: '#fff', border: 'none', borderRadius: 8, padding: '8px 16px', cursor: 'pointer', fontSize: 12, fontWeight: 700 }}>
+            <Plus size={12} />New CMA
+          </button>
+        </div>
+      </div>
+
+      <div style={{ background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 10, padding: 12, marginBottom: 16, fontSize: 12, color: '#4b5563', lineHeight: 1.55 }}>
+        <strong style={{ color: '#111827' }}>To run a new CMA:</strong> click <em>New CMA</em>, fill the subject details, submit. Then say <em>"run my pending CMAs"</em> to Claude — it'll drive REALM to pull comps + history + photos, generate the AI pricing narrative, and post back here. When ready, click <em>Print PDF</em> for a 4-page client-ready document.
+      </div>
+
+      {loading && <div style={{ padding: 24, textAlign: 'center', color: '#6b7280' }}>Loading…</div>}
+
+      {!loading && !cmas.length && (
+        <div style={{ padding: 32, textAlign: 'center', color: '#6b7280', background: '#f9fafb', borderRadius: 10, border: '1px dashed #d1d5db' }}>
+          No CMAs yet. Click <strong>New CMA</strong> to create one.
+        </div>
+      )}
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {cmas.map(c => {
+          const sc = statusColor(c.status);
+          return (
+            <div key={c.id} onClick={() => setDetailId(c.id)} style={{ cursor: 'pointer', border: '1px solid #ede9fe', borderRadius: 10, padding: 14, background: '#fff', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 14, fontWeight: 700, color: '#111827' }}>{c.address}</div>
+                <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>
+                  {c.city}{c.mlsId ? ` · MLS ${c.mlsId}` : ''} · Created {timeAgo(c.createdAt)}{c.ranAt ? ` · Ran ${timeAgo(c.ranAt)}` : ''}
+                </div>
+              </div>
+              <div style={{ textAlign: 'right' }}>
+                {c.priceRange?.mid ? (
+                  <div>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: '#c8a96e' }}>{money(c.priceRange.mid)}</div>
+                    <div style={{ fontSize: 10, color: '#6b7280' }}>{money(c.priceRange.low)} – {money(c.priceRange.high)}</div>
+                  </div>
+                ) : c.listPrice ? (
+                  <div>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: '#c8a96e' }}>{money(c.listPrice)}</div>
+                    <div style={{ fontSize: 10, color: '#6b7280' }}>listed</div>
+                  </div>
+                ) : null}
+              </div>
+              <span style={{ fontSize: 10, fontWeight: 700, padding: '3px 8px', borderRadius: 4, background: sc.bg, color: sc.fg, textTransform: 'uppercase', whiteSpace: 'nowrap' }}>{c.status}</span>
+            </div>
+          );
+        })}
+      </div>
+
+      {intakeOpen && <CmaIntakeModal onClose={() => setIntakeOpen(false)} onCreated={(cma) => { setIntakeOpen(false); setDetailId(cma.id); load(); }} />}
+      {detailId && <CmaDetailModal id={detailId} onClose={() => { setDetailId(null); load(); }} />}
+    </div>
+  );
+}
+
+function CmaIntakeModal({ onClose, onCreated }) {
+  const [form, setForm] = useState({
+    address: '', city: 'Midland', province: 'ON',
+    bedrooms: '', bathrooms: '', sqft: '', lotSize: '',
+    style: '', yearBuilt: '', foundation: '', garage: '',
+    waterfront: false, propertyClass: 'Freehold', mlsId: '',
+    listPrice: '',
+  });
+  const [submitting, setSubmitting] = useState(false);
+
+  const set = (k, v) => setForm(prev => ({ ...prev, [k]: v }));
+
+  const submit = async () => {
+    if (!form.address || !form.city) { alert('Address and city required'); return; }
+    setSubmitting(true);
+    try {
+      const r = await fetch('/api/cma', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...form, listPrice: form.listPrice ? Number(form.listPrice.replace(/[^0-9]/g, '')) : null }),
+      });
+      const j = await r.json();
+      if (j.ok) onCreated(j.cma);
+      else alert('Error: ' + (j.error || 'unknown'));
+    } catch (e) { alert(e.message); }
+    setSubmitting(false);
+  };
+
+  const Field = ({ label, k, type = 'text', placeholder, required, options }) => (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+      <label style={{ fontSize: 10, fontWeight: 700, color: '#6b7280', textTransform: 'uppercase', letterSpacing: 0.4 }}>
+        {label}{required && <span style={{ color: '#dc2626' }}> *</span>}
+      </label>
+      {type === 'select' ? (
+        <select value={form[k]} onChange={e => set(k, e.target.value)} style={{ padding: '8px 10px', border: '1px solid #e5e7eb', borderRadius: 6, fontSize: 13 }}>
+          {options.map(o => <option key={o} value={o}>{o}</option>)}
+        </select>
+      ) : type === 'checkbox' ? (
+        <label style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 10px', border: '1px solid #e5e7eb', borderRadius: 6, fontSize: 13 }}>
+          <input type="checkbox" checked={form[k]} onChange={e => set(k, e.target.checked)} /> Yes
+        </label>
+      ) : (
+        <input type={type} value={form[k]} onChange={e => set(k, e.target.value)} placeholder={placeholder || ''} style={{ padding: '8px 10px', border: '1px solid #e5e7eb', borderRadius: 6, fontSize: 13 }} />
+      )}
+    </div>
+  );
+
+  return (
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 20 }}>
+      <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 14, maxWidth: 720, width: '100%', maxHeight: '90vh', overflow: 'auto', padding: 24 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
+          <div>
+            <h2 style={{ fontSize: 18, fontWeight: 700, margin: 0 }}>New CMA</h2>
+            <div style={{ fontSize: 12, color: '#6b7280', marginTop: 4 }}>Fill required fields. Optional fields sharpen the match — use any you know.</div>
+          </div>
+          <button onClick={onClose} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#6b7280' }}><X size={18} /></button>
+        </div>
+
+        <div style={{ marginBottom: 12, padding: 10, background: '#eef2ff', borderRadius: 8, fontSize: 11, color: '#3730a3' }}>
+          <strong>Shortcut:</strong> paste an MLS # and the skill will fetch all attributes from REALM. Otherwise fill the fields manually.
+        </div>
+
+        <h3 style={{ fontSize: 12, fontWeight: 700, color: '#374151', textTransform: 'uppercase', letterSpacing: 0.4, margin: '0 0 8px' }}>Required</h3>
+        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 10, marginBottom: 12 }}>
+          <Field label="Address" k="address" placeholder="123 Main St" required />
+          <Field label="City" k="city" required />
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, marginBottom: 12 }}>
+          <Field label="Bedrooms" k="bedrooms" placeholder="3+1" />
+          <Field label="Bathrooms" k="bathrooms" placeholder="2" />
+          <Field label="Sqft" k="sqft" placeholder="1100-1500" />
+          <Field label="Lot Size" k="lotSize" placeholder="60 x 120 ft" />
+        </div>
+
+        <h3 style={{ fontSize: 12, fontWeight: 700, color: '#374151', textTransform: 'uppercase', letterSpacing: 0.4, margin: '16px 0 8px' }}>Optional — Sharpen the Comps</h3>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, marginBottom: 10 }}>
+          <Field label="MLS # (if any)" k="mlsId" placeholder="S12345678" />
+          <Field label="Property Class" k="propertyClass" type="select" options={['Freehold', 'Condo', 'Commercial']} />
+          <Field label="Current List Price" k="listPrice" placeholder="529000" />
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, marginBottom: 10 }}>
+          <Field label="Style" k="style" placeholder="Bungalow / 2-Storey / Sidesplit" />
+          <Field label="Year Built" k="yearBuilt" placeholder="1958" />
+          <Field label="Foundation" k="foundation" placeholder="Concrete Block / Stone / Poured" />
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 10, marginBottom: 10 }}>
+          <Field label="Garage" k="garage" placeholder="Attached single / Double detached / None" />
+          <Field label="Waterfront?" k="waterfront" type="checkbox" />
+        </div>
+
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 20, paddingTop: 16, borderTop: '1px solid #e5e7eb' }}>
+          <button onClick={onClose} style={{ background: 'transparent', border: '1px solid #e5e7eb', borderRadius: 8, padding: '8px 16px', fontSize: 12, cursor: 'pointer', color: '#6b7280' }}>Cancel</button>
+          <button onClick={submit} disabled={submitting} style={{ background: 'linear-gradient(135deg,#c8a96e,#d4b878)', color: '#fff', border: 'none', borderRadius: 8, padding: '8px 16px', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
+            {submitting ? 'Creating…' : 'Create CMA'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CmaDetailModal({ id, onClose }) {
+  const [cma, setCma] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState({});
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const r = await fetch(`/api/cma/${id}`);
+      const j = await r.json();
+      if (j.ok) { setCma(j.cma); setDraft({}); }
+    } catch (e) { console.error(e); }
+    setLoading(false);
+  };
+  useEffect(() => { load(); }, [id]);
+
+  const money = (n) => n ? '$' + Number(n).toLocaleString() : '—';
+
+  const patch = async (body) => {
+    try {
+      const r = await fetch(`/api/cma/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      const j = await r.json();
+      if (j.ok) setCma(j.cma);
+    } catch (e) { alert(e.message); }
+  };
+
+  const removeComp = (compId) => patch({ removeCompId: compId });
+
+  const del = async () => {
+    if (!window.confirm('Delete this CMA?')) return;
+    await fetch(`/api/cma/${id}`, { method: 'DELETE' });
+    onClose();
+  };
+
+  if (loading || !cma) return (
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
+      <div style={{ background: '#fff', borderRadius: 14, padding: 40, color: '#6b7280' }}>Loading…</div>
+    </div>
+  );
+
+  return (
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 20 }}>
+      <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 14, maxWidth: 960, width: '100%', maxHeight: '92vh', overflow: 'auto', padding: 24 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
+          <div>
+            <h2 style={{ fontSize: 20, fontWeight: 700, margin: 0 }}>{cma.address}</h2>
+            <div style={{ fontSize: 12, color: '#6b7280', marginTop: 4 }}>
+              {cma.city}, {cma.province}{cma.mlsId ? ` · MLS ${cma.mlsId}` : ''} · Status: <strong style={{ color: '#374151' }}>{cma.status}</strong>
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: 6 }}>
+            <a href={`/cma/${cma.id}/print`} target="_blank" rel="noopener noreferrer" style={{ display: 'flex', alignItems: 'center', gap: 4, textDecoration: 'none', background: '#c8a96e', color: '#fff', border: 'none', borderRadius: 8, padding: '8px 14px', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
+              <FileText size={12} />Print PDF
+            </a>
+            <button onClick={del} style={{ background: 'transparent', border: '1px solid #fecaca', borderRadius: 8, padding: '8px 10px', fontSize: 12, cursor: 'pointer', color: '#dc2626' }}>Delete</button>
+            <button onClick={onClose} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#6b7280' }}><X size={18} /></button>
+          </div>
+        </div>
+
+        {/* Subject Summary */}
+        <div style={{ background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 10, padding: 14, marginBottom: 16 }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: '#6b7280', textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 8 }}>Subject Property</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, fontSize: 12 }}>
+            <div><strong>Style:</strong> {cma.style || '—'}</div>
+            <div><strong>Beds:</strong> {cma.bedrooms || '—'}</div>
+            <div><strong>Baths:</strong> {cma.bathrooms || '—'}</div>
+            <div><strong>Sqft:</strong> {cma.sqft || '—'}</div>
+            <div><strong>Lot:</strong> {cma.lotSize || '—'}</div>
+            <div><strong>Year:</strong> {cma.yearBuilt || '—'}</div>
+            <div><strong>Foundation:</strong> {cma.foundation || '—'}</div>
+            <div><strong>Garage:</strong> {cma.garage || '—'}</div>
+            <div><strong>Waterfront:</strong> {cma.waterfront ? 'Yes' : 'No'}</div>
+            <div><strong>List Price:</strong> {money(cma.listPrice)}</div>
+          </div>
+        </div>
+
+        {/* Price Range — editable */}
+        {cma.priceRange?.mid && (
+          <div style={{ background: 'linear-gradient(135deg,#fef3c7,#fefce8)', border: '1px solid #fde68a', borderRadius: 10, padding: 14, marginBottom: 16 }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: '#78350f', textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 8 }}>Estimated Sale Price Range</div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
+              <div>
+                <div style={{ fontSize: 10, color: '#92400e' }}>Low</div>
+                <input type="number" value={cma.priceRange.low || ''} onChange={e => patch({ priceRange: { ...cma.priceRange, low: Number(e.target.value) || null } })} style={{ width: '100%', padding: '6px 8px', border: '1px solid #fde68a', borderRadius: 6, fontSize: 13, fontWeight: 700 }} />
+              </div>
+              <div>
+                <div style={{ fontSize: 10, color: '#92400e' }}>Most Likely</div>
+                <input type="number" value={cma.priceRange.mid || ''} onChange={e => patch({ priceRange: { ...cma.priceRange, mid: Number(e.target.value) || null } })} style={{ width: '100%', padding: '6px 8px', border: '1px solid #fde68a', borderRadius: 6, fontSize: 14, fontWeight: 700, color: '#0f172a' }} />
+              </div>
+              <div>
+                <div style={{ fontSize: 10, color: '#92400e' }}>High</div>
+                <input type="number" value={cma.priceRange.high || ''} onChange={e => patch({ priceRange: { ...cma.priceRange, high: Number(e.target.value) || null } })} style={{ width: '100%', padding: '6px 8px', border: '1px solid #fde68a', borderRadius: 6, fontSize: 13, fontWeight: 700 }} />
+              </div>
+              <div>
+                <div style={{ fontSize: 10, color: '#92400e' }}>Est. DOM</div>
+                <input type="number" value={cma.estimatedDom || ''} onChange={e => patch({ estimatedDom: Number(e.target.value) || null })} style={{ width: '100%', padding: '6px 8px', border: '1px solid #fde68a', borderRadius: 6, fontSize: 13, fontWeight: 700 }} />
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Comp lists */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 16 }}>
+          <div>
+            <div style={{ fontSize: 10, fontWeight: 700, color: '#166534', textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 6 }}>Recent Solds ({cma.comps?.solds?.length || 0})</div>
+            {(cma.comps?.solds || []).map((s, i) => (
+              <div key={s.id || i} style={{ padding: 8, borderBottom: '1px solid #f1f5f9', fontSize: 11, display: 'flex', justifyContent: 'space-between', gap: 6 }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 600, color: '#0f172a' }}>{s.address}</div>
+                  <div style={{ color: '#475569' }}>{s.price} · {s.beds}/{s.baths} · {s.sqft} · {s.style} · {s.dom} DOM · sold {s.soldDate}</div>
+                </div>
+                <button onClick={() => removeComp(s.id)} title="Remove" style={{ background: 'transparent', border: 'none', color: '#9ca3af', cursor: 'pointer' }}><X size={12} /></button>
+              </div>
+            ))}
+            {!cma.comps?.solds?.length && <div style={{ fontSize: 11, color: '#9ca3af', fontStyle: 'italic', padding: 8 }}>No sold comps yet. Ask Claude to "run my pending CMAs".</div>}
+          </div>
+          <div>
+            <div style={{ fontSize: 10, fontWeight: 700, color: '#1e40af', textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 6 }}>Current Actives ({cma.comps?.actives?.length || 0})</div>
+            {(cma.comps?.actives || []).map((a, i) => (
+              <div key={a.id || i} style={{ padding: 8, borderBottom: '1px solid #f1f5f9', fontSize: 11, display: 'flex', justifyContent: 'space-between', gap: 6 }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 600, color: '#0f172a' }}>{a.address}</div>
+                  <div style={{ color: '#475569' }}>{a.price} · {a.beds}/{a.baths} · {a.sqft} · {a.style} · {a.dom} DOM {a.status ? `· ${a.status}` : ''}</div>
+                </div>
+                <button onClick={() => removeComp(a.id)} title="Remove" style={{ background: 'transparent', border: 'none', color: '#9ca3af', cursor: 'pointer' }}><X size={12} /></button>
+              </div>
+            ))}
+            {!cma.comps?.actives?.length && <div style={{ fontSize: 11, color: '#9ca3af', fontStyle: 'italic', padding: 8 }}>No actives yet.</div>}
+          </div>
+        </div>
+
+        {/* Pricing narrative */}
+        {cma.pricingNarrative && (
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: '#374151', textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 6 }}>Pricing Analysis</div>
+            <div style={{ fontSize: 12, lineHeight: 1.6, whiteSpace: 'pre-wrap', color: '#1f2937', background: '#fafafa', padding: 12, borderRadius: 8 }}>{cma.pricingNarrative}</div>
+          </div>
+        )}
+
+        {/* Seller update */}
+        {cma.sellerUpdate && (
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: '#374151', textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 6 }}>Seller Update Draft</div>
+            <textarea value={cma.sellerUpdate} onChange={e => patch({ sellerUpdate: e.target.value })} style={{ width: '100%', minHeight: 80, padding: 10, border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 12, fontFamily: 'inherit', resize: 'vertical' }} />
+          </div>
+        )}
+
+        {/* Notes */}
+        <div>
+          <div style={{ fontSize: 10, fontWeight: 700, color: '#374151', textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 6 }}>Notes</div>
+          <textarea value={cma.notes || ''} onChange={e => patch({ notes: e.target.value })} placeholder="Anything worth capturing — seller motivation, deferred maintenance, timing preferences, showing feedback, etc." style={{ width: '100%', minHeight: 100, padding: 10, border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 12, fontFamily: 'inherit', resize: 'vertical' }} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function SectionContent({ section }) {
   switch (section) {
     case "briefing": return (
@@ -8105,6 +8471,7 @@ function SectionContent({ section }) {
     case "marketing": return <MarketingSection />;
     case "learning": return <PlaceholderSection title="Learning" icon={BookOpen} />;
     case "active-listings": return <ActiveListingsSection />;
+    case "run-comps": return <RunCompsSection />;
     case "aps-parser": return <ApsParser />;
     case "listing-form": return <ListingForm />;
     case "sellers": return <SellersSection />;

@@ -6593,6 +6593,364 @@ app.get('/api/listings/contacts/search', async (req, res) => {
 });
 
 // ─────────────────────────────────────────────
+// RUN COMPS / CMA — Comparative Market Analyses
+// Skill: realm-cma-runner scrapes REALM and posts scraped comp data back here.
+// ─────────────────────────────────────────────
+const CMAS_PATH = path.join(__dirname, '.cmas.json');
+let cmasState = { cmas: [] };
+try {
+  if (fs.existsSync(CMAS_PATH)) {
+    cmasState = JSON.parse(fs.readFileSync(CMAS_PATH, 'utf8'));
+    if (!cmasState.cmas) cmasState = { cmas: [] };
+  }
+} catch { cmasState = { cmas: [] }; }
+function saveCmas() {
+  try { fs.writeFileSync(CMAS_PATH, JSON.stringify(cmasState, null, 2)); } catch (e) { console.error('[CMA] save error:', e.message); }
+}
+
+const newCmaId = () => `cma_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+
+// POST /api/cma — create a new CMA request
+app.post('/api/cma', express.json({ limit: '1mb' }), (req, res) => {
+  const body = req.body || {};
+  if (!body.address || !body.city) return res.status(400).json({ ok: false, error: 'address + city required' });
+  const now = new Date().toISOString();
+  const cma = {
+    id: newCmaId(),
+    status: 'pending', // pending | running | ready | error
+    // Required
+    address: String(body.address).slice(0, 200),
+    city: String(body.city).slice(0, 60),
+    province: String(body.province || 'ON').slice(0, 4),
+    bedrooms: String(body.bedrooms || '').slice(0, 10),
+    bathrooms: String(body.bathrooms || '').slice(0, 10),
+    sqft: String(body.sqft || '').slice(0, 40),
+    lotSize: String(body.lotSize || '').slice(0, 80),
+    // Optional for sharper matching
+    style: String(body.style || '').slice(0, 60),
+    yearBuilt: String(body.yearBuilt || '').slice(0, 10),
+    foundation: String(body.foundation || '').slice(0, 40),
+    garage: String(body.garage || '').slice(0, 80),
+    waterfront: !!body.waterfront,
+    propertyClass: String(body.propertyClass || 'Freehold').slice(0, 20), // Freehold / Condo
+    mlsId: String(body.mlsId || '').slice(0, 20),
+    // Subject listing state
+    listPrice: Number(body.listPrice) || null,
+    // Scraped data (filled by skill)
+    subjectDetails: null,
+    subjectHistory: [],
+    subjectPhotos: [],
+    comps: { solds: [], actives: [] },
+    marketTrend: null,
+    // AI outputs
+    priceRange: { low: null, mid: null, high: null },
+    estimatedDom: null,
+    pricingNarrative: null,
+    sellerUpdate: null,
+    // User notes
+    notes: '',
+    // Metadata
+    createdAt: now,
+    updatedAt: now,
+    ranAt: null,
+  };
+  cmasState.cmas.unshift(cma);
+  if (cmasState.cmas.length > 200) cmasState.cmas = cmasState.cmas.slice(0, 200);
+  saveCmas();
+  res.json({ ok: true, cma });
+});
+
+// GET /api/cma — list all (summary rows)
+app.get('/api/cma', (req, res) => {
+  const status = req.query.status;
+  let list = cmasState.cmas;
+  if (status) list = list.filter(c => c.status === status);
+  res.json({
+    ok: true,
+    cmas: list.map(c => ({
+      id: c.id,
+      status: c.status,
+      address: c.address,
+      city: c.city,
+      listPrice: c.listPrice,
+      priceRange: c.priceRange,
+      mlsId: c.mlsId,
+      createdAt: c.createdAt,
+      ranAt: c.ranAt,
+    })),
+  });
+});
+
+// GET /api/cma/:id — fetch full detail
+app.get('/api/cma/:id', (req, res) => {
+  const cma = cmasState.cmas.find(c => c.id === req.params.id);
+  if (!cma) return res.status(404).json({ ok: false, error: 'CMA not found' });
+  res.json({ ok: true, cma });
+});
+
+// PATCH /api/cma/:id — update fields (notes, price range toggle, comps add/remove, DOM estimate)
+app.patch('/api/cma/:id', express.json({ limit: '1mb' }), (req, res) => {
+  const cma = cmasState.cmas.find(c => c.id === req.params.id);
+  if (!cma) return res.status(404).json({ ok: false, error: 'CMA not found' });
+  const allowed = ['notes', 'priceRange', 'estimatedDom', 'pricingNarrative', 'sellerUpdate', 'status', 'address', 'city', 'bedrooms', 'bathrooms', 'sqft', 'lotSize', 'style', 'yearBuilt', 'foundation', 'garage', 'waterfront', 'propertyClass', 'mlsId', 'listPrice'];
+  const body = req.body || {};
+  for (const k of allowed) if (k in body) cma[k] = body[k];
+  // Nested comp edits
+  if (body.addComp && (body.addComp.kind === 'sold' || body.addComp.kind === 'active')) {
+    const list = body.addComp.kind === 'sold' ? cma.comps.solds : cma.comps.actives;
+    list.push({ id: `c_${Date.now()}_${Math.random().toString(36).slice(2, 5)}`, ...body.addComp.data });
+  }
+  if (body.removeCompId) {
+    cma.comps.solds = (cma.comps.solds || []).filter(c => c.id !== body.removeCompId);
+    cma.comps.actives = (cma.comps.actives || []).filter(c => c.id !== body.removeCompId);
+  }
+  cma.updatedAt = new Date().toISOString();
+  saveCmas();
+  res.json({ ok: true, cma });
+});
+
+// POST /api/cma/:id/ingest — called by the realm-cma-runner skill with all scraped data
+app.post('/api/cma/:id/ingest', express.json({ limit: '5mb' }), async (req, res) => {
+  const cma = cmasState.cmas.find(c => c.id === req.params.id);
+  if (!cma) return res.status(404).json({ ok: false, error: 'CMA not found' });
+  const body = req.body || {};
+  if (body.subjectDetails) cma.subjectDetails = body.subjectDetails;
+  if (Array.isArray(body.subjectHistory)) cma.subjectHistory = body.subjectHistory.slice(0, 100);
+  if (Array.isArray(body.subjectPhotos)) cma.subjectPhotos = body.subjectPhotos.slice(0, 15);
+  if (body.comps) {
+    if (Array.isArray(body.comps.solds)) cma.comps.solds = body.comps.solds.slice(0, 30).map((c, i) => ({ id: c.id || `c_${Date.now()}_${i}`, ...c }));
+    if (Array.isArray(body.comps.actives)) cma.comps.actives = body.comps.actives.slice(0, 30).map((c, i) => ({ id: c.id || `c_${Date.now()}_${i + 100}`, ...c }));
+  }
+  if (body.marketTrend) cma.marketTrend = body.marketTrend;
+
+  // Generate pricing narrative + range via Claude
+  if (anthropic && (cma.comps.solds.length || cma.comps.actives.length)) {
+    try {
+      const soldSummary = cma.comps.solds.map(s => `- ${s.address}: ${s.price} · ${s.beds}bed/${s.baths}bath · ${s.sqft} · ${s.style} · ${s.dom} DOM · sold ${s.soldDate}${s.priceChange ? ` · ${s.priceChange}` : ''}`).join('\n') || '  (none)';
+      const activeSummary = cma.comps.actives.map(s => `- ${s.address}: ${s.price} · ${s.beds}bed/${s.baths}bath · ${s.sqft} · ${s.style} · ${s.dom} DOM${s.status ? ` · ${s.status}` : ''}`).join('\n') || '  (none)';
+      const subjectLine = `${cma.address}, ${cma.city} — ${cma.style || cma.propertyClass}, ${cma.bedrooms}bed/${cma.bathrooms}bath, ${cma.sqft} sqft, lot ${cma.lotSize}${cma.yearBuilt ? `, built ${cma.yearBuilt}` : ''}${cma.foundation ? `, ${cma.foundation} foundation` : ''}${cma.garage ? `, ${cma.garage}` : ''}${cma.waterfront ? ', WATERFRONT' : ''}. Current list: ${cma.listPrice ? '$' + cma.listPrice.toLocaleString() : 'not yet listed'}.`;
+
+      const prompt = `You are Jonathan Wallace's pricing analyst for Ontario Georgian Bay real estate (Midland / Penetanguishene / Tiny / Tay). You follow these disciplined rules:
+
+- Match style strictly when inventory allows (2-Storey→2-Storey, Bungalow→Bungalow, etc)
+- Bathroom deficit costs $25-40K per missing bath
+- Stone foundation = ~$25K discount; poured concrete = baseline; concrete block = baseline
+- Baseboard electric heat = ~$10-15K discount vs gas
+- Age matters: century home discount, new build premium
+- Lot size material: bigger lot = premium
+- Garage: none baseline, single +$15-25K, double +$35-50K
+- Micro-geography: West of King St on Manly > East of King
+- Waterfront comps go back 1 year (summer selling cycle)
+- Condo comps go back 1 year, also reference nearby freehold waterfront for waterfront condos
+- Weight older comps for market trend (appreciation/depreciation)
+- Building-mate comps for condos = top priority
+
+SUBJECT: ${subjectLine}
+
+RECENT SOLDS (${cma.comps.solds.length}):
+${soldSummary}
+
+CURRENT ACTIVES (${cma.comps.actives.length}):
+${activeSummary}
+
+${cma.subjectHistory?.length ? `SUBJECT'S OWN LISTING HISTORY:\n${cma.subjectHistory.slice(0, 10).map(h => `- ${h.date}: ${h.event} ${h.price || ''} (${h.mls || ''})`).join('\n')}` : ''}
+
+${cma.marketTrend ? `MARKET TREND (segment): ${cma.marketTrend}` : ''}
+
+Return JSON in this exact shape (no markdown, no code fences):
+{
+  "priceRange": { "low": <number>, "mid": <number>, "high": <number> },
+  "estimatedDom": <integer>,
+  "pricingNarrative": "<3-4 paragraph analysis: what the comps say, adjustments applied, recommended list price, why>",
+  "sellerUpdate": "<3-4 sentence message Jonathan can send the seller explaining the comp set and recommended price range>"
+}
+
+Be specific. Reference actual comp addresses. Apply adjustments explicitly. If comps are sparse, say so and widen scope.`;
+
+      const msg = await anthropic.messages.create({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 1500,
+        messages: [{ role: 'user', content: prompt }],
+      });
+      const text = msg.content?.[0]?.text || '';
+      try {
+        const parsed = JSON.parse(text.replace(/^```json\s*|\s*```$/g, ''));
+        cma.priceRange = parsed.priceRange || cma.priceRange;
+        cma.estimatedDom = parsed.estimatedDom || cma.estimatedDom;
+        cma.pricingNarrative = parsed.pricingNarrative || cma.pricingNarrative;
+        cma.sellerUpdate = parsed.sellerUpdate || cma.sellerUpdate;
+      } catch (e) {
+        cma.pricingNarrative = text;
+      }
+    } catch (err) {
+      console.error('[CMA] AI error:', err.message);
+    }
+  }
+
+  cma.status = 'ready';
+  cma.ranAt = new Date().toISOString();
+  cma.updatedAt = cma.ranAt;
+  saveCmas();
+  res.json({ ok: true, cma });
+});
+
+// DELETE /api/cma/:id
+app.delete('/api/cma/:id', (req, res) => {
+  const idx = cmasState.cmas.findIndex(c => c.id === req.params.id);
+  if (idx < 0) return res.status(404).json({ ok: false });
+  cmasState.cmas.splice(idx, 1);
+  saveCmas();
+  res.json({ ok: true });
+});
+
+// GET /cma/:id/print — printable HTML view (print-to-PDF via browser Cmd+P)
+app.get('/cma/:id/print', (req, res) => {
+  const cma = cmasState.cmas.find(c => c.id === req.params.id);
+  if (!cma) return res.status(404).send('CMA not found');
+  const esc = s => String(s || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+  const money = n => n ? '$' + Number(n).toLocaleString() : '—';
+  const streetViewUrl = `https://maps.googleapis.com/maps/api/streetview?size=1200x600&location=${encodeURIComponent(cma.address + ', ' + cma.city + ', ON')}&key=${process.env.GOOGLE_MAPS_API_KEY || ''}`;
+  const coverPhoto = cma.subjectPhotos?.[0] || (process.env.GOOGLE_MAPS_API_KEY ? streetViewUrl : null);
+
+  res.send(`<!doctype html>
+<html><head>
+<meta charset="utf-8">
+<title>CMA — ${esc(cma.address)}</title>
+<style>
+  @page { size: letter; margin: 0.5in; }
+  @media print { .no-print { display: none !important; } .page { page-break-after: always; } .page:last-child { page-break-after: auto; } }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; color: #111827; margin: 0; padding: 20px; background: #f8f9fa; }
+  .page { background: #fff; max-width: 8in; margin: 0 auto 20px; padding: 0.5in; box-shadow: 0 2px 8px rgba(0,0,0,0.08); min-height: 10in; position: relative; }
+  h1 { font-size: 26px; margin: 0 0 4px; color: #0f172a; }
+  h2 { font-size: 18px; margin: 24px 0 10px; color: #0f172a; border-bottom: 2px solid #c8a96e; padding-bottom: 4px; }
+  h3 { font-size: 14px; margin: 16px 0 6px; color: #374151; }
+  .sub { color: #6b7280; font-size: 13px; margin-bottom: 14px; }
+  .hero-photo { width: 100%; height: 320px; object-fit: cover; border-radius: 8px; margin-bottom: 16px; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .kv { padding: 8px 12px; background: #f9fafb; border-left: 3px solid #c8a96e; font-size: 12px; }
+  .kv strong { display: block; font-size: 10px; color: #6b7280; text-transform: uppercase; letter-spacing: 0.4px; margin-bottom: 2px; }
+  .range-box { background: linear-gradient(135deg, #fef3c7, #fefce8); border: 1px solid #fde68a; border-radius: 10px; padding: 18px; margin: 16px 0; }
+  .range-nums { display: flex; justify-content: space-around; align-items: center; margin-top: 10px; }
+  .range-num { text-align: center; }
+  .range-num .big { font-size: 26px; font-weight: 700; color: #78350f; }
+  .range-num .lbl { font-size: 10px; color: #92400e; text-transform: uppercase; letter-spacing: 0.5px; }
+  .mid { color: #0f172a !important; font-size: 32px !important; }
+  table { width: 100%; border-collapse: collapse; font-size: 11px; margin-top: 8px; }
+  th { text-align: left; padding: 6px 8px; background: #f3f4f6; font-size: 10px; text-transform: uppercase; letter-spacing: 0.3px; color: #374151; border-bottom: 2px solid #e5e7eb; }
+  td { padding: 6px 8px; border-bottom: 1px solid #f1f5f9; }
+  tr:nth-child(even) td { background: #fafafa; }
+  .narrative { font-size: 12px; line-height: 1.6; white-space: pre-wrap; color: #1f2937; }
+  .notes-area { border: 1px dashed #d1d5db; border-radius: 8px; padding: 20px; min-height: 4in; font-size: 12px; }
+  .photos-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 10px 0; }
+  .photos-grid img { width: 100%; height: 110px; object-fit: cover; border-radius: 6px; }
+  .footer { position: absolute; bottom: 0.3in; left: 0.5in; right: 0.5in; font-size: 9px; color: #9ca3af; text-align: center; border-top: 1px solid #e5e7eb; padding-top: 6px; }
+  .toolbar { position: fixed; top: 10px; right: 10px; background: #0f172a; color: #fff; padding: 10px 16px; border-radius: 8px; font-size: 12px; z-index: 1000; }
+  .toolbar button { background: #c8a96e; color: #fff; border: none; padding: 6px 14px; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 600; margin-left: 8px; }
+</style>
+</head><body>
+<div class="toolbar no-print">
+  Print-to-PDF: Cmd+P (Mac) or Ctrl+P (Windows) → Save as PDF
+  <button onclick="window.print()">Print Now</button>
+</div>
+
+<!-- PAGE 1: Cover -->
+<div class="page">
+  ${coverPhoto ? `<img src="${esc(coverPhoto)}" class="hero-photo" alt="${esc(cma.address)}" onerror="this.style.display='none'">` : ''}
+  <h1>${esc(cma.address)}</h1>
+  <div class="sub">${esc(cma.city)}, ${esc(cma.province)} · Comparative Market Analysis · Prepared ${new Date(cma.ranAt || cma.createdAt).toLocaleDateString('en-CA', { month: 'long', day: 'numeric', year: 'numeric' })}</div>
+
+  <div class="grid2">
+    <div class="kv"><strong>Style</strong>${esc(cma.style || '—')}</div>
+    <div class="kv"><strong>Bedrooms / Bathrooms</strong>${esc(cma.bedrooms)} / ${esc(cma.bathrooms)}</div>
+    <div class="kv"><strong>Square Footage</strong>${esc(cma.sqft || '—')}</div>
+    <div class="kv"><strong>Lot Size</strong>${esc(cma.lotSize || '—')}</div>
+    <div class="kv"><strong>Year Built</strong>${esc(cma.yearBuilt || '—')}</div>
+    <div class="kv"><strong>Foundation</strong>${esc(cma.foundation || '—')}</div>
+    <div class="kv"><strong>Garage</strong>${esc(cma.garage || '—')}</div>
+    <div class="kv"><strong>Current List Price</strong>${cma.listPrice ? money(cma.listPrice) : '(not yet listed)'}</div>
+  </div>
+
+  <div class="range-box">
+    <h3 style="margin-top: 0; color: #78350f;">ESTIMATED SALE PRICE RANGE</h3>
+    <div class="range-nums">
+      <div class="range-num"><div class="big">${money(cma.priceRange?.low)}</div><div class="lbl">Low</div></div>
+      <div class="range-num"><div class="big mid">${money(cma.priceRange?.mid)}</div><div class="lbl">Most Likely</div></div>
+      <div class="range-num"><div class="big">${money(cma.priceRange?.high)}</div><div class="lbl">High</div></div>
+    </div>
+    ${cma.estimatedDom ? `<div style="text-align:center; margin-top: 12px; font-size: 12px; color: #78350f;"><strong>Estimated Days on Market:</strong> ${cma.estimatedDom}</div>` : ''}
+  </div>
+
+  <div class="footer">Jonathan Wallace · Faris Team Real Estate Brokerage · Page 1 of 4</div>
+</div>
+
+<!-- PAGE 2: Comps -->
+<div class="page">
+  <h2>Recent Solds (${cma.comps?.solds?.length || 0})</h2>
+  <table>
+    <thead><tr><th>Address</th><th>Sold</th><th>Price</th><th>Bed/Bath</th><th>Sqft</th><th>Style</th><th>DOM</th></tr></thead>
+    <tbody>
+      ${(cma.comps?.solds || []).map(s => `<tr>
+        <td><strong>${esc(s.address)}</strong></td>
+        <td>${esc(s.soldDate || '—')}</td>
+        <td>${esc(s.price || '—')}${s.priceChange ? `<br><span style="color:#dc2626;font-size:10px">${esc(s.priceChange)}</span>` : ''}</td>
+        <td>${esc(s.beds)}/${esc(s.baths)}</td>
+        <td>${esc(s.sqft || '—')}</td>
+        <td>${esc(s.style || '—')}</td>
+        <td>${esc(s.dom || '—')}</td>
+      </tr>`).join('') || '<tr><td colspan="7" style="text-align:center; color:#9ca3af; padding: 20px;">No sold comps yet</td></tr>'}
+    </tbody>
+  </table>
+
+  <h2>Current Competition — Actives (${cma.comps?.actives?.length || 0})</h2>
+  <table>
+    <thead><tr><th>Address</th><th>Status</th><th>Price</th><th>Bed/Bath</th><th>Sqft</th><th>Style</th><th>DOM</th></tr></thead>
+    <tbody>
+      ${(cma.comps?.actives || []).map(a => `<tr>
+        <td><strong>${esc(a.address)}</strong></td>
+        <td>${esc(a.status || 'Active')}</td>
+        <td>${esc(a.price || '—')}</td>
+        <td>${esc(a.beds)}/${esc(a.baths)}</td>
+        <td>${esc(a.sqft || '—')}</td>
+        <td>${esc(a.style || '—')}</td>
+        <td>${esc(a.dom || '—')}</td>
+      </tr>`).join('') || '<tr><td colspan="7" style="text-align:center; color:#9ca3af; padding: 20px;">No active comps yet</td></tr>'}
+    </tbody>
+  </table>
+
+  <div class="footer">Jonathan Wallace · Faris Team Real Estate Brokerage · Page 2 of 4</div>
+</div>
+
+<!-- PAGE 3: Analysis -->
+<div class="page">
+  <h2>Pricing Analysis</h2>
+  <div class="narrative">${esc(cma.pricingNarrative || 'Pricing analysis will be generated once comps are ingested.')}</div>
+
+  ${cma.sellerUpdate ? `
+    <h2>Seller Update</h2>
+    <div class="narrative" style="background:#f9fafb;border-left:3px solid #c8a96e;padding:14px;border-radius:6px;">${esc(cma.sellerUpdate)}</div>
+  ` : ''}
+
+  ${cma.subjectPhotos?.length > 1 ? `
+    <h2>Subject Property Photos</h2>
+    <div class="photos-grid">
+      ${cma.subjectPhotos.slice(1, 10).map(p => `<img src="${esc(p)}" alt="" onerror="this.style.display='none'">`).join('')}
+    </div>
+  ` : ''}
+
+  <div class="footer">Jonathan Wallace · Faris Team Real Estate Brokerage · Page 3 of 4</div>
+</div>
+
+<!-- PAGE 4: Notes -->
+<div class="page">
+  <h2>Notes</h2>
+  <div class="notes-area">${esc(cma.notes || '').replace(/\n/g, '<br>')}</div>
+  <div class="footer">Jonathan Wallace · Faris Team Real Estate Brokerage · Page 4 of 4</div>
+</div>
+
+</body></html>`);
+});
+
+// ─────────────────────────────────────────────
 // SPA Fallback — serve index.html for all other routes
 // ─────────────────────────────────────────────
 app.get('*', (req, res) => {
