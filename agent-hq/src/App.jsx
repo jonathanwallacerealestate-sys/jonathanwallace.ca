@@ -7656,6 +7656,8 @@ function ActiveListingsSection() {
   const [insightLoading, setInsightLoading] = useState(null);
   const [noteDraft, setNoteDraft] = useState('');
   const [noteMlsId, setNoteMlsId] = useState(null);
+  const [syncModalOpen, setSyncModalOpen] = useState(false);
+  const [copiedPrompt, setCopiedPrompt] = useState(null);
 
   const load = async () => {
     setLoading(true);
@@ -7744,17 +7746,15 @@ function ActiveListingsSection() {
             {listings.length}
           </span>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: '#6b7280' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: '#6b7280', flexWrap: 'wrap' }}>
           <span>Last synced: <strong style={{ color: '#374151' }}>{timeAgo(lastSyncedAt)}</strong></span>
-          <button onClick={load} style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'transparent', border: '1px solid #e5e7eb', borderRadius: 8, padding: '6px 12px', cursor: 'pointer', fontSize: 12, color: '#374151' }}>
+          <button onClick={load} title="Reload from server" style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'transparent', border: '1px solid #e5e7eb', borderRadius: 8, padding: '6px 12px', cursor: 'pointer', fontSize: 12, color: '#374151' }}>
             <RotateCw size={12} />Reload
           </button>
+          <button onClick={() => setSyncModalOpen(true)} style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'linear-gradient(135deg,#c8a96e,#d4b878)', color: '#fff', border: 'none', borderRadius: 8, padding: '8px 14px', cursor: 'pointer', fontSize: 12, fontWeight: 700, boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
+            <Sparkles size={12} />Sync Fresh Data
+          </button>
         </div>
-      </div>
-
-      {/* Refresh instructions panel */}
-      <div style={{ background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 10, padding: 12, marginBottom: 16, fontSize: 12, color: '#4b5563', lineHeight: 1.55 }}>
-        <strong style={{ color: '#111827' }}>To refresh from BrokerBay:</strong> open this chat with Claude and say <em>"refresh my active listings"</em>. Claude will open BrokerBay in Chrome, filter by Jonathan Wallace + Active, scrape, and POST back here. Works via the <code style={{ background: '#eef2ff', padding: '1px 4px', borderRadius: 3 }}>brokerbay-active-listings</code> skill.
       </div>
 
       {loading && <div style={{ padding: 24, textAlign: 'center', color: '#6b7280' }}>Loading…</div>}
@@ -7887,6 +7887,50 @@ function ActiveListingsSection() {
         setListings(prev => prev.map(l => l.mlsId === listing.mlsId ? listing : l));
         setLinkingMlsId(null);
       }} />}
+
+      {/* Sync Fresh Data modal */}
+      {syncModalOpen && (
+        <div onClick={() => setSyncModalOpen(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 20 }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 14, maxWidth: 560, width: '100%', maxHeight: '85vh', overflow: 'auto', padding: 24 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
+              <div>
+                <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 4 }}>Sync Fresh Data</div>
+                <div style={{ fontSize: 12, color: '#6b7280' }}>Claude drives BrokerBay + ListTrac in Chrome to refresh this dashboard.</div>
+              </div>
+              <button onClick={() => setSyncModalOpen(false)} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#6b7280' }}><X size={18} /></button>
+            </div>
+
+            {[
+              { title: 'Refresh everything (recommended)', prompt: 'refresh my active listings, then pull listtrac stats', note: 'BrokerBay listings first, then ListTrac analytics. ~3 minutes.' },
+              { title: 'Refresh active listings only', prompt: 'refresh my active listings', note: 'Just the BrokerBay list. ~30 seconds.' },
+              { title: 'Refresh ListTrac stats only', prompt: 'pull listtrac', note: 'Assumes listings are already synced. ~2 minutes.' },
+            ].map((item, idx) => (
+              <div key={idx} style={{ marginBottom: 12, border: '1px solid #e5e7eb', borderRadius: 10, padding: 12, background: idx === 0 ? '#fffbeb' : '#f9fafb' }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: '#111827', marginBottom: 6 }}>{item.title}</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                  <code style={{ flex: 1, background: '#fff', border: '1px solid #e5e7eb', borderRadius: 6, padding: '8px 10px', fontSize: 12, fontFamily: 'ui-monospace, SFMono-Regular, monospace', color: '#0f172a' }}>{item.prompt}</code>
+                  <button onClick={async () => {
+                    try {
+                      await navigator.clipboard.writeText(item.prompt);
+                      setCopiedPrompt(item.prompt);
+                      setTimeout(() => setCopiedPrompt(null), 1800);
+                    } catch { alert('Clipboard blocked — select and copy manually'); }
+                  }} style={{ display: 'flex', alignItems: 'center', gap: 4, background: '#c8a96e', color: '#fff', border: 'none', borderRadius: 6, padding: '6px 10px', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>
+                    {copiedPrompt === item.prompt ? <><Check size={11} />Copied</> : <>Copy</>}
+                  </button>
+                </div>
+                <div style={{ fontSize: 10, color: '#6b7280' }}>{item.note}</div>
+              </div>
+            ))}
+
+            <div style={{ marginTop: 16, padding: 12, background: '#eef2ff', borderRadius: 8, fontSize: 11, color: '#3730a3', lineHeight: 1.5 }}>
+              <strong>How it works:</strong> Copy one of the prompts above, open Claude in Cowork mode, and paste. Claude drives Chrome to log into BrokerBay and ListTrac (via your existing REALM session), scrapes each listing, and POSTs the data back here.
+              <br /><br />
+              <strong>Requirements:</strong> Chrome extension connected · REALM logged in · the <code style={{ background: '#fff', padding: '1px 4px', borderRadius: 3 }}>brokerbay-active-listings</code> and <code style={{ background: '#fff', padding: '1px 4px', borderRadius: 3 }}>realm-listtrac-stats</code> skills installed.
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
