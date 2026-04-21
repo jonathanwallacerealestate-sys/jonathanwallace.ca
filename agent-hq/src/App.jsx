@@ -346,6 +346,7 @@ const sidebarItems = [
   { id: "meals", label: "Meals", icon: UtensilsCrossed, badge: null },
   { id: "marketing", label: "Marketing", icon: Megaphone, badge: null },
   { id: "learning", label: "Learning", icon: BookOpen, badge: null },
+  { id: "active-listings", label: "Active Listings", icon: Home, badge: null },
   { id: "aps-parser", label: "APS Parser", icon: FileText, badge: null },
   { id: "listing-form", label: "Listing Form", icon: ClipboardList, badge: null },
   { id: "sellers", label: "Sellers", icon: Briefcase, badge: 3 },
@@ -7643,6 +7644,282 @@ function SyncsSection() {
   );
 }
 
+// ─────────────────────────────────────────────
+// ACTIVE LISTINGS SECTION — Synced from BrokerBay, linked to FUB contacts
+// ─────────────────────────────────────────────
+function ActiveListingsSection() {
+  const [listings, setListings] = useState([]);
+  const [lastSyncedAt, setLastSyncedAt] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [openMlsId, setOpenMlsId] = useState(null);
+  const [linkingMlsId, setLinkingMlsId] = useState(null);
+  const [insightLoading, setInsightLoading] = useState(null);
+  const [noteDraft, setNoteDraft] = useState('');
+  const [noteMlsId, setNoteMlsId] = useState(null);
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const r = await fetch('/api/listings');
+      const j = await r.json();
+      if (j.ok) {
+        setListings(j.listings || []);
+        setLastSyncedAt(j.lastSyncedAt || null);
+      }
+    } catch (e) { console.error(e); }
+    setLoading(false);
+  };
+  useEffect(() => { load(); }, []);
+
+  const genInsight = async (mlsId) => {
+    setInsightLoading(mlsId);
+    try {
+      const r = await fetch(`/api/listings/${encodeURIComponent(mlsId)}/insight`, { method: 'POST' });
+      const j = await r.json();
+      if (j.ok) {
+        setListings(prev => prev.map(l => l.mlsId === mlsId ? { ...l, lastInsight: j.insight } : l));
+        setOpenMlsId(mlsId);
+      } else {
+        alert('Insight error: ' + (j.error || 'unknown'));
+      }
+    } catch (e) { alert(e.message); }
+    setInsightLoading(null);
+  };
+
+  const addNote = async (mlsId) => {
+    if (!noteDraft.trim()) return;
+    try {
+      const r = await fetch(`/api/listings/${encodeURIComponent(mlsId)}/note`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: noteDraft.trim() }),
+      });
+      const j = await r.json();
+      if (j.ok) {
+        setListings(prev => prev.map(l => l.mlsId === mlsId ? j.listing : l));
+        setNoteDraft('');
+        setNoteMlsId(null);
+      }
+    } catch (e) { alert(e.message); }
+  };
+
+  const unlink = async (mlsId, fubId) => {
+    try {
+      const r = await fetch(`/api/listings/${encodeURIComponent(mlsId)}/link/${encodeURIComponent(fubId)}`, { method: 'DELETE' });
+      const j = await r.json();
+      if (j.ok) {
+        setListings(prev => prev.map(l => l.mlsId === mlsId ? { ...l, linkedContacts: (l.linkedContacts || []).filter(c => c.fubId !== fubId) } : l));
+      }
+    } catch (e) { alert(e.message); }
+  };
+
+  const availabilityColor = (a) => {
+    const s = (a || '').toLowerCase();
+    if (s.includes('sold')) return { bg: '#dcfce7', fg: '#166534' };
+    if (s.includes('price change')) return { bg: '#fef3c7', fg: '#92400e' };
+    if (s.includes('new')) return { bg: '#dbeafe', fg: '#1e40af' };
+    return { bg: '#f3f4f6', fg: '#374151' };
+  };
+
+  const timeAgo = (iso) => {
+    if (!iso) return 'never';
+    const mins = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
+    if (mins < 1) return 'just now';
+    if (mins < 60) return `${mins}m ago`;
+    const hrs = Math.round(mins / 60);
+    if (hrs < 24) return `${hrs}h ago`;
+    return `${Math.round(hrs / 24)}d ago`;
+  };
+
+  const openListing = openMlsId ? listings.find(l => l.mlsId === openMlsId) : null;
+
+  return (
+    <div style={{ background: '#fff', borderRadius: 14, padding: 20, boxShadow: '0 1px 3px rgba(0,0,0,0.05)', border: '1px solid #f0f0f0' }}>
+      {/* Header */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, flexWrap: 'wrap', gap: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <Home size={20} color="#c8a96e" />
+          <h2 style={{ fontSize: 18, fontWeight: 700, margin: 0 }}>Active Listings</h2>
+          <span style={{ fontSize: 12, color: '#6b7280', background: '#f3f4f6', padding: '2px 8px', borderRadius: 6, fontWeight: 600 }}>
+            {listings.length}
+          </span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: '#6b7280' }}>
+          <span>Last synced: <strong style={{ color: '#374151' }}>{timeAgo(lastSyncedAt)}</strong></span>
+          <button onClick={load} style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'transparent', border: '1px solid #e5e7eb', borderRadius: 8, padding: '6px 12px', cursor: 'pointer', fontSize: 12, color: '#374151' }}>
+            <RotateCw size={12} />Reload
+          </button>
+        </div>
+      </div>
+
+      {/* Refresh instructions panel */}
+      <div style={{ background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 10, padding: 12, marginBottom: 16, fontSize: 12, color: '#4b5563', lineHeight: 1.55 }}>
+        <strong style={{ color: '#111827' }}>To refresh from BrokerBay:</strong> open this chat with Claude and say <em>"refresh my active listings"</em>. Claude will open BrokerBay in Chrome, filter by Jonathan Wallace + Active, scrape, and POST back here. Works via the <code style={{ background: '#eef2ff', padding: '1px 4px', borderRadius: 3 }}>brokerbay-active-listings</code> skill.
+      </div>
+
+      {loading && <div style={{ padding: 24, textAlign: 'center', color: '#6b7280' }}>Loading…</div>}
+
+      {!loading && !listings.length && (
+        <div style={{ padding: 32, textAlign: 'center', color: '#6b7280', background: '#f9fafb', borderRadius: 10, border: '1px dashed #d1d5db' }}>
+          No listings synced yet. Ask Claude to refresh from BrokerBay.
+        </div>
+      )}
+
+      {/* Grid */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: 14 }}>
+        {listings.map(l => {
+          const ac = availabilityColor(l.availability);
+          return (
+            <div key={l.mlsId} style={{ border: '1px solid #ede9fe', borderRadius: 10, padding: 14, background: '#fff', display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: '#111827', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{l.address}</div>
+                  <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>{l.cityPostal}</div>
+                </div>
+                <span style={{ fontSize: 10, fontWeight: 700, padding: '3px 8px', borderRadius: 4, background: ac.bg, color: ac.fg, whiteSpace: 'nowrap' }}>{l.availability}</span>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
+                <div style={{ fontSize: 18, fontWeight: 700, color: '#c8a96e' }}>{l.price}</div>
+                <div style={{ fontSize: 11, color: '#6b7280' }}>DOM {l.dom}</div>
+                <div style={{ fontSize: 11, color: '#6b7280' }}>{l.neighborhood}</div>
+              </div>
+              <div style={{ fontSize: 10, color: '#9ca3af', letterSpacing: 0.3 }}>MLS {l.mlsId} · {l.type}</div>
+
+              {/* Linked contacts */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                {(l.linkedContacts || []).map(c => (
+                  <div key={c.fubId} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 11, background: '#f9fafb', padding: '4px 8px', borderRadius: 6 }}>
+                    <span><strong>{c.name}</strong> <span style={{ color: '#6b7280' }}>· {c.role}</span></span>
+                    <button onClick={() => unlink(l.mlsId, c.fubId)} title="Unlink" style={{ background: 'transparent', border: 'none', color: '#9ca3af', cursor: 'pointer', padding: 2 }}><X size={12} /></button>
+                  </div>
+                ))}
+                {!l.linkedContacts?.length && <div style={{ fontSize: 11, color: '#9ca3af', fontStyle: 'italic' }}>No FUB contacts linked</div>}
+              </div>
+
+              {/* Actions */}
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 'auto' }}>
+                <button onClick={() => genInsight(l.mlsId)} disabled={insightLoading === l.mlsId} style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'linear-gradient(135deg,#c8a96e,#d4b878)', color: '#fff', border: 'none', borderRadius: 8, padding: '6px 10px', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>
+                  <Sparkles size={11} />{insightLoading === l.mlsId ? 'Thinking…' : (l.lastInsight ? 'Re-run AI' : 'AI Insight')}
+                </button>
+                {l.lastInsight && (
+                  <button onClick={() => setOpenMlsId(l.mlsId)} style={{ display: 'flex', alignItems: 'center', gap: 4, background: '#f3f4f6', border: '1px solid #e5e7eb', borderRadius: 8, padding: '6px 10px', fontSize: 11, fontWeight: 600, cursor: 'pointer', color: '#374151' }}>
+                    <Eye size={11} />View
+                  </button>
+                )}
+                <button onClick={() => setLinkingMlsId(l.mlsId)} style={{ display: 'flex', alignItems: 'center', gap: 4, background: '#f3f4f6', border: '1px solid #e5e7eb', borderRadius: 8, padding: '6px 10px', fontSize: 11, fontWeight: 600, cursor: 'pointer', color: '#374151' }}>
+                  <UserPlus size={11} />Link
+                </button>
+                <button onClick={() => setNoteMlsId(l.mlsId)} style={{ display: 'flex', alignItems: 'center', gap: 4, background: '#f3f4f6', border: '1px solid #e5e7eb', borderRadius: 8, padding: '6px 10px', fontSize: 11, fontWeight: 600, cursor: 'pointer', color: '#374151' }}>
+                  <PenLine size={11} />Note{l.notes?.length ? ` (${l.notes.length})` : ''}
+                </button>
+              </div>
+
+              {/* Inline note composer */}
+              {noteMlsId === l.mlsId && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, background: '#f9fafb', padding: 8, borderRadius: 6 }}>
+                  <textarea value={noteDraft} onChange={e => setNoteDraft(e.target.value)} placeholder="Context for AI: seller motivation, price rationale, open houses, offers received..." style={{ fontSize: 12, padding: 6, border: '1px solid #e5e7eb', borderRadius: 6, resize: 'vertical', minHeight: 60 }} />
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <button onClick={() => addNote(l.mlsId)} style={{ background: '#c8a96e', color: '#fff', border: 'none', borderRadius: 6, padding: '4px 10px', fontSize: 11, cursor: 'pointer' }}>Save</button>
+                    <button onClick={() => { setNoteMlsId(null); setNoteDraft(''); }} style={{ background: 'transparent', border: '1px solid #e5e7eb', borderRadius: 6, padding: '4px 10px', fontSize: 11, cursor: 'pointer', color: '#6b7280' }}>Cancel</button>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Insight modal */}
+      {openListing?.lastInsight && (
+        <div onClick={() => setOpenMlsId(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 20 }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 14, maxWidth: 640, width: '100%', maxHeight: '80vh', overflow: 'auto', padding: 24 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
+              <div>
+                <div style={{ fontSize: 16, fontWeight: 700 }}>{openListing.address}</div>
+                <div style={{ fontSize: 12, color: '#6b7280' }}>{openListing.cityPostal} · {openListing.price} · DOM {openListing.dom}</div>
+              </div>
+              <button onClick={() => setOpenMlsId(null)} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#6b7280' }}><X size={18} /></button>
+            </div>
+            <div style={{ fontSize: 13, lineHeight: 1.65, color: '#111827', whiteSpace: 'pre-wrap' }}>{openListing.lastInsight.text}</div>
+            <div style={{ marginTop: 12, fontSize: 10, color: '#9ca3af' }}>Generated {timeAgo(openListing.lastInsight.generatedAt)}</div>
+          </div>
+        </div>
+      )}
+
+      {/* Link contact modal */}
+      {linkingMlsId && <LinkFubContactModal mlsId={linkingMlsId} onClose={() => setLinkingMlsId(null)} onLinked={(listing) => {
+        setListings(prev => prev.map(l => l.mlsId === listing.mlsId ? listing : l));
+        setLinkingMlsId(null);
+      }} />}
+    </div>
+  );
+}
+
+function LinkFubContactModal({ mlsId, onClose, onLinked }) {
+  const [q, setQ] = useState('');
+  const [results, setResults] = useState([]);
+  const [role, setRole] = useState('seller');
+  const [searching, setSearching] = useState(false);
+
+  useEffect(() => {
+    if (!q.trim()) { setResults([]); return; }
+    const t = setTimeout(async () => {
+      setSearching(true);
+      try {
+        const r = await fetch(`/api/listings/contacts/search?q=${encodeURIComponent(q.trim())}`);
+        const j = await r.json();
+        setResults(j.results || []);
+      } catch (e) { console.error(e); }
+      setSearching(false);
+    }, 250);
+    return () => clearTimeout(t);
+  }, [q]);
+
+  const link = async (contact) => {
+    try {
+      const r = await fetch(`/api/listings/${encodeURIComponent(mlsId)}/link`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fubId: contact.fubId, name: contact.name, role }),
+      });
+      const j = await r.json();
+      if (j.ok) onLinked(j.listing);
+      else alert('Link error: ' + (j.error || 'unknown'));
+    } catch (e) { alert(e.message); }
+  };
+
+  return (
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 20 }}>
+      <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 14, maxWidth: 520, width: '100%', maxHeight: '80vh', display: 'flex', flexDirection: 'column', padding: 20 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+          <h3 style={{ fontSize: 16, fontWeight: 700, margin: 0 }}>Link FUB Contact</h3>
+          <button onClick={onClose} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#6b7280' }}><X size={18} /></button>
+        </div>
+        <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+          <select value={role} onChange={e => setRole(e.target.value)} style={{ padding: '8px 10px', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 13 }}>
+            <option value="seller">Seller</option>
+            <option value="buyer">Buyer</option>
+            <option value="interested">Interested</option>
+            <option value="co-listing">Co-Listing</option>
+            <option value="other">Other</option>
+          </select>
+          <input autoFocus value={q} onChange={e => setQ(e.target.value)} placeholder="Search FUB by name, email, phone…" style={{ flex: 1, padding: '8px 12px', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 13 }} />
+        </div>
+        <div style={{ overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {searching && <div style={{ padding: 12, color: '#9ca3af', fontSize: 12 }}>Searching…</div>}
+          {!searching && !results.length && q && <div style={{ padding: 12, color: '#9ca3af', fontSize: 12 }}>No matches in FUB</div>}
+          {results.map(c => (
+            <button key={c.fubId} onClick={() => link(c)} style={{ textAlign: 'left', padding: 10, border: '1px solid #e5e7eb', borderRadius: 8, background: '#fff', cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: 2 }}>
+              <div style={{ fontSize: 13, fontWeight: 600 }}>{c.name || '(no name)'}</div>
+              <div style={{ fontSize: 11, color: '#6b7280' }}>{c.email || '—'} · {c.phone || '—'} · {c.stage || 'no stage'}</div>
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function SectionContent({ section }) {
   switch (section) {
     case "briefing": return (
@@ -7677,6 +7954,7 @@ function SectionContent({ section }) {
     case "meals": return <PlaceholderSection title="Meals" icon={UtensilsCrossed} />;
     case "marketing": return <MarketingSection />;
     case "learning": return <PlaceholderSection title="Learning" icon={BookOpen} />;
+    case "active-listings": return <ActiveListingsSection />;
     case "aps-parser": return <ApsParser />;
     case "listing-form": return <ListingForm />;
     case "sellers": return <SellersSection />;

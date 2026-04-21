@@ -6243,6 +6243,229 @@ app.get('/api/listing-form/:id/sisu-export', async (req, res) => {
 });
 
 // ─────────────────────────────────────────────
+// ACTIVE LISTINGS — Synced from BrokerBay, linked to FUB contacts
+// Skill: brokerbay-active-listings scrapes and POSTs to /api/listings/ingest
+// ─────────────────────────────────────────────
+const LISTINGS_PATH = path.join(__dirname, '.listings.json');
+let listingsState = { listings: [], lastSyncedAt: null, source: null };
+try {
+  if (fs.existsSync(LISTINGS_PATH)) {
+    listingsState = JSON.parse(fs.readFileSync(LISTINGS_PATH, 'utf8'));
+    if (!listingsState.listings) listingsState = { listings: [], lastSyncedAt: null, source: null };
+  }
+} catch { listingsState = { listings: [], lastSyncedAt: null, source: null }; }
+function saveListings() {
+  try { fs.writeFileSync(LISTINGS_PATH, JSON.stringify(listingsState, null, 2)); } catch (e) { console.error('[Listings] save error:', e.message); }
+}
+
+function parsePriceNumeric(s) {
+  if (typeof s === 'number') return s;
+  if (!s) return 0;
+  return parseInt(String(s).replace(/[^0-9]/g, ''), 10) || 0;
+}
+
+// POST /api/listings/ingest — called by the brokerbay-active-listings skill
+app.post('/api/listings/ingest', express.json({ limit: '5mb' }), (req, res) => {
+  try {
+    const incoming = Array.isArray(req.body?.listings) ? req.body.listings : [];
+    if (!incoming.length) return res.json({ ok: false, error: 'no listings in payload' });
+
+    const now = new Date().toISOString();
+    const existingByMls = Object.fromEntries(listingsState.listings.map(l => [l.mlsId, l]));
+    let added = 0, updated = 0;
+    const incomingMlsIds = new Set();
+
+    for (const raw of incoming) {
+      const mlsId = String(raw.mlsId || raw.listingId || '').trim();
+      if (!mlsId) continue;
+      incomingMlsIds.add(mlsId);
+
+      const prev = existingByMls[mlsId];
+      const normalized = {
+        mlsId,
+        address: raw.address || prev?.address || '',
+        cityPostal: raw.cityPostal || prev?.cityPostal || '',
+        city: raw.city || raw.cityPostal?.split(',')[0]?.trim() || prev?.city || '',
+        province: raw.province || (raw.cityPostal?.match(/,\s*([A-Z]{2})/)?.[1]) || prev?.province || 'ON',
+        postalCode: raw.postalCode || (raw.cityPostal?.match(/[A-Z]\d[A-Z]\s*\d[A-Z]\d/i)?.[0]) || prev?.postalCode || '',
+        price: raw.price || prev?.price || '',
+        priceNumeric: raw.priceNumeric || raw.price_numeric || parsePriceNumeric(raw.price) || prev?.priceNumeric || 0,
+        neighborhood: raw.neighborhood || prev?.neighborhood || '',
+        type: raw.type || prev?.type || '',
+        dom: typeof raw.dom === 'number' ? raw.dom : (prev?.dom || 0),
+        availability: raw.availability || prev?.availability || 'Active',
+        photo: raw.photo || prev?.photo || null,
+        // preserved across syncs
+        linkedContacts: prev?.linkedContacts || [],
+        notes: prev?.notes || [],
+        lastInsight: prev?.lastInsight || null,
+        firstSeenAt: prev?.firstSeenAt || now,
+        archived: false,
+        archivedAt: null,
+        updatedAt: now,
+      };
+
+      if (prev) { updated++; } else { added++; }
+      existingByMls[mlsId] = normalized;
+    }
+
+    // Reconcile: anything present before but absent now gets archived (not deleted — keeps FUB links & notes)
+    let archived = 0;
+    for (const mlsId of Object.keys(existingByMls)) {
+      if (!incomingMlsIds.has(mlsId) && !existingByMls[mlsId].archived) {
+        existingByMls[mlsId].archived = true;
+        existingByMls[mlsId].archivedAt = now;
+        archived++;
+      }
+    }
+
+    listingsState.listings = Object.values(existingByMls).sort((a, b) => {
+      if (a.archived !== b.archived) return a.archived ? 1 : -1;
+      return (b.priceNumeric || 0) - (a.priceNumeric || 0);
+    });
+    listingsState.lastSyncedAt = now;
+    listingsState.source = req.body?.source || 'brokerbay_edge_scrape';
+    saveListings();
+
+    console.log(`[Listings] Ingest complete — added ${added}, updated ${updated}, archived ${archived}, total active ${listingsState.listings.filter(l => !l.archived).length}`);
+    res.json({ ok: true, added, updated, archived, total: listingsState.listings.length, activeTotal: listingsState.listings.filter(l => !l.archived).length, lastSyncedAt: now });
+  } catch (err) {
+    console.error('[Listings] ingest error:', err.message);
+    res.json({ ok: false, error: err.message });
+  }
+});
+
+// GET /api/listings — returns current listings for the UI
+app.get('/api/listings', (req, res) => {
+  const includeArchived = req.query.includeArchived === 'true';
+  const listings = includeArchived ? listingsState.listings : listingsState.listings.filter(l => !l.archived);
+  res.json({
+    ok: true,
+    listings,
+    lastSyncedAt: listingsState.lastSyncedAt,
+    source: listingsState.source,
+    activeCount: listingsState.listings.filter(l => !l.archived).length,
+    archivedCount: listingsState.listings.filter(l => l.archived).length,
+  });
+});
+
+// POST /api/listings/:mlsId/link — link a FUB contact to a listing
+app.post('/api/listings/:mlsId/link', express.json(), async (req, res) => {
+  const listing = listingsState.listings.find(l => l.mlsId === req.params.mlsId);
+  if (!listing) return res.json({ ok: false, error: 'listing not found' });
+  const { fubId, name, role } = req.body || {};
+  if (!fubId) return res.json({ ok: false, error: 'fubId required' });
+  if (!['seller', 'buyer', 'interested', 'co-listing', 'other'].includes(role)) {
+    return res.json({ ok: false, error: 'role must be seller|buyer|interested|co-listing|other' });
+  }
+  listing.linkedContacts = (listing.linkedContacts || []).filter(c => c.fubId !== String(fubId));
+  listing.linkedContacts.push({
+    fubId: String(fubId),
+    name: name || '',
+    role,
+    linkedAt: new Date().toISOString(),
+  });
+  saveListings();
+  res.json({ ok: true, listing });
+});
+
+// DELETE /api/listings/:mlsId/link/:fubId — unlink
+app.delete('/api/listings/:mlsId/link/:fubId', (req, res) => {
+  const listing = listingsState.listings.find(l => l.mlsId === req.params.mlsId);
+  if (!listing) return res.json({ ok: false, error: 'listing not found' });
+  const before = (listing.linkedContacts || []).length;
+  listing.linkedContacts = (listing.linkedContacts || []).filter(c => c.fubId !== req.params.fubId);
+  saveListings();
+  res.json({ ok: true, removed: before - listing.linkedContacts.length });
+});
+
+// POST /api/listings/:mlsId/note — add context / marketing notes
+app.post('/api/listings/:mlsId/note', express.json(), (req, res) => {
+  const listing = listingsState.listings.find(l => l.mlsId === req.params.mlsId);
+  if (!listing) return res.json({ ok: false, error: 'listing not found' });
+  const text = (req.body?.text || '').toString().trim();
+  if (!text) return res.json({ ok: false, error: 'text required' });
+  listing.notes = listing.notes || [];
+  listing.notes.unshift({ id: Date.now(), text, createdAt: new Date().toISOString() });
+  if (listing.notes.length > 50) listing.notes = listing.notes.slice(0, 50);
+  saveListings();
+  res.json({ ok: true, listing });
+});
+
+// POST /api/listings/:mlsId/insight — AI-generated insight for nurturing / marketing
+app.post('/api/listings/:mlsId/insight', express.json(), async (req, res) => {
+  const listing = listingsState.listings.find(l => l.mlsId === req.params.mlsId);
+  if (!listing) return res.json({ ok: false, error: 'listing not found' });
+  if (!anthropic) return res.json({ ok: false, error: 'Anthropic not configured' });
+
+  const prompt = `You are the marketing director for Jonathan Wallace, a top-producing real estate agent in Simcoe County / Georgian Bay, Ontario (Midland, Tiny, Tay, Penetanguishene, Wasaga Beach, Barrie area).
+
+Here's one of Jonathan's active listings:
+
+Address: ${listing.address}, ${listing.cityPostal}
+Price: ${listing.price}
+Neighborhood: ${listing.neighborhood}
+Type: ${listing.type}
+Days on Market: ${listing.dom}
+Availability: ${listing.availability}
+MLS: ${listing.mlsId}
+
+${listing.notes?.length ? `Recent notes from Jonathan:\n${listing.notes.slice(0, 5).map(n => `- ${n.text}`).join('\n')}` : ''}
+
+${listing.linkedContacts?.length ? `Linked FUB contacts:\n${listing.linkedContacts.map(c => `- ${c.name} (${c.role})`).join('\n')}` : ''}
+
+Give Jonathan a concise, actionable briefing with these sections (plain text, no markdown headers):
+
+1. MARKET POSITION (2-3 sentences): How is this listing doing given DOM? What's the likely perception of price from a buyer's lens?
+
+2. NURTURE MOVES (3 bullets, 1 line each): Specific next actions — what to do today/this week to move the needle. Reference linked contacts if any.
+
+3. SELLER UPDATE DRAFT (3-4 sentences): A short message Jonathan could send the seller today showing initiative.
+
+Be direct. No clichés. No "won't last" or "priced to sell". Reference Georgian Bay / local dynamics when relevant.`;
+
+  try {
+    const msg = await anthropic.messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 700,
+      messages: [{ role: 'user', content: prompt }],
+    });
+    const text = msg.content?.[0]?.text || '';
+    listing.lastInsight = { text, generatedAt: new Date().toISOString() };
+    saveListings();
+    res.json({ ok: true, insight: listing.lastInsight });
+  } catch (err) {
+    console.error('[Listings] insight error:', err.message);
+    res.json({ ok: false, error: err.message });
+  }
+});
+
+// GET /api/listings/contacts/search?q= — search FUB to find a contact to link
+app.get('/api/listings/contacts/search', async (req, res) => {
+  if (!FUB_API_KEY) return res.json({ ok: false, error: 'FUB_API_KEY not configured', results: [] });
+  const q = (req.query.q || '').toString().trim();
+  if (!q) return res.json({ ok: true, results: [] });
+  try {
+    // FUB /people supports name/email/phone fuzzy via query param
+    const url = `${FUB_BASE}/people?q=${encodeURIComponent(q)}&limit=15&sort=name`;
+    const resp = await fetch(url, { headers: fubHeaders() });
+    if (!resp.ok) return res.json({ ok: false, error: `FUB returned ${resp.status}`, results: [] });
+    const data = await resp.json();
+    const results = (data.people || []).map(p => ({
+      fubId: String(p.id),
+      name: p.name || [p.firstName, p.lastName].filter(Boolean).join(' ').trim(),
+      email: p.emails?.[0]?.value || '',
+      phone: p.phones?.[0]?.value || '',
+      stage: p.stage || '',
+      tags: p.tags || [],
+    }));
+    res.json({ ok: true, results });
+  } catch (err) {
+    res.json({ ok: false, error: err.message, results: [] });
+  }
+});
+
+// ─────────────────────────────────────────────
 // SPA Fallback — serve index.html for all other routes
 // ─────────────────────────────────────────────
 app.get('*', (req, res) => {
