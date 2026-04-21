@@ -6418,6 +6418,12 @@ ${listing.stats ? `Online activity (ListTrac, last 30 days):
 - Ad impressions: ${listing.stats.adImpressions}
 ${listing.stats.topCities?.length ? `- Top visitor cities: ${listing.stats.topCities.slice(0, 5).map(c => `${c.city} (${c.views})`).join(', ')}` : ''}` : ''}
 
+${listing.marketContext?.comps?.length ? `Recent solds in ${listing.marketContext.searchArea} (last 30 days):
+${listing.marketContext.comps.slice(0, 8).map(c => `- ${c.address}: ${c.price}, ${c.beds}bed/${c.baths}bath, ${c.dom} DOM, sold ${c.soldDate}`).join('\n')}` : ''}
+
+${listing.marketContext?.competition?.length ? `New competition in ${listing.marketContext.searchArea} (last 7 days):
+${listing.marketContext.competition.slice(0, 8).map(c => `- ${c.address}: ${c.price}, ${c.beds}bed/${c.baths}bath, listed ${c.listedDate}`).join('\n')}` : ''}
+
 ${listing.notes?.length ? `Recent notes from Jonathan:\n${listing.notes.slice(0, 5).map(n => `- ${n.text}`).join('\n')}` : ''}
 
 ${listing.linkedContacts?.length ? `Linked FUB contacts:\n${listing.linkedContacts.map(c => `- ${c.name} (${c.role})`).join('\n')}` : ''}
@@ -6472,6 +6478,93 @@ app.post('/api/listings/:mlsId/stats', express.json({ limit: '1mb' }), (req, res
   listing.stats = stats;
   saveListings();
   res.json({ ok: true, stats });
+});
+
+// POST /api/listings/:mlsId/market-context — scraped comps + competition from REALM
+// Called by the realm-comp-watch skill
+app.post('/api/listings/:mlsId/market-context', express.json({ limit: '2mb' }), async (req, res) => {
+  const listing = listingsState.listings.find(l => l.mlsId === req.params.mlsId);
+  if (!listing) return res.status(404).json({ ok: false, error: 'listing not found' });
+  const body = req.body || {};
+  const ctx = {
+    scrapedAt: body.scrapedAt || new Date().toISOString(),
+    searchArea: String(body.searchArea || '').slice(0, 100),
+    priceFloor: Number(body.priceFloor) || 0,
+    priceCeiling: Number(body.priceCeiling) || 0,
+    comps: Array.isArray(body.comps) ? body.comps.slice(0, 25).map(c => ({
+      mlsId: String(c.mlsId || '').slice(0, 20),
+      address: String(c.address || '').slice(0, 200),
+      price: String(c.price || '').slice(0, 40),
+      priceNumeric: Number(c.priceNumeric) || 0,
+      beds: String(c.beds || '').slice(0, 10),
+      baths: String(c.baths || '').slice(0, 10),
+      sqft: String(c.sqft || '').slice(0, 40),
+      type: String(c.type || '').slice(0, 80),
+      dom: Number(c.dom) || 0,
+      soldDate: String(c.soldDate || '').slice(0, 20),
+      priceChange: String(c.priceChange || '').slice(0, 40),
+    })) : [],
+    competition: Array.isArray(body.competition) ? body.competition.slice(0, 25).map(c => ({
+      mlsId: String(c.mlsId || '').slice(0, 20),
+      address: String(c.address || '').slice(0, 200),
+      price: String(c.price || '').slice(0, 40),
+      priceNumeric: Number(c.priceNumeric) || 0,
+      beds: String(c.beds || '').slice(0, 10),
+      baths: String(c.baths || '').slice(0, 10),
+      sqft: String(c.sqft || '').slice(0, 40),
+      type: String(c.type || '').slice(0, 80),
+      dom: Number(c.dom) || 0,
+      listedDate: String(c.listedDate || '').slice(0, 20),
+    })) : [],
+  };
+
+  // Generate an AI seller action plan using listing + stats + market context
+  let actionPlan = null;
+  if (anthropic) {
+    try {
+      const compsList = ctx.comps.length ? ctx.comps.map(c => `  - ${c.address} · ${c.price} · ${c.beds}bed/${c.baths}bath · ${c.sqft} · sold ${c.soldDate} · ${c.dom} DOM${c.priceChange ? ` · price change ${c.priceChange}` : ''}`).join('\n') : '  (none)';
+      const compList = ctx.competition.length ? ctx.competition.map(c => `  - ${c.address} · ${c.price} · ${c.beds}bed/${c.baths}bath · ${c.sqft} · ${c.dom} DOM · listed ${c.listedDate}`).join('\n') : '  (none)';
+      const stats = listing.stats ? `Online activity (ListTrac last 30d): ${listing.stats.views} views${listing.stats.viewsChangePct !== null && listing.stats.viewsChangePct !== undefined ? ` (${listing.stats.viewsChangePct >= 0 ? '+' : ''}${listing.stats.viewsChangePct}%)` : ''}, ${listing.stats.inquiries} inquiries, ${listing.stats.favorites} favorites, ${listing.stats.shares} shares` : 'No ListTrac data';
+      const prompt = `You are a marketing director for Jonathan Wallace, a top-producing Simcoe County / Georgian Bay real estate agent.
+
+LISTING
+- Address: ${listing.address}, ${listing.cityPostal}
+- List price: ${listing.price}
+- Type: ${listing.type}
+- Days on market: ${listing.dom}
+- Status: ${listing.availability}
+- ${stats}
+
+RECENT COMPS (sold in last 30 days in ${ctx.searchArea}):
+${compsList}
+
+NEW COMPETITION (listed in last 7 days in ${ctx.searchArea}):
+${compList}
+
+Write a concrete, direct SELLER ACTION PLAN for Jonathan to send to the seller this week. Output sections in plain text (no markdown headers, no bullet symbols):
+
+WHERE WE STAND: 2-3 sentences on how the listing compares to recent solds and current competition. Reference specific numbers (sold prices, DOM, price drops if relevant).
+
+THIS WEEK'S MOVES: 3-4 specific actions Jonathan will take. Each starts with a verb. Examples: "Lower list price by $X to slot between the $Y comp and the $Z competitor." "Book a second photoshoot of the waterfront." "Call the 2 buyer agents who viewed last week."
+
+SELLER UPDATE DRAFT: a 3-4 sentence message Jonathan can send as-is to the seller by email or text. Professional, direct, honest about the data.
+
+Do NOT use real-estate clichés. Do NOT hedge. Base every claim on the numbers above.`;
+
+      const msg = await anthropic.messages.create({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 900,
+        messages: [{ role: 'user', content: prompt }],
+      });
+      actionPlan = { text: msg.content?.[0]?.text || '', generatedAt: new Date().toISOString() };
+    } catch (err) {
+      console.error('[MarketContext] AI error:', err.message);
+    }
+  }
+
+  listing.marketContext = { ...ctx, actionPlan };
+  saveListings();
+  res.json({ ok: true, marketContext: listing.marketContext });
 });
 
 // GET /api/listings/contacts/search?q= — search FUB to find a contact to link

@@ -7658,6 +7658,7 @@ function ActiveListingsSection() {
   const [noteMlsId, setNoteMlsId] = useState(null);
   const [syncModalOpen, setSyncModalOpen] = useState(false);
   const [copiedPrompt, setCopiedPrompt] = useState(null);
+  const [marketModalMlsId, setMarketModalMlsId] = useState(null);
 
   const load = async () => {
     setLoading(true);
@@ -7821,6 +7822,20 @@ function ActiveListingsSection() {
                 </div>
               )}
 
+              {/* Market Context strip (comps + competition) */}
+              {l.marketContext ? (
+                <div onClick={() => setMarketModalMlsId(l.mlsId)} style={{ cursor: 'pointer', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, padding: '6px 10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 11 }}>
+                  <span style={{ color: '#166534' }}>
+                    <strong>{l.marketContext.competition?.length || 0}</strong> new competition · <strong>{l.marketContext.comps?.length || 0}</strong> recent solds{l.marketContext.actionPlan ? ' · Action plan ready' : ''}
+                  </span>
+                  <span style={{ fontSize: 10, color: '#16a34a', fontWeight: 600 }}>View →</span>
+                </div>
+              ) : (
+                <div style={{ background: '#eff6ff', border: '1px dashed #93c5fd', borderRadius: 8, padding: 6, fontSize: 10, color: '#1e40af', textAlign: 'center' }}>
+                  No comp data yet · ask Claude to "run comp watch"
+                </div>
+              )}
+
               {/* Linked contacts */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                 {(l.linkedContacts || []).map(c => (
@@ -7888,6 +7903,60 @@ function ActiveListingsSection() {
         setLinkingMlsId(null);
       }} />}
 
+      {/* Market Context modal */}
+      {marketModalMlsId && (() => {
+        const l = listings.find(x => x.mlsId === marketModalMlsId);
+        if (!l?.marketContext) return null;
+        const mc = l.marketContext;
+        return (
+          <div onClick={() => setMarketModalMlsId(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 20 }}>
+            <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 14, maxWidth: 780, width: '100%', maxHeight: '88vh', overflow: 'auto', padding: 24 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
+                <div>
+                  <div style={{ fontSize: 16, fontWeight: 700 }}>Market Context — {l.address}</div>
+                  <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>{l.cityPostal} · {l.price} · DOM {l.dom} · Scraped {timeAgo(mc.scrapedAt)}</div>
+                </div>
+                <button onClick={() => setMarketModalMlsId(null)} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#6b7280' }}><X size={18} /></button>
+              </div>
+
+              {mc.actionPlan && (
+                <div style={{ background: 'linear-gradient(135deg,#fef3c7,#fefce8)', border: '1px solid #fde68a', borderRadius: 10, padding: 14, marginBottom: 16 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+                    <Sparkles size={14} color="#c8a96e" />
+                    <strong style={{ fontSize: 12, color: '#78350f', textTransform: 'uppercase', letterSpacing: 0.5 }}>Seller Action Plan</strong>
+                    <span style={{ fontSize: 10, color: '#78350f', marginLeft: 'auto' }}>Generated {timeAgo(mc.actionPlan.generatedAt)}</span>
+                  </div>
+                  <div style={{ fontSize: 12, lineHeight: 1.65, whiteSpace: 'pre-wrap', color: '#1f2937' }}>{mc.actionPlan.text}</div>
+                </div>
+              )}
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <div>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: '#166534', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 }}>Recent Solds ({mc.comps?.length || 0})</div>
+                  {mc.comps?.length ? mc.comps.map((c, i) => (
+                    <div key={c.mlsId + i} style={{ padding: 8, borderBottom: '1px solid #f1f5f9', fontSize: 11 }}>
+                      <div style={{ fontWeight: 600, color: '#0f172a' }}>{c.address}</div>
+                      <div style={{ color: '#475569', marginTop: 2 }}>{c.price} · {c.beds}bed/{c.baths}bath · {c.sqft} · {c.type}</div>
+                      <div style={{ color: '#64748b', marginTop: 2, fontSize: 10 }}>Sold {c.soldDate} · {c.dom} DOM{c.priceChange ? ` · drop ${c.priceChange}` : ''} · MLS {c.mlsId}</div>
+                    </div>
+                  )) : <div style={{ fontSize: 11, color: '#9ca3af', fontStyle: 'italic' }}>No comps matched</div>}
+                </div>
+                <div>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: '#1e40af', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 }}>New Competition ({mc.competition?.length || 0})</div>
+                  {mc.competition?.length ? mc.competition.map((c, i) => (
+                    <div key={c.mlsId + i} style={{ padding: 8, borderBottom: '1px solid #f1f5f9', fontSize: 11 }}>
+                      <div style={{ fontWeight: 600, color: '#0f172a' }}>{c.address}</div>
+                      <div style={{ color: '#475569', marginTop: 2 }}>{c.price} · {c.beds}bed/{c.baths}bath · {c.sqft} · {c.type}</div>
+                      <div style={{ color: '#64748b', marginTop: 2, fontSize: 10 }}>Listed {c.listedDate} · {c.dom} DOM · MLS {c.mlsId}</div>
+                    </div>
+                  )) : <div style={{ fontSize: 11, color: '#9ca3af', fontStyle: 'italic' }}>No new competition</div>}
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
       {/* Sync Fresh Data modal */}
       {syncModalOpen && (
         <div onClick={() => setSyncModalOpen(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 20 }}>
@@ -7901,9 +7970,10 @@ function ActiveListingsSection() {
             </div>
 
             {[
-              { title: 'Refresh everything (recommended)', prompt: 'refresh my active listings, then pull listtrac stats', note: 'BrokerBay listings first, then ListTrac analytics. ~3 minutes.' },
+              { title: 'Refresh everything (recommended)', prompt: 'refresh my active listings, pull listtrac stats, then run comp watch', note: 'BrokerBay → ListTrac → REALM comps. ~5 minutes.' },
               { title: 'Refresh active listings only', prompt: 'refresh my active listings', note: 'Just the BrokerBay list. ~30 seconds.' },
               { title: 'Refresh ListTrac stats only', prompt: 'pull listtrac', note: 'Assumes listings are already synced. ~2 minutes.' },
+              { title: 'Run comp watch only', prompt: 'run comp watch', note: 'REALM scan for recent solds + new competition per listing. ~3 minutes.' },
             ].map((item, idx) => (
               <div key={idx} style={{ marginBottom: 12, border: '1px solid #e5e7eb', borderRadius: 10, padding: 12, background: idx === 0 ? '#fffbeb' : '#f9fafb' }}>
                 <div style={{ fontSize: 13, fontWeight: 700, color: '#111827', marginBottom: 6 }}>{item.title}</div>
