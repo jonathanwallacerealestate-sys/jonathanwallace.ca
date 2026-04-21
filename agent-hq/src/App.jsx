@@ -9,7 +9,7 @@ import {
   UserPlus, RotateCcw, Eye, EyeOff, ChevronUp, MoreHorizontal, Inbox,
   Flag, Trash2, PenLine, Check, ExternalLink, RefreshCw,
   GripVertical, ClipboardList, Home, Plus, Save, Loader2, Trash, RotateCw,
-  TrendingUp, BarChart3,
+  TrendingUp, BarChart3, MessageSquare,
 } from "lucide-react";
 
 // ─────────────────────────────────────────────
@@ -7660,6 +7660,23 @@ function ActiveListingsSection() {
   const [syncModalOpen, setSyncModalOpen] = useState(false);
   const [copiedPrompt, setCopiedPrompt] = useState(null);
   const [marketModalMlsId, setMarketModalMlsId] = useState(null);
+  const [diagnosticsByMls, setDiagnosticsByMls] = useState({});
+  const [diagnosticsSummary, setDiagnosticsSummary] = useState(null);
+  const [feedbackMlsId, setFeedbackMlsId] = useState(null);
+  const [weeklyEmailMlsId, setWeeklyEmailMlsId] = useState(null);
+
+  const loadDiagnostics = async () => {
+    try {
+      const r = await fetch('/api/listings/diagnostics/all');
+      const j = await r.json();
+      if (j.ok) {
+        const map = {};
+        (j.rows || []).forEach(row => { map[row.mlsId] = row.diagnostics; });
+        setDiagnosticsByMls(map);
+        setDiagnosticsSummary(j.summary || null);
+      }
+    } catch (e) { console.error('[diagnostics]', e); }
+  };
 
   const load = async () => {
     setLoading(true);
@@ -7672,6 +7689,7 @@ function ActiveListingsSection() {
       }
     } catch (e) { console.error(e); }
     setLoading(false);
+    loadDiagnostics();
   };
   useEffect(() => { load(); }, []);
 
@@ -7767,6 +7785,33 @@ function ActiveListingsSection() {
         </div>
       )}
 
+      {/* Diagnostics summary strip */}
+      {diagnosticsSummary && diagnosticsSummary.totalActive > 0 && (
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 14, padding: 10, background: 'linear-gradient(135deg,#fefce8,#fff)', border: '1px solid #fde68a', borderRadius: 10 }}>
+          <div style={{ fontSize: 11, color: '#78350f', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, marginRight: 4 }}>Portfolio pulse:</div>
+          {diagnosticsSummary.cmaDue > 0 && (
+            <span style={{ fontSize: 11, background: '#fee2e2', color: '#991b1b', padding: '3px 8px', borderRadius: 6, fontWeight: 600 }}>
+              {diagnosticsSummary.cmaDue} CMA{diagnosticsSummary.cmaDue !== 1 ? 's' : ''} due (7d+)
+            </span>
+          )}
+          {diagnosticsSummary.needsPriceReview > 0 && (
+            <span style={{ fontSize: 11, background: '#fef3c7', color: '#78350f', padding: '3px 8px', borderRadius: 6, fontWeight: 600 }}>
+              {diagnosticsSummary.needsPriceReview} need price review
+            </span>
+          )}
+          {diagnosticsSummary.noShowingsEver > 0 && (
+            <span style={{ fontSize: 11, background: '#fef2f2', color: '#b91c1c', padding: '3px 8px', borderRadius: 6, fontWeight: 600 }}>
+              {diagnosticsSummary.noShowingsEver} zero showings
+            </span>
+          )}
+          {diagnosticsSummary.avgShowingsPerOffer !== null && (
+            <span style={{ fontSize: 11, background: '#ecfdf5', color: '#065f46', padding: '3px 8px', borderRadius: 6, fontWeight: 600 }}>
+              Avg {diagnosticsSummary.avgShowingsPerOffer} showings/offer
+            </span>
+          )}
+        </div>
+      )}
+
       {/* Grid */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: 14 }}>
         {listings.map(l => {
@@ -7837,6 +7882,27 @@ function ActiveListingsSection() {
                 </div>
               )}
 
+              {/* Diagnostic badges */}
+              {(() => {
+                const d = diagnosticsByMls[l.mlsId];
+                if (!d) return null;
+                const badges = [];
+                if (d.flags.cmaIsStale) badges.push({ label: `CMA due (${d.daysSinceCompRefresh !== null ? d.daysSinceCompRefresh + 'd' : 'never'})`, bg: '#fee2e2', fg: '#991b1b' });
+                if (d.flags.noShowings7Days) badges.push({ label: `${d.daysSinceLastShowing}d no showing — price review`, bg: '#fef3c7', fg: '#78350f' });
+                if (d.flags.noShowingsEver) badges.push({ label: `${d.dom}d · zero showings ever`, bg: '#fef2f2', fg: '#b91c1c' });
+                if (d.flags.usedAsComp) badges.push({ label: `${d.showingsCount} shows · 0 offers — used as comp`, bg: '#fef2f2', fg: '#b91c1c' });
+                if (d.showingsCount > 0 && d.offersReceived > 0) badges.push({ label: `${d.showingsPerOffer} shows / offer`, bg: '#ecfdf5', fg: '#065f46' });
+                if (d.listToSaleRatio !== null) badges.push({ label: `${(d.listToSaleRatio * 100).toFixed(1)}% list:sale`, bg: '#dbeafe', fg: '#1e40af' });
+                if (!badges.length) return null;
+                return (
+                  <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                    {badges.map((b, i) => (
+                      <span key={i} style={{ fontSize: 10, background: b.bg, color: b.fg, padding: '2px 6px', borderRadius: 4, fontWeight: 600 }}>{b.label}</span>
+                    ))}
+                  </div>
+                );
+              })()}
+
               {/* Linked contacts */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                 {(l.linkedContacts || []).map(c => (
@@ -7853,9 +7919,15 @@ function ActiveListingsSection() {
                 <button onClick={() => genInsight(l.mlsId)} disabled={insightLoading === l.mlsId} style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'linear-gradient(135deg,#c8a96e,#d4b878)', color: '#fff', border: 'none', borderRadius: 8, padding: '6px 10px', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>
                   <Sparkles size={11} />{insightLoading === l.mlsId ? 'Thinking…' : (l.lastInsight ? 'Re-run AI' : 'AI Insight')}
                 </button>
+                <button onClick={() => setWeeklyEmailMlsId(l.mlsId)} style={{ display: 'flex', alignItems: 'center', gap: 4, background: '#eef2ff', border: '1px solid #c7d2fe', borderRadius: 8, padding: '6px 10px', fontSize: 11, fontWeight: 600, cursor: 'pointer', color: '#3730a3' }}>
+                  <Mail size={11} />Weekly Email
+                </button>
+                <button onClick={() => setFeedbackMlsId(l.mlsId)} style={{ display: 'flex', alignItems: 'center', gap: 4, background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, padding: '6px 10px', fontSize: 11, fontWeight: 600, cursor: 'pointer', color: '#166534' }}>
+                  <MessageSquare size={11} />Feedback{diagnosticsByMls[l.mlsId]?.showingsCount ? ` (${diagnosticsByMls[l.mlsId].showingsCount})` : ''}
+                </button>
                 {l.lastInsight && (
                   <button onClick={() => setOpenMlsId(l.mlsId)} style={{ display: 'flex', alignItems: 'center', gap: 4, background: '#f3f4f6', border: '1px solid #e5e7eb', borderRadius: 8, padding: '6px 10px', fontSize: 11, fontWeight: 600, cursor: 'pointer', color: '#374151' }}>
-                    <Eye size={11} />View
+                    <Eye size={11} />AI
                   </button>
                 )}
                 <button onClick={() => setLinkingMlsId(l.mlsId)} style={{ display: 'flex', alignItems: 'center', gap: 4, background: '#f3f4f6', border: '1px solid #e5e7eb', borderRadius: 8, padding: '6px 10px', fontSize: 11, fontWeight: 600, cursor: 'pointer', color: '#374151' }}>
@@ -8002,6 +8074,299 @@ function ActiveListingsSection() {
           </div>
         </div>
       )}
+
+      {/* Showing Feedback modal */}
+      {feedbackMlsId && (() => {
+        const l = listings.find(x => x.mlsId === feedbackMlsId);
+        if (!l) return null;
+        return <FeedbackModal listing={l} onClose={() => setFeedbackMlsId(null)} onSaved={() => loadDiagnostics()} />;
+      })()}
+
+      {/* Weekly Email modal */}
+      {weeklyEmailMlsId && (() => {
+        const l = listings.find(x => x.mlsId === weeklyEmailMlsId);
+        if (!l) return null;
+        return <WeeklyEmailModal listing={l} onClose={() => setWeeklyEmailMlsId(null)} />;
+      })()}
+    </div>
+  );
+}
+
+function FeedbackModal({ listing, onClose, onSaved }) {
+  const [entries, setEntries] = useState([]);
+  const [diag, setDiag] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [form, setForm] = useState({
+    type: 'showing',
+    date: new Date().toISOString().slice(0, 10),
+    showingAgent: '',
+    brokerage: '',
+    interest: '',
+    priceFeedback: '',
+    conditionFeedback: '',
+    objections: '',
+    notes: '',
+    offerAmount: '',
+    offerConditions: '',
+    offerStatus: '',
+  });
+  const [saving, setSaving] = useState(false);
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const r = await fetch(`/api/listings/${encodeURIComponent(listing.mlsId)}/feedback`);
+      const j = await r.json();
+      if (j.ok) { setEntries(j.feedback || []); setDiag(j.diagnostics || null); }
+    } catch (e) { console.error(e); }
+    setLoading(false);
+  };
+  useEffect(() => { load(); }, [listing.mlsId]);
+
+  const setF = (k, v) => setForm(prev => ({ ...prev, [k]: v }));
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      const payload = {
+        type: form.type,
+        date: new Date(form.date + 'T12:00:00').toISOString(),
+        showingAgent: form.showingAgent,
+        brokerage: form.brokerage,
+        interest: form.interest,
+        priceFeedback: form.priceFeedback,
+        conditionFeedback: form.conditionFeedback,
+        objections: form.objections,
+        notes: form.notes,
+        offerMade: form.offerAmount ? {
+          amount: Number(form.offerAmount.replace(/[^0-9]/g, '')),
+          conditions: form.offerConditions,
+          status: form.offerStatus || 'pending',
+        } : null,
+      };
+      const r = await fetch(`/api/listings/${encodeURIComponent(listing.mlsId)}/feedback`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const j = await r.json();
+      if (j.ok) {
+        setForm({ type: 'showing', date: new Date().toISOString().slice(0, 10), showingAgent: '', brokerage: '', interest: '', priceFeedback: '', conditionFeedback: '', objections: '', notes: '', offerAmount: '', offerConditions: '', offerStatus: '' });
+        await load();
+        onSaved?.();
+      } else {
+        alert('Error: ' + (j.error || 'unknown'));
+      }
+    } catch (e) { alert(e.message); }
+    setSaving(false);
+  };
+
+  const del = async (entryId) => {
+    if (!window.confirm('Remove this feedback entry?')) return;
+    try {
+      await fetch(`/api/listings/${encodeURIComponent(listing.mlsId)}/feedback/${entryId}`, { method: 'DELETE' });
+      load();
+      onSaved?.();
+    } catch (e) { alert(e.message); }
+  };
+
+  const labelStyle = { fontSize: 10, fontWeight: 700, color: '#6b7280', textTransform: 'uppercase', letterSpacing: 0.4 };
+  const inputStyle = { padding: '7px 9px', border: '1px solid #e5e7eb', borderRadius: 6, fontSize: 12, width: '100%', boxSizing: 'border-box' };
+
+  return (
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 20 }}>
+      <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 14, maxWidth: 780, width: '100%', maxHeight: '90vh', overflow: 'auto', padding: 24 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
+          <div>
+            <div style={{ fontSize: 16, fontWeight: 700 }}>Showing Feedback — {listing.address}</div>
+            <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>{listing.cityPostal} · {listing.price} · DOM {listing.dom}</div>
+          </div>
+          <button onClick={onClose} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#6b7280' }}><X size={18} /></button>
+        </div>
+
+        {/* Diagnostics snapshot */}
+        {diag && (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, marginBottom: 16, padding: 10, background: '#f9fafb', borderRadius: 8 }}>
+            <div><div style={{ fontSize: 16, fontWeight: 700, color: '#0f172a' }}>{diag.showingsCount}</div><div style={labelStyle}>Showings</div></div>
+            <div><div style={{ fontSize: 16, fontWeight: 700, color: diag.offersReceived > 0 ? '#16a34a' : '#0f172a' }}>{diag.offersReceived}</div><div style={labelStyle}>Offers</div></div>
+            <div><div style={{ fontSize: 16, fontWeight: 700, color: '#0f172a' }}>{diag.showingsPerOffer ?? '—'}</div><div style={labelStyle}>Shows / Offer</div></div>
+            <div><div style={{ fontSize: 16, fontWeight: 700, color: '#0f172a' }}>{diag.daysSinceLastShowing ?? '—'}</div><div style={labelStyle}>Days Since</div></div>
+          </div>
+        )}
+
+        {/* New entry form */}
+        <div style={{ border: '1px solid #e5e7eb', borderRadius: 10, padding: 14, marginBottom: 16, background: '#fffbeb' }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: '#78350f', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 10 }}>Log New Feedback</div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 8, marginBottom: 8 }}>
+            <div><label style={labelStyle}>Type</label>
+              <select value={form.type} onChange={e => setF('type', e.target.value)} style={inputStyle}>
+                <option value="showing">Showing</option>
+                <option value="open-house">Open House</option>
+                <option value="offer">Offer Only</option>
+                <option value="note">Note</option>
+              </select>
+            </div>
+            <div><label style={labelStyle}>Date</label><input type="date" value={form.date} onChange={e => setF('date', e.target.value)} style={inputStyle} /></div>
+            <div><label style={labelStyle}>Showing Agent</label><input type="text" value={form.showingAgent} onChange={e => setF('showingAgent', e.target.value)} placeholder="Name" style={inputStyle} /></div>
+            <div><label style={labelStyle}>Brokerage</label><input type="text" value={form.brokerage} onChange={e => setF('brokerage', e.target.value)} placeholder="Re/Max, Royal LePage..." style={inputStyle} /></div>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
+            <div><label style={labelStyle}>Interest Level</label>
+              <select value={form.interest} onChange={e => setF('interest', e.target.value)} style={inputStyle}>
+                <option value="">—</option>
+                <option value="high">High</option>
+                <option value="medium">Medium</option>
+                <option value="low">Low</option>
+                <option value="none">Not interested</option>
+              </select>
+            </div>
+            <div><label style={labelStyle}>Price Feedback</label>
+              <select value={form.priceFeedback} onChange={e => setF('priceFeedback', e.target.value)} style={inputStyle}>
+                <option value="">—</option>
+                <option value="low">Priced low</option>
+                <option value="fair">Fair</option>
+                <option value="high">A bit high</option>
+                <option value="too-high">Too high</option>
+              </select>
+            </div>
+          </div>
+          <div style={{ marginBottom: 8 }}>
+            <label style={labelStyle}>Objections / Condition Feedback</label>
+            <textarea value={form.objections} onChange={e => setF('objections', e.target.value)} placeholder="e.g. kitchen dated, needs new roof, backyard too small..." style={{ ...inputStyle, minHeight: 50, resize: 'vertical' }} />
+          </div>
+          <div style={{ marginBottom: 8 }}>
+            <label style={labelStyle}>Internal Notes</label>
+            <textarea value={form.notes} onChange={e => setF('notes', e.target.value)} placeholder="Your own notes — not shared with seller" style={{ ...inputStyle, minHeight: 40, resize: 'vertical' }} />
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 10 }}>
+            <div><label style={labelStyle}>Offer Amount (if made)</label><input type="text" value={form.offerAmount} onChange={e => setF('offerAmount', e.target.value)} placeholder="$000,000" style={inputStyle} /></div>
+            <div><label style={labelStyle}>Offer Conditions</label><input type="text" value={form.offerConditions} onChange={e => setF('offerConditions', e.target.value)} placeholder="Financing, inspection..." style={inputStyle} /></div>
+            <div><label style={labelStyle}>Offer Status</label>
+              <select value={form.offerStatus} onChange={e => setF('offerStatus', e.target.value)} style={inputStyle}>
+                <option value="">—</option>
+                <option value="pending">Pending</option>
+                <option value="accepted">Accepted</option>
+                <option value="rejected">Rejected</option>
+                <option value="countered">Countered</option>
+              </select>
+            </div>
+          </div>
+          <button onClick={save} disabled={saving} style={{ background: 'linear-gradient(135deg,#c8a96e,#d4b878)', color: '#fff', border: 'none', borderRadius: 8, padding: '8px 16px', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
+            {saving ? 'Saving…' : 'Save Feedback'}
+          </button>
+        </div>
+
+        {/* History */}
+        <div>
+          <div style={{ fontSize: 12, fontWeight: 700, color: '#374151', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 }}>
+            History ({entries.length})
+          </div>
+          {loading && <div style={{ color: '#9ca3af', fontSize: 12 }}>Loading…</div>}
+          {!loading && !entries.length && <div style={{ color: '#9ca3af', fontSize: 12, fontStyle: 'italic' }}>No feedback logged yet. Add the first entry above.</div>}
+          {entries.map(e => (
+            <div key={e.id} style={{ padding: 10, borderBottom: '1px solid #f1f5f9', fontSize: 11 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontWeight: 600, color: '#0f172a' }}>
+                    {e.date.slice(0, 10)} · {e.type}{e.showingAgent ? ` · ${e.showingAgent}` : ''}{e.brokerage ? ` (${e.brokerage})` : ''}
+                  </div>
+                  <div style={{ color: '#475569', marginTop: 3, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    {e.interest && <span>Interest: <strong>{e.interest}</strong></span>}
+                    {e.priceFeedback && <span>Price: <strong>{e.priceFeedback}</strong></span>}
+                    {e.offerMade && <span style={{ color: '#16a34a' }}>Offer: <strong>${e.offerMade.amount.toLocaleString()}</strong> ({e.offerMade.status})</span>}
+                  </div>
+                  {e.objections && <div style={{ color: '#78350f', marginTop: 3, fontStyle: 'italic' }}>"{e.objections}"</div>}
+                  {e.notes && <div style={{ color: '#64748b', marginTop: 3, fontSize: 10 }}>Note: {e.notes}</div>}
+                </div>
+                <button onClick={() => del(e.id)} title="Delete" style={{ background: 'transparent', border: 'none', color: '#9ca3af', cursor: 'pointer', padding: 2 }}><X size={12} /></button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function WeeklyEmailModal({ listing, onClose }) {
+  const [draft, setDraft] = useState(listing.lastWeeklyEmail || null);
+  const [generating, setGenerating] = useState(false);
+  const [subject, setSubject] = useState(draft?.subject || '');
+  const [body, setBody] = useState(draft?.body || '');
+  const [copied, setCopied] = useState(false);
+
+  const generate = async () => {
+    setGenerating(true);
+    try {
+      const r = await fetch(`/api/listings/${encodeURIComponent(listing.mlsId)}/weekly-email`, { method: 'POST' });
+      const j = await r.json();
+      if (j.ok) { setDraft(j.draft); setSubject(j.draft.subject); setBody(j.draft.body); }
+      else alert('Error: ' + (j.error || 'unknown'));
+    } catch (e) { alert(e.message); }
+    setGenerating(false);
+  };
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(`Subject: ${subject}\n\n${body}`);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1800);
+    } catch { alert('Clipboard blocked — select text manually'); }
+  };
+
+  const seller = (listing.linkedContacts || []).find(c => c.role === 'seller');
+  const mailto = () => {
+    const href = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+    window.open(href, '_blank');
+  };
+
+  return (
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 20 }}>
+      <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 14, maxWidth: 720, width: '100%', maxHeight: '90vh', overflow: 'auto', padding: 24 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
+          <div>
+            <div style={{ fontSize: 16, fontWeight: 700 }}>Weekly Seller Email — {listing.address}</div>
+            <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>{seller ? `To: ${seller.name}` : 'No seller linked — link a FUB contact with role "seller" for personalized greeting'}</div>
+          </div>
+          <button onClick={onClose} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#6b7280' }}><X size={18} /></button>
+        </div>
+
+        {!draft && (
+          <div style={{ padding: 24, textAlign: 'center', background: '#f9fafb', borderRadius: 10, marginBottom: 14 }}>
+            <div style={{ fontSize: 13, color: '#374151', marginBottom: 12 }}>
+              Generate an AI-drafted update using fresh ListTrac stats, new solds, new competition, showing feedback, and diagnostics.
+            </div>
+            <button onClick={generate} disabled={generating} style={{ background: 'linear-gradient(135deg,#c8a96e,#d4b878)', color: '#fff', border: 'none', borderRadius: 8, padding: '10px 20px', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
+              {generating ? 'Drafting…' : 'Generate Draft'}
+            </button>
+          </div>
+        )}
+
+        {draft && (
+          <>
+            <div style={{ marginBottom: 10 }}>
+              <label style={{ fontSize: 10, fontWeight: 700, color: '#6b7280', textTransform: 'uppercase', letterSpacing: 0.4 }}>Subject</label>
+              <input type="text" value={subject} onChange={e => setSubject(e.target.value)} style={{ width: '100%', padding: '8px 10px', border: '1px solid #e5e7eb', borderRadius: 6, fontSize: 13, fontWeight: 600, boxSizing: 'border-box' }} />
+            </div>
+            <div style={{ marginBottom: 12 }}>
+              <label style={{ fontSize: 10, fontWeight: 700, color: '#6b7280', textTransform: 'uppercase', letterSpacing: 0.4 }}>Body (editable)</label>
+              <textarea value={body} onChange={e => setBody(e.target.value)} style={{ width: '100%', minHeight: 340, padding: '10px 12px', border: '1px solid #e5e7eb', borderRadius: 6, fontSize: 13, lineHeight: 1.6, fontFamily: 'inherit', resize: 'vertical', boxSizing: 'border-box' }} />
+            </div>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <button onClick={copy} style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#c8a96e', color: '#fff', border: 'none', borderRadius: 8, padding: '8px 14px', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
+                {copied ? <><Check size={12} />Copied</> : <>Copy</>}
+              </button>
+              <button onClick={mailto} style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#eef2ff', color: '#3730a3', border: '1px solid #c7d2fe', borderRadius: 8, padding: '8px 14px', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
+                <Mail size={12} />Open in email client
+              </button>
+              <button onClick={generate} disabled={generating} style={{ background: 'transparent', color: '#6b7280', border: '1px solid #e5e7eb', borderRadius: 8, padding: '8px 14px', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
+                {generating ? 'Regenerating…' : 'Regenerate'}
+              </button>
+              {draft.generatedAt && <span style={{ alignSelf: 'center', fontSize: 10, color: '#9ca3af' }}>Generated {Math.round((Date.now() - new Date(draft.generatedAt).getTime()) / 60000)}m ago</span>}
+            </div>
+          </>
+        )}
+      </div>
     </div>
   );
 }

@@ -6491,6 +6491,29 @@ app.post('/api/listings/:mlsId/stats', express.json({ limit: '1mb' }), (req, res
       views: Number(c.views) || 0,
     })) : [],
   };
+
+  // Push the prior snapshot onto statsHistory (ring buffer of 12) for week-over-week math.
+  // Only retain a snapshot if it's materially different OR >3 days old — keeps the history lean.
+  if (listing.stats && listing.stats.scrapedAt) {
+    const prior = listing.stats;
+    const priorTime = new Date(prior.scrapedAt).getTime();
+    const newTime = new Date(stats.scrapedAt).getTime();
+    const daysBetween = (newTime - priorTime) / DAY_MS;
+    const materiallyDifferent = Math.abs((prior.views || 0) - stats.views) >= 2 || daysBetween >= 3;
+    if (materiallyDifferent) {
+      listing.statsHistory = listing.statsHistory || [];
+      listing.statsHistory.unshift({
+        views: prior.views,
+        inquiries: prior.inquiries,
+        favorites: prior.favorites,
+        shares: prior.shares,
+        adImpressions: prior.adImpressions,
+        scrapedAt: prior.scrapedAt,
+      });
+      listing.statsHistory = listing.statsHistory.slice(0, 12);
+    }
+  }
+
   listing.stats = stats;
   saveListings();
   res.json({ ok: true, stats });
@@ -6578,9 +6601,26 @@ Do NOT use real-estate clichés. Do NOT hedge. Base every claim on the numbers a
     }
   }
 
+  // Compute diff (NEW solds + NEW actives since last refresh) for the weekly seller email
+  const priorComps = listing.marketContext?.comps || [];
+  const priorCompetition = listing.marketContext?.competition || [];
+  const priorCompMlsIds = new Set(priorComps.map(c => c.mlsId).filter(Boolean));
+  const priorActiveMlsIds = new Set(priorCompetition.map(c => c.mlsId).filter(Boolean));
+  const newSolds = ctx.comps.filter(c => c.mlsId && !priorCompMlsIds.has(c.mlsId));
+  const newActives = ctx.competition.filter(c => c.mlsId && !priorActiveMlsIds.has(c.mlsId));
+  const diff = {
+    detectedAt: ctx.scrapedAt,
+    priorScrapedAt: listing.marketContext?.scrapedAt || null,
+    newSolds,
+    newActives,
+    newSoldsCount: newSolds.length,
+    newActivesCount: newActives.length,
+  };
+
   listing.marketContext = { ...ctx, actionPlan };
+  listing.marketContextDiff = diff;
   saveListings();
-  res.json({ ok: true, marketContext: listing.marketContext });
+  res.json({ ok: true, marketContext: listing.marketContext, diff });
 });
 
 // GET /api/listings/contacts/search?q= — search FUB to find a contact to link
@@ -6605,6 +6645,316 @@ app.get('/api/listings/contacts/search', async (req, res) => {
     res.json({ ok: true, results });
   } catch (err) {
     res.json({ ok: false, error: err.message, results: [] });
+  }
+});
+
+// ─────────────────────────────────────────────
+// LISTING FEEDBACK + DIAGNOSTICS
+// Showing feedback capture → feeds into diagnostics + weekly seller email.
+// Tracks: showings per offer, days since last showing, list-to-sale ratio,
+// flags like "7 days no showing → price too high" and "6 showings no offer → used as comp"
+// ─────────────────────────────────────────────
+const FEEDBACK_PATH = path.join(DATA_DIR, '.listing-feedback.json');
+let feedbackState = { byMlsId: {} };
+try {
+  if (fs.existsSync(FEEDBACK_PATH)) {
+    feedbackState = JSON.parse(fs.readFileSync(FEEDBACK_PATH, 'utf8'));
+    if (!feedbackState.byMlsId) feedbackState = { byMlsId: {} };
+  }
+} catch { feedbackState = { byMlsId: {} }; }
+function saveFeedback() {
+  try { fs.writeFileSync(FEEDBACK_PATH, JSON.stringify(feedbackState, null, 2)); }
+  catch (e) { console.error('[Feedback] save error:', e.message); }
+}
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+const CMA_REFRESH_DAYS = 7;
+
+// Core computation — one listing, one diagnostics object. Used in /diagnostics and /weekly-email.
+function computeListingDiagnostics(listing) {
+  const now = new Date();
+  const feedbacks = (feedbackState.byMlsId[listing.mlsId] || []).slice().sort((a, b) => new Date(b.date) - new Date(a.date));
+
+  const showingsCount = feedbacks.filter(f => f.type === 'showing' || !f.type).length;
+  const offersReceived = feedbacks.filter(f => f.offerMade && f.offerMade.amount).length;
+
+  const lastShowing = feedbacks.find(f => f.type === 'showing' || !f.type);
+  const daysSinceLastShowing = lastShowing
+    ? Math.floor((now - new Date(lastShowing.date)) / DAY_MS)
+    : null;
+
+  // Days on market — prefer listing.dom (from BrokerBay), fall back to firstSeenAt
+  const dom = typeof listing.dom === 'number' && listing.dom > 0
+    ? listing.dom
+    : (listing.firstSeenAt ? Math.floor((now - new Date(listing.firstSeenAt)) / DAY_MS) : 0);
+
+  const showingsPerOffer = offersReceived > 0 ? +(showingsCount / offersReceived).toFixed(1) : null;
+
+  // Flags
+  const noShowings7Days = showingsCount > 0 && daysSinceLastShowing !== null && daysSinceLastShowing >= 7;
+  const noShowingsEver = showingsCount === 0 && dom >= 7;
+  const usedAsComp = showingsCount >= 6 && offersReceived === 0;
+
+  // CMA freshness
+  const lastCompRefresh = listing.marketContext?.scrapedAt || null;
+  const daysSinceCompRefresh = lastCompRefresh
+    ? Math.floor((now - new Date(lastCompRefresh)) / DAY_MS)
+    : null;
+  const cmaIsStale = !lastCompRefresh || daysSinceCompRefresh >= CMA_REFRESH_DAYS;
+  const nextCmaDueAt = lastCompRefresh
+    ? new Date(new Date(lastCompRefresh).getTime() + CMA_REFRESH_DAYS * DAY_MS).toISOString()
+    : null;
+
+  // List-to-sale ratio — populated when listing closes
+  const listToSaleRatio = listing.soldPriceNumeric && listing.priceNumeric
+    ? +(listing.soldPriceNumeric / listing.priceNumeric).toFixed(4)
+    : null;
+
+  // Interest mix from recent feedback
+  const recentFeedbacks = feedbacks.slice(0, 10);
+  const priceFeedbackMix = {
+    low: recentFeedbacks.filter(f => f.priceFeedback === 'low').length,
+    fair: recentFeedbacks.filter(f => f.priceFeedback === 'fair').length,
+    high: recentFeedbacks.filter(f => f.priceFeedback === 'high').length,
+    tooHigh: recentFeedbacks.filter(f => f.priceFeedback === 'too-high').length,
+  };
+
+  return {
+    showingsCount,
+    offersReceived,
+    showingsPerOffer,
+    daysSinceLastShowing,
+    dom,
+    flags: {
+      noShowings7Days,
+      noShowingsEver,
+      usedAsComp,
+      cmaIsStale,
+    },
+    lastCompRefresh,
+    daysSinceCompRefresh,
+    nextCmaDueAt,
+    listToSaleRatio,
+    priceFeedbackMix,
+    lastFeedbackAt: lastShowing?.date || null,
+    recentFeedbackCount: feedbacks.length,
+  };
+}
+
+// POST /api/listings/:mlsId/feedback — capture one showing feedback entry
+app.post('/api/listings/:mlsId/feedback', express.json(), (req, res) => {
+  const listing = listingsState.listings.find(l => l.mlsId === req.params.mlsId);
+  if (!listing) return res.status(404).json({ ok: false, error: 'listing not found' });
+  const body = req.body || {};
+  const entry = {
+    id: Date.now() + '-' + Math.random().toString(36).slice(2, 6),
+    mlsId: listing.mlsId,
+    type: body.type || 'showing',  // 'showing' | 'offer' | 'open-house' | 'note'
+    date: body.date || new Date().toISOString(),
+    showingAgent: String(body.showingAgent || '').slice(0, 120),
+    brokerage: String(body.brokerage || '').slice(0, 120),
+    interest: ['high', 'medium', 'low', 'none', ''].includes(body.interest) ? body.interest : '',
+    priceFeedback: ['low', 'fair', 'high', 'too-high', ''].includes(body.priceFeedback) ? body.priceFeedback : '',
+    conditionFeedback: String(body.conditionFeedback || '').slice(0, 500),
+    objections: String(body.objections || '').slice(0, 500),
+    notes: String(body.notes || '').slice(0, 500),
+    offerMade: body.offerMade && body.offerMade.amount ? {
+      amount: Number(body.offerMade.amount) || 0,
+      conditions: String(body.offerMade.conditions || '').slice(0, 300),
+      status: ['pending', 'accepted', 'rejected', 'countered', ''].includes(body.offerMade.status) ? body.offerMade.status : 'pending',
+    } : null,
+    createdAt: new Date().toISOString(),
+  };
+  feedbackState.byMlsId[listing.mlsId] = feedbackState.byMlsId[listing.mlsId] || [];
+  feedbackState.byMlsId[listing.mlsId].unshift(entry);
+  if (feedbackState.byMlsId[listing.mlsId].length > 200) {
+    feedbackState.byMlsId[listing.mlsId] = feedbackState.byMlsId[listing.mlsId].slice(0, 200);
+  }
+  saveFeedback();
+  res.json({ ok: true, entry, diagnostics: computeListingDiagnostics(listing) });
+});
+
+// GET /api/listings/:mlsId/feedback — list feedback entries for a listing
+app.get('/api/listings/:mlsId/feedback', (req, res) => {
+  const listing = listingsState.listings.find(l => l.mlsId === req.params.mlsId);
+  if (!listing) return res.status(404).json({ ok: false, error: 'listing not found' });
+  const items = feedbackState.byMlsId[listing.mlsId] || [];
+  res.json({ ok: true, feedback: items, diagnostics: computeListingDiagnostics(listing) });
+});
+
+// DELETE /api/listings/:mlsId/feedback/:entryId — remove a feedback entry
+app.delete('/api/listings/:mlsId/feedback/:entryId', (req, res) => {
+  const list = feedbackState.byMlsId[req.params.mlsId];
+  if (!list) return res.json({ ok: false, error: 'no feedback for this listing' });
+  const before = list.length;
+  feedbackState.byMlsId[req.params.mlsId] = list.filter(f => f.id !== req.params.entryId);
+  saveFeedback();
+  res.json({ ok: true, removed: before - feedbackState.byMlsId[req.params.mlsId].length });
+});
+
+// GET /api/listings/:mlsId/diagnostics — computed on-the-fly
+app.get('/api/listings/:mlsId/diagnostics', (req, res) => {
+  const listing = listingsState.listings.find(l => l.mlsId === req.params.mlsId);
+  if (!listing) return res.status(404).json({ ok: false, error: 'listing not found' });
+  res.json({ ok: true, diagnostics: computeListingDiagnostics(listing) });
+});
+
+// GET /api/listings/diagnostics/all — diagnostics summary across every active listing.
+// Powers the Active Listings header "how many CMAs are due" badge, and lets the dashboard
+// see at a glance which listings are flagged.
+app.get('/api/listings/diagnostics/all', (req, res) => {
+  const rows = listingsState.listings
+    .filter(l => !l.archived)
+    .map(l => ({ mlsId: l.mlsId, address: l.address, diagnostics: computeListingDiagnostics(l) }));
+  const summary = {
+    totalActive: rows.length,
+    cmaDue: rows.filter(r => r.diagnostics.flags.cmaIsStale).length,
+    needsPriceReview: rows.filter(r => r.diagnostics.flags.noShowings7Days || r.diagnostics.flags.usedAsComp).length,
+    noShowingsEver: rows.filter(r => r.diagnostics.flags.noShowingsEver).length,
+    avgShowingsPerOffer: (() => {
+      const vals = rows.map(r => r.diagnostics.showingsPerOffer).filter(v => v !== null);
+      return vals.length ? +(vals.reduce((s, v) => s + v, 0) / vals.length).toFixed(1) : null;
+    })(),
+  };
+  res.json({ ok: true, summary, rows });
+});
+
+// POST /api/listings/:mlsId/mark-sold — when a listing closes, capture sale price for list:sale ratio
+app.post('/api/listings/:mlsId/mark-sold', express.json(), (req, res) => {
+  const listing = listingsState.listings.find(l => l.mlsId === req.params.mlsId);
+  if (!listing) return res.status(404).json({ ok: false, error: 'listing not found' });
+  const soldPrice = Number(req.body?.soldPrice) || 0;
+  if (!soldPrice) return res.json({ ok: false, error: 'soldPrice required' });
+  listing.soldPriceNumeric = soldPrice;
+  listing.soldPrice = '$' + soldPrice.toLocaleString();
+  listing.soldAt = req.body?.soldAt || new Date().toISOString();
+  listing.availability = 'Sold';
+  saveListings();
+  res.json({ ok: true, listing, diagnostics: computeListingDiagnostics(listing) });
+});
+
+// ─────────────────────────────────────────────
+// WEEKLY SELLER EMAIL
+// Combines: listing + ListTrac stats + market context (comps/actives + new-since-last diff)
+//           + feedback + diagnostics → AI-drafted weekly update email.
+// ─────────────────────────────────────────────
+
+// POST /api/listings/:mlsId/weekly-email — generate the weekly seller update draft
+app.post('/api/listings/:mlsId/weekly-email', express.json(), async (req, res) => {
+  const listing = listingsState.listings.find(l => l.mlsId === req.params.mlsId);
+  if (!listing) return res.status(404).json({ ok: false, error: 'listing not found' });
+  if (!anthropic) return res.json({ ok: false, error: 'Anthropic not configured' });
+
+  const diag = computeListingDiagnostics(listing);
+  const feedbacks = (feedbackState.byMlsId[listing.mlsId] || []).slice(0, 10);
+  const mc = listing.marketContext || {};
+  const diff = listing.marketContextDiff || {};
+  const stats = listing.stats || {};
+  const lastWeekStats = listing.statsHistory?.[0] || null;
+
+  // Week-over-week view delta (if we have historical snapshots)
+  const weekOverWeek = lastWeekStats ? {
+    viewsDelta: (stats.views || 0) - (lastWeekStats.views || 0),
+    inquiriesDelta: (stats.inquiries || 0) - (lastWeekStats.inquiries || 0),
+    favoritesDelta: (stats.favorites || 0) - (lastWeekStats.favorites || 0),
+    snapshotAt: lastWeekStats.scrapedAt,
+  } : null;
+
+  const seller = (listing.linkedContacts || []).find(c => c.role === 'seller');
+  const sellerName = seller?.name || 'there';
+  const sellerFirstName = sellerName.split(' ')[0] || 'there';
+
+  // Build the prompt
+  const newSoldsBlock = (diff.newSolds || []).length
+    ? `NEW SOLDS THIS WEEK (in your price point / area):\n${diff.newSolds.slice(0, 6).map(c => `  - ${c.address} · ${c.price} · ${c.beds}bed/${c.baths}bath · ${c.dom} DOM · sold ${c.soldDate}`).join('\n')}`
+    : 'NEW SOLDS THIS WEEK: none in the tracked band';
+
+  const newActivesBlock = (diff.newActives || []).length
+    ? `NEW LISTINGS THIS WEEK (competition):\n${diff.newActives.slice(0, 6).map(c => `  - ${c.address} · ${c.price} · ${c.beds}bed/${c.baths}bath · listed ${c.listedDate}`).join('\n')}`
+    : 'NEW LISTINGS THIS WEEK: none in the tracked band';
+
+  const statsBlock = stats.views
+    ? `ONLINE ACTIVITY (last 30 days via ListTrac):
+  - Views: ${stats.views}${weekOverWeek ? ` (${weekOverWeek.viewsDelta >= 0 ? '+' : ''}${weekOverWeek.viewsDelta} vs last week)` : ''}
+  - Inquiries: ${stats.inquiries}${weekOverWeek ? ` (${weekOverWeek.inquiriesDelta >= 0 ? '+' : ''}${weekOverWeek.inquiriesDelta})` : ''}
+  - Favorites: ${stats.favorites}${weekOverWeek ? ` (${weekOverWeek.favoritesDelta >= 0 ? '+' : ''}${weekOverWeek.favoritesDelta})` : ''}
+  - Top visitor cities: ${(stats.topCities || []).slice(0, 3).map(c => `${c.city} (${c.views})`).join(', ') || 'n/a'}`
+    : 'ONLINE ACTIVITY: no ListTrac data yet';
+
+  const feedbackBlock = feedbacks.length
+    ? `SHOWING FEEDBACK (most recent ${feedbacks.length}):\n${feedbacks.map(f => `  - ${f.date.slice(0, 10)} · ${f.showingAgent || 'agent'} · interest: ${f.interest || 'n/a'} · price: ${f.priceFeedback || 'n/a'}${f.objections ? ` · objections: "${f.objections}"` : ''}`).join('\n')}`
+    : 'SHOWING FEEDBACK: no feedback recorded';
+
+  const diagBlock = `DIAGNOSTICS:
+  - Days on market: ${diag.dom}
+  - Total showings: ${diag.showingsCount}
+  - Offers received: ${diag.offersReceived}
+  - Showings per offer: ${diag.showingsPerOffer ?? 'n/a (no offers yet)'}
+  - Days since last showing: ${diag.daysSinceLastShowing ?? 'n/a'}
+  ${diag.flags.noShowings7Days ? '  - FLAG: 7+ days without a showing — price is likely too high' : ''}
+  ${diag.flags.noShowingsEver ? '  - FLAG: On market ' + diag.dom + ' days with zero showings — urgent price review' : ''}
+  ${diag.flags.usedAsComp ? '  - FLAG: 6+ showings with 0 offers — home is likely being used as a comparable by buyers on cheaper listings' : ''}`;
+
+  const prompt = `You are Jonathan Wallace, a top-producing real estate agent in Simcoe County / Georgian Bay, Ontario. Write the weekly seller update email for this listing.
+
+LISTING
+- Address: ${listing.address}, ${listing.cityPostal}
+- List price: ${listing.price}
+- Type: ${listing.type}
+- MLS: ${listing.mlsId}
+
+SELLER: ${sellerName} (use first name "${sellerFirstName}" in greeting)
+
+${diagBlock}
+
+${newSoldsBlock}
+
+${newActivesBlock}
+
+${statsBlock}
+
+${feedbackBlock}
+
+Write the email with this structure (plain text, no markdown):
+
+Subject line on the first line, then a blank line, then the body.
+
+Body format (in this order, no section headers — write it like a real email):
+1. Brief opener, one sentence — warm but direct.
+2. One paragraph on where the listing stands THIS WEEK — reference specific numbers from the data above. Name 1-2 recent solds or new competitors by street name if relevant.
+3. One paragraph on buyer interest — online activity + any showing feedback. Be honest if activity is soft.
+4. Strategy paragraph — 2-3 specific moves for the coming week. If a FLAG is set above, address it head-on with a concrete recommendation (e.g. price adjustment to a specific dollar amount, new photos, open house, video tour). Tie every recommendation to a number.
+5. Close with: "I'll check in again next ${new Date(Date.now() + 7 * DAY_MS).toLocaleDateString('en-US', { weekday: 'long' })}. Let me know if you want to get on a call sooner." Sign off "Jonathan."
+
+Rules:
+- No real-estate clichés ("won't last", "priced to sell", "hot market").
+- No filler sentences. Every line must deliver information.
+- Use specific numbers. No vague "a lot of" or "some".
+- 180-260 words total.`;
+
+  try {
+    const msg = await anthropic.messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 900,
+      messages: [{ role: 'user', content: prompt }],
+    });
+    const text = (msg.content?.[0]?.text || '').trim();
+    // Split first line as subject, rest as body
+    const firstNewline = text.indexOf('\n');
+    let subject = '', body = text;
+    if (firstNewline > 0 && firstNewline < 140) {
+      subject = text.slice(0, firstNewline).replace(/^subject:\s*/i, '').trim();
+      body = text.slice(firstNewline + 1).trim();
+    } else {
+      subject = `${listing.address} — weekly market update`;
+    }
+    const draft = { subject, body, generatedAt: new Date().toISOString(), diagnostics: diag };
+    listing.lastWeeklyEmail = draft;
+    saveListings();
+    res.json({ ok: true, draft });
+  } catch (err) {
+    console.error('[WeeklyEmail] error:', err.message);
+    res.json({ ok: false, error: err.message });
   }
 });
 
