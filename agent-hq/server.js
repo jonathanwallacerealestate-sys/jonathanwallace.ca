@@ -6880,10 +6880,146 @@ app.get('/cma/:id/print', (req, res) => {
     ${cma.estimatedDom ? `<div style="text-align:center; margin-top: 12px; font-size: 12px; color: #78350f;"><strong>Estimated Days on Market:</strong> ${cma.estimatedDom}</div>` : ''}
   </div>
 
-  <div class="footer">Jonathan Wallace · Faris Team Real Estate Brokerage · Page 1 of 4</div>
+  <div class="footer">Jonathan Wallace · Faris Team Real Estate Brokerage · Page 1 of 5</div>
 </div>
 
-<!-- PAGE 2: Comps -->
+<!-- PAGE 2: Pricing Pyramid + Sold Timeline (seller conversation visual) -->
+${(() => {
+  const solds = (cma.comps?.solds || []).filter(s => s.priceNumeric || s.price);
+  const parseNum = (s) => {
+    if (!s) return 0;
+    if (typeof s === 'number') return s;
+    const m = String(s).match(/\$?([\d,.]+)([KM])?/);
+    if (!m) return 0;
+    const v = parseFloat(m[1].replace(/,/g, ''));
+    return m[2] === 'M' ? v * 1_000_000 : m[2] === 'K' ? v * 1000 : v;
+  };
+  const compPrices = solds.map(s => ({ address: s.address, price: s.priceNumeric || parseNum(s.price), dom: s.dom }));
+  const allPrices = [...compPrices.map(c => c.price), cma.priceRange?.low, cma.priceRange?.high, cma.listPrice].filter(Boolean);
+  if (!allPrices.length) return '';
+  const minP = Math.min(...allPrices) * 0.95;
+  const maxP = Math.max(...allPrices) * 1.05;
+  const range = maxP - minP;
+  const xFor = (p) => range > 0 ? 60 + ((p - minP) / range) * 800 : 460;
+  const fmtPrice = (n) => n >= 1_000_000 ? `$${(n / 1_000_000).toFixed(2)}M` : n >= 1000 ? `$${Math.round(n / 1000)}K` : `$${n}`;
+  const midListingPrice = cma.priceRange?.mid || cma.listPrice || (allPrices.reduce((a, b) => a + b, 0) / allPrices.length);
+  // For the pyramid DOM tier thresholds — simple rule-of-thumb applied to subject's price
+  const tierTop = cma.priceRange?.high ? cma.priceRange.high * 1.04 : midListingPrice * 1.10;
+  const tierUpperMid = cma.priceRange?.high || midListingPrice * 1.05;
+  const tierLowerMid = cma.priceRange?.low || midListingPrice * 0.95;
+  const tierBottom = cma.priceRange?.low ? cma.priceRange.low * 0.96 : midListingPrice * 0.90;
+  return `
+<div class="page">
+  <h2 style="margin-top:0;">Pricing Strategy — Sale Price vs. Days on Market</h2>
+  <div class="sub">${esc(cma.address)}, ${esc(cma.city)}</div>
+
+  <svg viewBox="0 0 1000 560" style="width:100%; height:auto; margin-top: 14px;">
+    <!-- PYRAMID -->
+    <g transform="translate(20, 20)">
+      <text x="220" y="18" font-size="12" font-weight="700" fill="#374151" text-anchor="middle" style="letter-spacing:1px">ESTIMATED SALE RANGE</text>
+      <!-- Pyramid tiers as trapezoids -->
+      <polygon points="220,40 280,80 160,80" fill="#fee2e2" stroke="#dc2626" stroke-width="1.5" />
+      <text x="220" y="68" font-size="11" font-weight="700" fill="#991b1b" text-anchor="middle">TOP OF MARKET</text>
+
+      <polygon points="160,80 280,80 340,160 100,160" fill="#fef3c7" stroke="#ca8a04" stroke-width="1.5" />
+      <text x="220" y="110" font-size="13" font-weight="700" fill="#78350f" text-anchor="middle">PRICE BAND</text>
+      <text x="220" y="128" font-size="11" fill="#78350f" text-anchor="middle">(above market)</text>
+      <text x="220" y="146" font-size="10" fill="#78350f" text-anchor="middle" font-style="italic">30–90 DOM</text>
+
+      <polygon points="100,160 340,160 400,240 40,240" fill="#d1fae5" stroke="#059669" stroke-width="1.5" />
+      <text x="220" y="190" font-size="14" font-weight="700" fill="#065f46" text-anchor="middle">MARKET VALUE</text>
+      <text x="220" y="208" font-size="11" fill="#065f46" text-anchor="middle">(fair price)</text>
+      <text x="220" y="226" font-size="10" fill="#065f46" text-anchor="middle" font-style="italic">15–30 DOM</text>
+
+      <polygon points="40,240 400,240 440,280 0,280" fill="#dbeafe" stroke="#1e40af" stroke-width="1.5" />
+      <text x="220" y="262" font-size="12" font-weight="700" fill="#1e3a8a" text-anchor="middle">QUICK SALE · CREATES NEXT COMP</text>
+      <text x="220" y="276" font-size="10" fill="#1e3a8a" text-anchor="middle" font-style="italic">&lt; 7 DOM</text>
+
+      <!-- Right-side price labels with arrows -->
+      <text x="470" y="68" font-size="11" font-weight="600" fill="#991b1b">${fmtPrice(tierTop)}</text>
+      <text x="470" y="82" font-size="9" fill="#991b1b">DOM &gt; 120</text>
+      <line x1="280" y1="60" x2="460" y2="62" stroke="#dc2626" stroke-width="1" stroke-dasharray="3,3" />
+
+      <text x="470" y="120" font-size="11" font-weight="600" fill="#78350f">${fmtPrice(tierUpperMid)}</text>
+      <text x="470" y="134" font-size="9" fill="#78350f">DOM 30–90</text>
+      <line x1="340" y1="120" x2="460" y2="120" stroke="#ca8a04" stroke-width="1" stroke-dasharray="3,3" />
+
+      <text x="470" y="200" font-size="12" font-weight="700" fill="#065f46">${fmtPrice(midListingPrice)}</text>
+      <text x="470" y="214" font-size="9" fill="#065f46">DOM 15–30</text>
+      <line x1="400" y1="200" x2="460" y2="200" stroke="#059669" stroke-width="1" stroke-dasharray="3,3" />
+
+      <text x="470" y="262" font-size="11" font-weight="600" fill="#1e3a8a">${fmtPrice(tierBottom)}</text>
+      <text x="470" y="276" font-size="9" fill="#1e3a8a">DOM &lt; 7</text>
+      <line x1="440" y1="262" x2="460" y2="262" stroke="#1e40af" stroke-width="1" stroke-dasharray="3,3" />
+    </g>
+
+    <!-- DOM/Price relationship explanation -->
+    <g transform="translate(720, 40)">
+      <text x="0" y="0" font-size="11" font-weight="700" fill="#374151">THE RELATIONSHIP</text>
+      <text x="0" y="22" font-size="10" fill="#4b5563">The higher above market value you list,</text>
+      <text x="0" y="36" font-size="10" fill="#4b5563">the longer it takes to sell — and the more</text>
+      <text x="0" y="50" font-size="10" fill="#4b5563">you end up discounting.</text>
+      <text x="0" y="78" font-size="10" fill="#4b5563">A sharp below-market price attracts</text>
+      <text x="0" y="92" font-size="10" fill="#4b5563">multiple offers fast, creates energy, and</text>
+      <text x="0" y="106" font-size="10" fill="#4b5563">often sells AT or ABOVE list.</text>
+      <text x="0" y="134" font-size="10" fill="#4b5563" font-style="italic">Your home must be priced with intent.</text>
+    </g>
+
+    <!-- SOLD TIMELINE -->
+    <g transform="translate(20, 360)">
+      <text x="0" y="0" font-size="12" font-weight="700" fill="#374151" style="letter-spacing:1px">RECENT SOLD DATA — WHERE YOUR HOME FITS</text>
+      <text x="0" y="18" font-size="10" fill="#6b7280">Each dot is a comparable sale. Your recommended range shown in gold.</text>
+
+      <!-- Axis line -->
+      <line x1="60" y1="90" x2="860" y2="90" stroke="#9ca3af" stroke-width="1.5" />
+      <!-- axis tick labels — min and max -->
+      <text x="60" y="110" font-size="10" fill="#6b7280" text-anchor="middle">${fmtPrice(minP)}</text>
+      <text x="860" y="110" font-size="10" fill="#6b7280" text-anchor="middle">${fmtPrice(maxP)}</text>
+      <text x="460" y="110" font-size="10" fill="#6b7280" text-anchor="middle">${fmtPrice((minP + maxP) / 2)}</text>
+      <line x1="60" y1="86" x2="60" y2="94" stroke="#9ca3af" stroke-width="1" />
+      <line x1="860" y1="86" x2="860" y2="94" stroke="#9ca3af" stroke-width="1" />
+      <line x1="460" y1="86" x2="460" y2="94" stroke="#9ca3af" stroke-width="1" />
+
+      ${cma.priceRange?.low && cma.priceRange?.high ? `
+        <!-- Recommended range band -->
+        <rect x="${xFor(cma.priceRange.low)}" y="72" width="${Math.max(4, xFor(cma.priceRange.high) - xFor(cma.priceRange.low))}" height="36" fill="#fef3c7" stroke="#ca8a04" stroke-width="1.5" opacity="0.9" />
+        <text x="${(xFor(cma.priceRange.low) + xFor(cma.priceRange.high)) / 2}" y="55" font-size="10" font-weight="700" fill="#78350f" text-anchor="middle">YOUR RECOMMENDED RANGE</text>
+        <text x="${(xFor(cma.priceRange.low) + xFor(cma.priceRange.high)) / 2}" y="68" font-size="10" font-weight="700" fill="#78350f" text-anchor="middle">${fmtPrice(cma.priceRange.low)} – ${fmtPrice(cma.priceRange.high)}</text>
+      ` : ''}
+
+      ${cma.priceRange?.mid ? `
+        <!-- Subject's recommended mid price marker -->
+        <circle cx="${xFor(cma.priceRange.mid)}" cy="90" r="9" fill="#c8a96e" stroke="#78350f" stroke-width="2" />
+        <text x="${xFor(cma.priceRange.mid)}" y="138" font-size="11" font-weight="700" fill="#78350f" text-anchor="middle">${fmtPrice(cma.priceRange.mid)}</text>
+        <text x="${xFor(cma.priceRange.mid)}" y="150" font-size="9" fill="#78350f" text-anchor="middle">(recommended)</text>
+      ` : ''}
+
+      ${cma.listPrice && cma.priceRange?.mid !== cma.listPrice ? `
+        <!-- Current listing price marker (if different from mid) -->
+        <circle cx="${xFor(cma.listPrice)}" cy="90" r="7" fill="#111827" stroke="#fff" stroke-width="2" />
+        <text x="${xFor(cma.listPrice)}" y="180" font-size="10" font-weight="700" fill="#111827" text-anchor="middle">${fmtPrice(cma.listPrice)}</text>
+        <text x="${xFor(cma.listPrice)}" y="192" font-size="9" fill="#111827" text-anchor="middle">(current list)</text>
+      ` : ''}
+
+      ${compPrices.map((c, i) => {
+        const cx = xFor(c.price);
+        const stagger = (i % 2 === 0) ? 14 : -14;
+        return `
+          <circle cx="${cx}" cy="90" r="5" fill="#059669" stroke="#fff" stroke-width="1.5" />
+          <line x1="${cx}" y1="90" x2="${cx}" y2="${110 + stagger}" stroke="#9ca3af" stroke-width="0.5" stroke-dasharray="2,2" />
+          <text x="${cx}" y="${124 + stagger}" font-size="8.5" fill="#065f46" text-anchor="middle" font-weight="600">${esc((c.address || '').slice(0, 22))}</text>
+          <text x="${cx}" y="${134 + stagger}" font-size="8" fill="#065f46" text-anchor="middle">${fmtPrice(c.price)}${c.dom ? ` · ${c.dom}d` : ''}</text>
+        `;
+      }).join('')}
+    </g>
+  </svg>
+
+  <div class="footer">Jonathan Wallace · Faris Team Real Estate Brokerage · Page 2 of 5</div>
+</div>
+`;
+})()}
+
+<!-- PAGE 3: Comps -->
 <div class="page">
   <h2>Recent Solds (${cma.comps?.solds?.length || 0})</h2>
   <table>
@@ -6917,7 +7053,7 @@ app.get('/cma/:id/print', (req, res) => {
     </tbody>
   </table>
 
-  <div class="footer">Jonathan Wallace · Faris Team Real Estate Brokerage · Page 2 of 4</div>
+  <div class="footer">Jonathan Wallace · Faris Team Real Estate Brokerage · Page 3 of 5</div>
 </div>
 
 <!-- PAGE 3: Analysis -->
@@ -6937,14 +7073,14 @@ app.get('/cma/:id/print', (req, res) => {
     </div>
   ` : ''}
 
-  <div class="footer">Jonathan Wallace · Faris Team Real Estate Brokerage · Page 3 of 4</div>
+  <div class="footer">Jonathan Wallace · Faris Team Real Estate Brokerage · Page 4 of 5</div>
 </div>
 
 <!-- PAGE 4: Notes -->
 <div class="page">
   <h2>Notes</h2>
   <div class="notes-area">${esc(cma.notes || '').replace(/\n/g, '<br>')}</div>
-  <div class="footer">Jonathan Wallace · Faris Team Real Estate Brokerage · Page 4 of 4</div>
+  <div class="footer">Jonathan Wallace · Faris Team Real Estate Brokerage · Page 5 of 5</div>
 </div>
 
 </body></html>`);
