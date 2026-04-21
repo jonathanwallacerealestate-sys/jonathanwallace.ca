@@ -8177,6 +8177,30 @@ function RunCompsSection() {
   );
 }
 
+// Module-scope so React keeps the same component reference across re-renders
+// (defining this inside CmaIntakeModal would unmount/remount the input on every
+// keystroke and kill focus — classic "one letter at a time" bug).
+function CmaField({ label, k, type = 'text', placeholder, required, options, form, set }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+      <label style={{ fontSize: 10, fontWeight: 700, color: '#6b7280', textTransform: 'uppercase', letterSpacing: 0.4 }}>
+        {label}{required && <span style={{ color: '#dc2626' }}> *</span>}
+      </label>
+      {type === 'select' ? (
+        <select value={form[k]} onChange={e => set(k, e.target.value)} style={{ padding: '8px 10px', border: '1px solid #e5e7eb', borderRadius: 6, fontSize: 13 }}>
+          {options.map(o => <option key={o} value={o}>{o}</option>)}
+        </select>
+      ) : type === 'checkbox' ? (
+        <label style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 10px', border: '1px solid #e5e7eb', borderRadius: 6, fontSize: 13 }}>
+          <input type="checkbox" checked={form[k]} onChange={e => set(k, e.target.checked)} /> Yes
+        </label>
+      ) : (
+        <input type={type} value={form[k]} onChange={e => set(k, e.target.value)} placeholder={placeholder || ''} style={{ padding: '8px 10px', border: '1px solid #e5e7eb', borderRadius: 6, fontSize: 13 }} />
+      )}
+    </div>
+  );
+}
+
 function CmaIntakeModal({ onClose, onCreated }) {
   const [form, setForm] = useState({
     address: '', city: 'Midland', province: 'ON',
@@ -8205,25 +8229,6 @@ function CmaIntakeModal({ onClose, onCreated }) {
     setSubmitting(false);
   };
 
-  const Field = ({ label, k, type = 'text', placeholder, required, options }) => (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-      <label style={{ fontSize: 10, fontWeight: 700, color: '#6b7280', textTransform: 'uppercase', letterSpacing: 0.4 }}>
-        {label}{required && <span style={{ color: '#dc2626' }}> *</span>}
-      </label>
-      {type === 'select' ? (
-        <select value={form[k]} onChange={e => set(k, e.target.value)} style={{ padding: '8px 10px', border: '1px solid #e5e7eb', borderRadius: 6, fontSize: 13 }}>
-          {options.map(o => <option key={o} value={o}>{o}</option>)}
-        </select>
-      ) : type === 'checkbox' ? (
-        <label style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 10px', border: '1px solid #e5e7eb', borderRadius: 6, fontSize: 13 }}>
-          <input type="checkbox" checked={form[k]} onChange={e => set(k, e.target.checked)} /> Yes
-        </label>
-      ) : (
-        <input type={type} value={form[k]} onChange={e => set(k, e.target.value)} placeholder={placeholder || ''} style={{ padding: '8px 10px', border: '1px solid #e5e7eb', borderRadius: 6, fontSize: 13 }} />
-      )}
-    </div>
-  );
-
   return (
     <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 20 }}>
       <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 14, maxWidth: 720, width: '100%', maxHeight: '90vh', overflow: 'auto', padding: 24 }}>
@@ -8241,30 +8246,30 @@ function CmaIntakeModal({ onClose, onCreated }) {
 
         <h3 style={{ fontSize: 12, fontWeight: 700, color: '#374151', textTransform: 'uppercase', letterSpacing: 0.4, margin: '0 0 8px' }}>Required</h3>
         <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 10, marginBottom: 12 }}>
-          <Field label="Address" k="address" placeholder="123 Main St" required />
-          <Field label="City" k="city" required />
+          <CmaField label="Address" k="address" placeholder="123 Main St" required form={form} set={set} />
+          <CmaField label="City" k="city" required form={form} set={set} />
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, marginBottom: 12 }}>
-          <Field label="Bedrooms" k="bedrooms" placeholder="3+1" />
-          <Field label="Bathrooms" k="bathrooms" placeholder="2" />
-          <Field label="Sqft" k="sqft" placeholder="1100-1500" />
-          <Field label="Lot Size" k="lotSize" placeholder="60 x 120 ft" />
+          <CmaField label="Bedrooms" k="bedrooms" placeholder="3+1" form={form} set={set} />
+          <CmaField label="Bathrooms" k="bathrooms" placeholder="2" form={form} set={set} />
+          <CmaField label="Sqft" k="sqft" placeholder="1100-1500" form={form} set={set} />
+          <CmaField label="Lot Size" k="lotSize" placeholder="60 x 120 ft" form={form} set={set} />
         </div>
 
         <h3 style={{ fontSize: 12, fontWeight: 700, color: '#374151', textTransform: 'uppercase', letterSpacing: 0.4, margin: '16px 0 8px' }}>Optional — Sharpen the Comps</h3>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, marginBottom: 10 }}>
-          <Field label="MLS # (if any)" k="mlsId" placeholder="S12345678" />
-          <Field label="Property Class" k="propertyClass" type="select" options={['Freehold', 'Condo', 'Commercial']} />
-          <Field label="Current List Price" k="listPrice" placeholder="529000" />
+          <CmaField label="MLS # (if any)" k="mlsId" placeholder="S12345678" form={form} set={set} />
+          <CmaField label="Property Class" k="propertyClass" type="select" options={['Freehold', 'Condo', 'Commercial']} form={form} set={set} />
+          <CmaField label="Current List Price" k="listPrice" placeholder="529000" form={form} set={set} />
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, marginBottom: 10 }}>
-          <Field label="Style" k="style" placeholder="Bungalow / 2-Storey / Sidesplit" />
-          <Field label="Year Built" k="yearBuilt" placeholder="1958" />
-          <Field label="Foundation" k="foundation" placeholder="Concrete Block / Stone / Poured" />
+          <CmaField label="Style" k="style" placeholder="Bungalow / 2-Storey / Sidesplit" form={form} set={set} />
+          <CmaField label="Year Built" k="yearBuilt" placeholder="1958" form={form} set={set} />
+          <CmaField label="Foundation" k="foundation" placeholder="Concrete Block / Stone / Poured" form={form} set={set} />
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 10, marginBottom: 10 }}>
-          <Field label="Garage" k="garage" placeholder="Attached single / Double detached / None" />
-          <Field label="Waterfront?" k="waterfront" type="checkbox" />
+          <CmaField label="Garage" k="garage" placeholder="Attached single / Double detached / None" form={form} set={set} />
+          <CmaField label="Waterfront?" k="waterfront" type="checkbox" form={form} set={set} />
         </div>
 
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 20, paddingTop: 16, borderTop: '1px solid #e5e7eb' }}>
