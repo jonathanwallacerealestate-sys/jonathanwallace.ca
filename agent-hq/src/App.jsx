@@ -8623,6 +8623,9 @@ function SphereSection() {
       for (const c of data?.byTier?.[t] || []) all.push(c);
     }
     for (const u of (data?.untieredSample || [])) all.push({ ...u, tier: null, status: 'unknown' });
+    // Include "no lead gen" excluded contacts in search results so Jonathan
+    // can find and edit them (e.g. remove the tag) without leaving Agent HQ.
+    for (const c of (data?.excluded || [])) all.push(c);
     rendered = all.filter(c => {
       const name = (c.name || '').toLowerCase();
       const email = (c.email || '').toLowerCase();
@@ -8664,6 +8667,11 @@ function SphereSection() {
           <span style={{ fontSize: 12, color: overdueCount > 0 ? '#991b1b' : '#065f46', fontWeight: 600 }}>
             {overdueCount} overdue
           </span>
+          {(counts.excluded || 0) > 0 && (
+            <span title='Hidden from Sphere by the "no lead gen" tag — still in FUB, searchable above.' style={{ fontSize: 11, color: '#6b7280', background: '#f3f4f6', padding: '2px 8px', borderRadius: 6, fontWeight: 600, cursor: 'help' }}>
+              {counts.excluded} hidden
+            </span>
+          )}
           <button onClick={() => load(true)} title="Force-refresh from FUB" style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'transparent', border: '1px solid #e5e7eb', borderRadius: 8, padding: '6px 12px', cursor: 'pointer', fontSize: 12, color: '#374151' }}>
             <RotateCw size={12} />Refresh
           </button>
@@ -8788,11 +8796,18 @@ function SphereSection() {
                     {c.stage || 'No stage'}{c.email ? ` · ${c.email}` : ''}
                   </div>
                 </div>
-                {c.tier && (
-                  <span style={{ fontSize: 10, fontWeight: 700, padding: '3px 8px', borderRadius: 4, background: tc.bg, color: tc.fg, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                    {c.tier === 'advocate' ? 'Adv' : c.tier.toUpperCase()}
-                  </span>
-                )}
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
+                  {c.tier && (
+                    <span style={{ fontSize: 10, fontWeight: 700, padding: '3px 8px', borderRadius: 4, background: tc.bg, color: tc.fg, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                      {c.tier === 'advocate' ? 'Adv' : c.tier.toUpperCase()}
+                    </span>
+                  )}
+                  {c.excluded && (
+                    <span title='Hidden from Sphere by the "no lead gen" tag' style={{ fontSize: 9, fontWeight: 700, padding: '2px 6px', borderRadius: 4, background: '#f3f4f6', color: '#6b7280', textTransform: 'uppercase', letterSpacing: 0.4 }}>
+                      No Lead Gen
+                    </span>
+                  )}
+                </div>
               </div>
 
               {c.status && c.status !== 'unknown' && (

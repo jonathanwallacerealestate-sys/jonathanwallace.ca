@@ -66,25 +66,54 @@ export function tierLabel(tier) {
 }
 
 /**
+ * "No lead gen" tag detector. Past clients who moved away, don't-contact
+ * relationships, etc. — stay in FUB but don't appear in the daily Sphere
+ * cadence view. Matches case- and separator-insensitive variants:
+ *   "no lead gen", "No-Lead-Gen", "noLeadGen", "no_lead_gen", "noleadgen", etc.
+ */
+export function hasNoLeadGenTag(person) {
+  if (!Array.isArray(person?.tags)) return false;
+  return person.tags.some(t => {
+    const norm = String(t).toLowerCase().replace(/[\s\-_]+/g, '');
+    return norm === 'noleadgen';
+  });
+}
+
+/**
  * Find the most recent touch for a contact. FUB exposes multiple
- * activity signals — lastActivity is updated whenever the contact
- * record is touched in any way (including automations), so we
- * prefer a stricter signal when available.
+ * activity signals — we want the MOST RECENT one across all of them,
+ * not the first non-null in some priority order. This matters because
+ * a logged note bumps `lastNote` and `lastActivity` but NOT
+ * `lastCommunication` — so a stale `lastCommunication` (e.g. from a
+ * pre-disconnect period) shouldn't keep the contact stuck in overdue
+ * after a real Pop-By or Note was logged.
  *
- * Order of preference:
- *   1. lastCommunication (call/text/email actually happened)
- *   2. lastActivity       (general activity signal — fallback)
- *   3. created            (if no activity, fall back to create date)
+ * Looks at: lastCommunication, lastActivity, lastNote, lastInbound,
+ * lastOutbound. Falls back to `created` if none are present.
  *
  * Returns an ISO string or null.
  */
 export function lastTouchAt(contact) {
-  return (
-    contact?.lastCommunication ||
-    contact?.lastActivity ||
-    contact?.created ||
-    null
-  );
+  if (!contact) return null;
+  const candidates = [
+    contact.lastCommunication,
+    contact.lastActivity,
+    contact.lastNote,
+    contact.lastInbound,
+    contact.lastOutbound,
+  ].filter(Boolean);
+  if (candidates.length === 0) return contact.created || null;
+  // Pick the most recent. Bad date strings sort to NaN — drop them.
+  let bestIso = null;
+  let bestMs = -Infinity;
+  for (const iso of candidates) {
+    const ms = new Date(iso).getTime();
+    if (Number.isFinite(ms) && ms > bestMs) {
+      bestMs = ms;
+      bestIso = iso;
+    }
+  }
+  return bestIso || contact.created || null;
 }
 
 /**
@@ -180,6 +209,7 @@ export async function fetchSphereByTier({
   const seen = new Set(); // dedupe — a contact can be in multiple stages? (rare, but safe)
   const byTier = { advocate: [], a: [], b: [], c: [] };
   const untieredSample = []; // track first 20 we skip so we can surface them to Jonathan
+  const excluded = []; // contacts hidden from sphere by the "no lead gen" tag
   let totalFetched = 0;
 
   for (const stage of stages) {
@@ -203,6 +233,34 @@ export async function fetchSphereByTier({
       for (const p of people) {
         if (seen.has(p.id)) continue;
         seen.add(p.id);
+
+        // "No lead gen" — past clients out of geo, don't-contact people, etc.
+        // Stay in FUB and remain searchable in Agent HQ, but never surface in
+        // the daily Sphere overdue/tier views. Match common formatting variants.
+        if (hasNoLeadGenTag(p)) {
+          const tier = classifyTier(p);
+          const state = tier ? cadenceState(p, tier, now) : { cadenceDays: null, daysSince: null, overdueBy: null, status: 'unknown' };
+          excluded.push({
+            fubId: p.id,
+            name: [p.firstName, p.lastName].filter(Boolean).join(' ').trim() || p.name || '(no name)',
+            firstName: p.firstName || '',
+            lastName: p.lastName || '',
+            email: (Array.isArray(p.emails) && p.emails[0]?.value) || '',
+            phone: (Array.isArray(p.phones) && p.phones[0]?.value) || '',
+            stage: p.stage || '',
+            tags: Array.isArray(p.tags) ? p.tags : [],
+            tier,
+            lastTouchAt: lastTouchAt(p),
+            daysSince: state.daysSince,
+            cadenceDays: state.cadenceDays,
+            overdueBy: state.overdueBy,
+            status: state.status,
+            score: tier ? priorityScore(tier, state) : 0,
+            fubUrl: `https://app.followupboss.com/2/people/view/${p.id}`,
+            excluded: true,
+          });
+          continue;
+        }
 
         const tier = classifyTier(p);
         if (!tier) {
@@ -257,6 +315,7 @@ export async function fetchSphereByTier({
     b: byTier.b.length,
     c: byTier.c.length,
     untiered: untieredSample.length,
+    excluded: excluded.length,
     totalFetched,
     uniqueContacts: seen.size,
   };
@@ -265,6 +324,7 @@ export async function fetchSphereByTier({
     byTier,
     counts,
     untieredSample,
+    excluded, // contacts hidden by "no lead gen" tag — searchable, not rendered as cards
     generatedAt: new Date().toISOString(),
   };
 }
