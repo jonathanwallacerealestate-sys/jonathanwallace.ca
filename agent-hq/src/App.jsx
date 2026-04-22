@@ -8898,6 +8898,15 @@ function SphereSection() {
 // (Advocate / A / B / C) handle tag swapping cleanly.
 // ─────────────────────────────────────────────
 const SPHERE_TIER_TAGS = ['Advocate', 'A', 'B', 'C'];
+// Stage quick-pick across the top of the drawer (the 5 Jonathan uses constantly).
+// Display label is shortened; the value sent to FUB is the full canonical stage name.
+const SPHERE_STAGE_QUICKPICK = [
+  { label: 'Active Client', value: 'Active Client' },
+  { label: 'A · Hot',       value: 'A - Hot 1-3 Months' },
+  { label: 'B · Warm',      value: 'B - Warm 3-6 Months' },
+  { label: 'C · Cold',      value: 'C - Cold 6+ Months' },
+  { label: 'Past Client',   value: 'Past Client' },
+];
 const SPHERE_INPUT_STYLE = { width: '100%', boxSizing: 'border-box', padding: '7px 9px', border: '1px solid #e5e7eb', borderRadius: 6, fontSize: 13, fontFamily: 'inherit', outline: 'none' };
 
 function SphereSectionLabel({ children }) {
@@ -9085,27 +9094,41 @@ function SphereContactDrawer({ fubId, onClose, onChanged, onToast }) {
 
         {!loading && !error && contact && (
           <div style={{ padding: 18, display: 'flex', flexDirection: 'column', gap: 16, flex: 1 }}>
-            {/* Tier quick-pick */}
+            {/* Stage quick-pick (top of drawer) — sets the FUB pipeline stage */}
             <div>
-              <SphereSectionLabel>Tier (sphere classification)</SphereSectionLabel>
-              <div style={{ display: 'flex', gap: 6 }}>
-                {SPHERE_TIER_TAGS.map(t => {
-                  const active = form.tags.includes(t);
+              <SphereSectionLabel>Stage (FUB pipeline)</SphereSectionLabel>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                {SPHERE_STAGE_QUICKPICK.map(s => {
+                  const active = form.stage === s.value;
                   return (
                     <button
-                      key={t}
-                      onClick={() => setTier(t)}
+                      key={s.value}
+                      onClick={() => setForm(f => ({ ...f, stage: f.stage === s.value ? '' : s.value }))}
+                      title={s.value}
                       style={{
-                        flex: 1, padding: '7px 10px', borderRadius: 6, fontSize: 12, fontWeight: 700, cursor: 'pointer',
+                        flex: '1 1 auto', padding: '7px 10px', borderRadius: 6, fontSize: 12, fontWeight: 700, cursor: 'pointer',
                         border: active ? '1px solid #c8a96e' : '1px solid #e5e7eb',
                         background: active ? '#c8a96e' : '#fff',
                         color: active ? '#fff' : '#374151',
+                        whiteSpace: 'nowrap',
                       }}
-                    >{t}</button>
+                    >{s.label}</button>
                   );
                 })}
               </div>
-              <div style={{ fontSize: 10, color: '#9ca3af', marginTop: 4 }}>Click again to clear. Sets the FUB tag that drives Sphere cadence.</div>
+              {form.stage && !SPHERE_STAGE_QUICKPICK.some(s => s.value === form.stage) && (
+                <div style={{ marginTop: 6 }}>
+                  <button
+                    onClick={() => setForm(f => ({ ...f, stage: '' }))}
+                    title="Custom stage from FUB — click to clear"
+                    style={{
+                      padding: '6px 10px', borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: 'pointer',
+                      border: '1px solid #c8a96e', background: '#c8a96e', color: '#fff',
+                    }}
+                  >{form.stage} ×</button>
+                </div>
+              )}
+              <div style={{ fontSize: 10, color: '#9ca3af', marginTop: 4 }}>Click again to clear. Tier classification (Advocate/A/B/C) lives in the Tags section below.</div>
             </div>
 
             {/* Name */}
@@ -9148,15 +9171,6 @@ function SphereContactDrawer({ fubId, onClose, onChanged, onToast }) {
               </div>
             </div>
 
-            {/* Stage */}
-            <div>
-              <SphereSectionLabel>Stage (FUB pipeline)</SphereSectionLabel>
-              <select value={form.stage} onChange={e => setForm(f => ({ ...f, stage: e.target.value }))} style={{ ...SPHERE_INPUT_STYLE, background: '#fff' }}>
-                <option value="">— select stage —</option>
-                {stages.map(s => <option key={s} value={s}>{s}</option>)}
-                {form.stage && !stages.includes(form.stage) && <option value={form.stage}>{form.stage}</option>}
-              </select>
-            </div>
 
             {/* Tags */}
             <div>
