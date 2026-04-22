@@ -336,6 +336,7 @@ const sidebarItems = [
   { id: "calls", label: "Call List", icon: Phone, badge: 10 },
   { id: "emails", label: "Emails", icon: Mail, badge: 12 },
   { id: "crm", label: "Follow Up Boss", icon: Users, badge: null },
+  { id: "sphere", label: "Sphere", icon: UserCheck, badge: null },
   { id: "tj-import", label: "TJ Import", icon: Archive, badge: null },
   { id: "calendar", label: "Calendar", icon: Calendar, badge: 6 },
   { id: "showings", label: "Showings", icon: MapPin, badge: 5 },
@@ -8522,6 +8523,295 @@ function LinkFubContactModal({ mlsId, onClose, onLinked }) {
 }
 
 // ─────────────────────────────────────────────
+// SPHERE SECTION
+// Tiered relationship management over FUB contacts.
+// Reads /api/sphere/contacts, groups by tier (Advocate / A / B / C),
+// surfaces overdue contacts, lets you log touches from the dashboard.
+// ─────────────────────────────────────────────
+function SphereSection() {
+  const [loading, setLoading] = useState(true);
+  const [data, setData] = useState(null);
+  const [tab, setTab] = useState('overdue');
+  const [onlyOverdue, setOnlyOverdue] = useState(false);
+  const [loggingId, setLoggingId] = useState(null);
+  const [logType, setLogType] = useState('call');
+  const [logNotes, setLogNotes] = useState('');
+  const [toast, setToast] = useState(null);
+
+  const load = async (refresh = false) => {
+    setLoading(true);
+    try {
+      const url = '/api/sphere/contacts' + (refresh ? '?refresh=true' : '');
+      const r = await fetch(url);
+      const j = await r.json();
+      if (j.ok) setData(j);
+      else setData({ error: j.error });
+    } catch (e) { setData({ error: e.message }); }
+    setLoading(false);
+  };
+  useEffect(() => { load(); }, []);
+
+  const logTouch = async (contact) => {
+    try {
+      const r = await fetch('/api/sphere/log-touch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fubId: contact.fubId, type: logType, notes: logNotes }),
+      });
+      const j = await r.json();
+      if (j.ok) {
+        setToast(`Touch logged: ${contact.name} (${logType})`);
+        setTimeout(() => setToast(null), 2500);
+        setLoggingId(null);
+        setLogNotes('');
+        load(true); // refresh the list
+      } else {
+        alert('Error: ' + (j.error || 'unknown'));
+      }
+    } catch (e) { alert(e.message); }
+  };
+
+  const tierColor = (tier) => ({
+    advocate: { fg: '#7c2d12', bg: '#fef3c7', border: '#fde68a' },
+    a:        { fg: '#991b1b', bg: '#fee2e2', border: '#fecaca' },
+    b:        { fg: '#1e40af', bg: '#dbeafe', border: '#bfdbfe' },
+    c:        { fg: '#374151', bg: '#f3f4f6', border: '#e5e7eb' },
+  }[tier] || { fg: '#6b7280', bg: '#f9fafb', border: '#e5e7eb' });
+
+  const statusColor = (status) => ({
+    red:    { fg: '#991b1b', bg: '#fee2e2', label: 'OVERDUE' },
+    amber:  { fg: '#78350f', bg: '#fef3c7', label: 'Due soon' },
+    green:  { fg: '#065f46', bg: '#d1fae5', label: 'On track' },
+    unknown:{ fg: '#6b7280', bg: '#f3f4f6', label: 'No data' },
+  }[status] || { fg: '#6b7280', bg: '#f3f4f6', label: status });
+
+  const tierTabs = [
+    { key: 'overdue',  label: 'Overdue' },
+    { key: 'advocate', label: 'Advocate' },
+    { key: 'a',        label: 'A' },
+    { key: 'b',        label: 'B' },
+    { key: 'c',        label: 'C' },
+    { key: 'untagged', label: 'Untagged' },
+  ];
+
+  const counts = data?.counts || {};
+  const overdueCount = ['advocate','a','b','c'].reduce((acc, t) => {
+    return acc + ((data?.byTier?.[t] || []).filter(c => c.status === 'red').length);
+  }, 0);
+
+  // Which contacts to render for the current tab
+  let rendered = [];
+  if (tab === 'overdue') {
+    for (const t of ['advocate', 'a', 'b', 'c']) {
+      for (const c of data?.byTier?.[t] || []) if (c.status === 'red') rendered.push(c);
+    }
+    rendered.sort((a, b) => b.score - a.score);
+  } else if (tab === 'untagged') {
+    rendered = (data?.untieredSample || []).map(u => ({ ...u, tier: null, status: 'unknown' }));
+  } else {
+    rendered = data?.byTier?.[tab] || [];
+    if (onlyOverdue) rendered = rendered.filter(c => c.status === 'red');
+  }
+
+  return (
+    <div style={{ background: '#fff', borderRadius: 14, padding: 20, boxShadow: '0 1px 3px rgba(0,0,0,0.05)', border: '1px solid #f0f0f0' }}>
+      {/* Header */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14, flexWrap: 'wrap', gap: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <UserCheck size={20} color="#c8a96e" />
+          <h2 style={{ fontSize: 18, fontWeight: 700, margin: 0 }}>Sphere</h2>
+          <span style={{ fontSize: 12, color: '#6b7280', background: '#f3f4f6', padding: '2px 8px', borderRadius: 6, fontWeight: 600 }}>
+            {counts.uniqueContacts || 0} contacts
+          </span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ fontSize: 12, color: overdueCount > 0 ? '#991b1b' : '#065f46', fontWeight: 600 }}>
+            {overdueCount} overdue
+          </span>
+          <button onClick={() => load(true)} title="Force-refresh from FUB" style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'transparent', border: '1px solid #e5e7eb', borderRadius: 8, padding: '6px 12px', cursor: 'pointer', fontSize: 12, color: '#374151' }}>
+            <RotateCw size={12} />Refresh
+          </button>
+        </div>
+      </div>
+
+      {/* Tier health strip */}
+      {data && !data.error && (
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
+          {['advocate','a','b','c'].map(t => {
+            const tc = tierColor(t);
+            const all = data.byTier?.[t] || [];
+            const red = all.filter(c => c.status === 'red').length;
+            return (
+              <div key={t} onClick={() => setTab(t)} style={{ cursor: 'pointer', border: `1px solid ${tc.border}`, background: tab === t ? tc.bg : '#fff', borderRadius: 10, padding: '8px 12px', minWidth: 120 }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: tc.fg, textTransform: 'uppercase', letterSpacing: 0.5 }}>{t}</div>
+                <div style={{ fontSize: 18, fontWeight: 700, color: '#0f172a', marginTop: 2 }}>{all.length}</div>
+                <div style={{ fontSize: 11, color: red > 0 ? '#991b1b' : '#6b7280', marginTop: 2 }}>
+                  {red > 0 ? `${red} overdue` : 'all on track'}
+                </div>
+              </div>
+            );
+          })}
+          {counts.untiered > 0 && (
+            <div onClick={() => setTab('untagged')} style={{ cursor: 'pointer', border: '1px dashed #f59e0b', background: tab === 'untagged' ? '#fef3c7' : '#fffbeb', borderRadius: 10, padding: '8px 12px', minWidth: 120 }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: '#78350f', textTransform: 'uppercase', letterSpacing: 0.5 }}>Untagged</div>
+              <div style={{ fontSize: 18, fontWeight: 700, color: '#0f172a', marginTop: 2 }}>{counts.untiered}+</div>
+              <div style={{ fontSize: 11, color: '#92400e', marginTop: 2 }}>need tier tag</div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Tab bar */}
+      <div style={{ display: 'flex', gap: 4, borderBottom: '1px solid #e5e7eb', marginBottom: 14, flexWrap: 'wrap' }}>
+        {tierTabs.map(t => (
+          <button
+            key={t.key}
+            onClick={() => setTab(t.key)}
+            style={{
+              background: tab === t.key ? '#c8a96e' : 'transparent',
+              color: tab === t.key ? '#fff' : '#374151',
+              border: 'none',
+              borderBottom: tab === t.key ? '2px solid #c8a96e' : '2px solid transparent',
+              padding: '8px 14px',
+              fontSize: 12,
+              fontWeight: 600,
+              cursor: 'pointer',
+              borderRadius: '8px 8px 0 0',
+            }}
+          >
+            {t.label}
+            {t.key === 'overdue' && overdueCount > 0 && (
+              <span style={{ marginLeft: 6, background: '#991b1b', color: '#fff', borderRadius: 10, padding: '1px 6px', fontSize: 10, fontWeight: 700 }}>{overdueCount}</span>
+            )}
+          </button>
+        ))}
+        {['advocate','a','b','c'].includes(tab) && (
+          <label style={{ marginLeft: 'auto', alignSelf: 'center', fontSize: 11, color: '#6b7280', display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer' }}>
+            <input type="checkbox" checked={onlyOverdue} onChange={e => setOnlyOverdue(e.target.checked)} />
+            Show only overdue
+          </label>
+        )}
+      </div>
+
+      {loading && <div style={{ padding: 24, textAlign: 'center', color: '#6b7280' }}>Loading sphere contacts from FUB…</div>}
+      {data?.error && <div style={{ padding: 16, background: '#fef2f2', color: '#991b1b', borderRadius: 8, fontSize: 12 }}>Error: {data.error}</div>}
+
+      {/* Contact list */}
+      {!loading && !data?.error && rendered.length === 0 && (
+        <div style={{ padding: 32, textAlign: 'center', color: '#6b7280', background: '#f9fafb', borderRadius: 10, border: '1px dashed #d1d5db' }}>
+          {tab === 'overdue' ? 'Nobody overdue — you\'re on pace.' : 'No contacts in this tab.'}
+        </div>
+      )}
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: 12 }}>
+        {rendered.map(c => {
+          const tc = tierColor(c.tier);
+          const sc = statusColor(c.status);
+          return (
+            <div key={c.fubId} style={{ border: '1px solid #ede9fe', borderRadius: 10, padding: 14, background: '#fff', display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: '#111827', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.name}</div>
+                  <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>
+                    {c.stage || 'No stage'}{c.email ? ` · ${c.email}` : ''}
+                  </div>
+                </div>
+                {c.tier && (
+                  <span style={{ fontSize: 10, fontWeight: 700, padding: '3px 8px', borderRadius: 4, background: tc.bg, color: tc.fg, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                    {c.tier === 'advocate' ? 'Adv' : c.tier.toUpperCase()}
+                  </span>
+                )}
+              </div>
+
+              {c.status && c.status !== 'unknown' && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11 }}>
+                  <span style={{ background: sc.bg, color: sc.fg, padding: '2px 8px', borderRadius: 4, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.4, fontSize: 9 }}>{sc.label}</span>
+                  <span style={{ color: '#6b7280' }}>
+                    {c.daysSince !== null ? `${c.daysSince}d since last touch` : 'no touch recorded'}
+                    {c.cadenceDays ? ` · target ${c.cadenceDays}d` : ''}
+                  </span>
+                </div>
+              )}
+
+              {c.phone && <div style={{ fontSize: 11, color: '#475569' }}>{c.phone}</div>}
+
+              {/* Actions */}
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 'auto' }}>
+                {c.phone && (
+                  <a href={`tel:${c.phone}`} style={{ display: 'flex', alignItems: 'center', gap: 4, background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 6, padding: '4px 8px', fontSize: 11, fontWeight: 600, color: '#1d4ed8', textDecoration: 'none' }}>
+                    <Phone size={11} />Call
+                  </a>
+                )}
+                {c.phone && (
+                  <a href={`sms:${c.phone}`} style={{ display: 'flex', alignItems: 'center', gap: 4, background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 6, padding: '4px 8px', fontSize: 11, fontWeight: 600, color: '#166534', textDecoration: 'none' }}>
+                    <MessageCircle size={11} />Text
+                  </a>
+                )}
+                {c.email && (
+                  <a
+                    href={`https://app.followupboss.com/app/inbox/compose?to=${encodeURIComponent(c.email)}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{ display: 'flex', alignItems: 'center', gap: 4, background: '#eef2ff', border: '1px solid #c7d2fe', borderRadius: 6, padding: '4px 8px', fontSize: 11, fontWeight: 600, color: '#3730a3', textDecoration: 'none' }}
+                  >
+                    <Mail size={11} />Email (FUB)
+                  </a>
+                )}
+                {c.fubUrl && (
+                  <a
+                    href={c.fubUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{ display: 'flex', alignItems: 'center', gap: 4, background: '#f3f4f6', border: '1px solid #e5e7eb', borderRadius: 6, padding: '4px 8px', fontSize: 11, fontWeight: 600, color: '#374151', textDecoration: 'none' }}
+                  >
+                    <ExternalLink size={11} />FUB
+                  </a>
+                )}
+                <button
+                  onClick={() => setLoggingId(loggingId === c.fubId ? null : c.fubId)}
+                  style={{ display: 'flex', alignItems: 'center', gap: 4, background: '#c8a96e', color: '#fff', border: 'none', borderRadius: 6, padding: '4px 10px', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}
+                >
+                  <Check size={11} />Log Touch
+                </button>
+              </div>
+
+              {loggingId === c.fubId && (
+                <div style={{ background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 8, padding: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <div style={{ display: 'flex', gap: 4 }}>
+                    {['call','text','email','meeting','other'].map(t => (
+                      <button key={t} onClick={() => setLogType(t)} style={{ flex: 1, background: logType === t ? '#c8a96e' : '#fff', color: logType === t ? '#fff' : '#374151', border: '1px solid #e5e7eb', borderRadius: 4, padding: '4px 6px', fontSize: 10, fontWeight: 600, cursor: 'pointer', textTransform: 'capitalize' }}>{t}</button>
+                    ))}
+                  </div>
+                  <textarea value={logNotes} onChange={e => setLogNotes(e.target.value)} placeholder="Notes (optional)" style={{ fontSize: 11, padding: 6, border: '1px solid #e5e7eb', borderRadius: 4, resize: 'vertical', minHeight: 40 }} />
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <button onClick={() => logTouch(c)} style={{ background: '#c8a96e', color: '#fff', border: 'none', borderRadius: 4, padding: '6px 12px', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>Save to FUB</button>
+                    <button onClick={() => { setLoggingId(null); setLogNotes(''); }} style={{ background: 'transparent', border: '1px solid #e5e7eb', borderRadius: 4, padding: '6px 12px', fontSize: 11, cursor: 'pointer', color: '#6b7280' }}>Cancel</button>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {data?.generatedAt && !loading && (
+        <div style={{ marginTop: 14, fontSize: 10, color: '#9ca3af', textAlign: 'center' }}>
+          Fetched from FUB at {new Date(data.generatedAt).toLocaleTimeString()} · {data.cached ? 'cached' : 'fresh'}
+        </div>
+      )}
+
+      {/* Toast */}
+      {toast && (
+        <div style={{ position: 'fixed', bottom: 24, right: 24, zIndex: 2000, background: '#0f172a', color: '#fff', borderRadius: 10, padding: '10px 14px', fontSize: 12, boxShadow: '0 10px 25px rgba(0,0,0,0.25)', display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Check size={14} color="#4ade80" />
+          {toast}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
 // RUN COMPS / CMA SECTION
 // ─────────────────────────────────────────────
 function RunCompsSection() {
@@ -9054,6 +9344,7 @@ function SectionContent({ section }) {
     case "calendar": return <CalendarSection />;
     case "showings": return <ShowingsSection />;
     case "crm": return <PlaceholderSection title="Follow Up Boss — Deal Pipeline" icon={Users} />;
+    case "sphere": return <SphereSection />;
     case "tj-import": return <TeamJordanImport />;
     case "leadgen": return <PlaceholderSection title="Lead Gen" icon={Target} />;
     case "pnl": return <PnlSection />;

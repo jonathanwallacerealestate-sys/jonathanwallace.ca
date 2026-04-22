@@ -8,6 +8,12 @@ import { createRequire } from 'module';
 import Anthropic from '@anthropic-ai/sdk';
 // Multi-tenant foundation (dormant when DATABASE_URL unset — see MULTI_TENANT_ROADMAP.md)
 import { installMultiTenant } from './lib/multi-tenant-bootstrap.js';
+// Sphere — tiered relationship management over FUB contacts
+import {
+  fetchSphereByTier,
+  flattenOverdue,
+  CADENCE_DAYS_BY_TIER,
+} from './lib/sphere.js';
 const _require = createRequire(import.meta.url);
 const pdfParse = _require('pdf-parse');
 
@@ -3652,6 +3658,144 @@ app.get('/api/fub/stages', async (req, res) => {
     res.json(data);
   } catch (err) {
     res.json({ error: err.message });
+  }
+});
+
+// ────────────────────────────────────────────────────────────────
+// SPHERE — Tiered relationship management
+//
+// Reads tier-tagged contacts from FUB (Advocate/A/B/C) and returns
+// them grouped by tier with per-contact cadence status (green /
+// amber / red). Backing logic lives in lib/sphere.js so it can be
+// unit tested and reused elsewhere (e.g. Morning Brief widget,
+// Make scenarios).
+// ────────────────────────────────────────────────────────────────
+
+// 5-minute in-memory cache keyed by date+hour so we don't hammer FUB
+let sphereCache = { payload: null, key: null };
+const sphereCacheKey = () => {
+  const d = new Date();
+  return `${d.toISOString().slice(0, 13)}-${Math.floor(d.getMinutes() / 5)}`;
+};
+
+// GET /api/sphere/contacts — tiered contacts grouped by Advocate/A/B/C
+// ?refresh=true bypasses the 5-min cache
+app.get('/api/sphere/contacts', async (req, res) => {
+  if (!FUB_API_KEY) {
+    return res.json({ ok: false, error: 'FUB_API_KEY not configured' });
+  }
+
+  const forceRefresh = req.query.refresh === 'true';
+  const key = sphereCacheKey();
+  if (!forceRefresh && sphereCache.payload && sphereCache.key === key) {
+    return res.json({ ...sphereCache.payload, cached: true });
+  }
+
+  try {
+    const result = await fetchSphereByTier({
+      apiKey: FUB_API_KEY,
+      fubBase: FUB_BASE,
+      fubHeaders,
+    });
+    const payload = {
+      ok: true,
+      ...result,
+      cadenceDaysByTier: CADENCE_DAYS_BY_TIER,
+      cached: false,
+    };
+    sphereCache = { payload, key };
+    res.json(payload);
+  } catch (err) {
+    console.error('[sphere] contacts error:', err.message);
+    res.json({ ok: false, error: err.message });
+  }
+});
+
+// GET /api/sphere/overdue — flat list of red (overdue) contacts,
+// ranked by priority. Used by Morning Brief widget + daily tasks.
+app.get('/api/sphere/overdue', async (req, res) => {
+  if (!FUB_API_KEY) {
+    return res.json({ ok: false, error: 'FUB_API_KEY not configured' });
+  }
+  const limit = Math.min(parseInt(req.query.limit || '20') || 20, 100);
+
+  try {
+    // Reuse cache if fresh
+    const key = sphereCacheKey();
+    let result;
+    if (sphereCache.payload && sphereCache.key === key) {
+      result = sphereCache.payload;
+    } else {
+      result = await fetchSphereByTier({
+        apiKey: FUB_API_KEY,
+        fubBase: FUB_BASE,
+        fubHeaders,
+      });
+      const payload = {
+        ok: true,
+        ...result,
+        cadenceDaysByTier: CADENCE_DAYS_BY_TIER,
+        cached: false,
+      };
+      sphereCache = { payload, key };
+      result = payload;
+    }
+
+    const overdue = flattenOverdue(result.byTier, { limit });
+    res.json({ ok: true, overdue, counts: result.counts, generatedAt: result.generatedAt });
+  } catch (err) {
+    console.error('[sphere] overdue error:', err.message);
+    res.json({ ok: false, error: err.message });
+  }
+});
+
+// POST /api/sphere/log-touch — log a touch for a contact.
+// Creates a FUB note so lastCommunication updates, which advances
+// the cadence clock. Body: { fubId, type, notes? }
+//   type: 'call' | 'text' | 'email' | 'meeting' | 'other'
+app.post('/api/sphere/log-touch', express.json(), async (req, res) => {
+  if (!FUB_API_KEY) {
+    return res.json({ ok: false, error: 'FUB_API_KEY not configured' });
+  }
+  const fubId = String(req.body?.fubId || '').trim();
+  const type = String(req.body?.type || 'other').toLowerCase();
+  const notes = String(req.body?.notes || '').trim();
+
+  if (!fubId) return res.json({ ok: false, error: 'fubId required' });
+
+  const validTypes = ['call', 'text', 'email', 'meeting', 'other'];
+  if (!validTypes.includes(type)) {
+    return res.json({ ok: false, error: `type must be one of ${validTypes.join(', ')}` });
+  }
+
+  try {
+    const label = { call: 'Call', text: 'Text', email: 'Email', meeting: 'Meeting', other: 'Touch' }[type];
+    const body = notes
+      ? `${label} — ${notes}`
+      : `${label} logged from Agent HQ Sphere`;
+
+    const resp = await fetch(`${FUB_BASE}/notes`, {
+      method: 'POST',
+      headers: fubHeaders(),
+      body: JSON.stringify({
+        personId: parseInt(fubId),
+        subject: `${label} (Agent HQ)`,
+        body,
+      }),
+    });
+
+    if (!resp.ok) {
+      const errText = await resp.text().catch(() => '');
+      return res.json({ ok: false, error: `FUB returned ${resp.status}: ${errText.slice(0, 200)}` });
+    }
+
+    // Invalidate cache so next fetch shows the new lastCommunication
+    sphereCache = { payload: null, key: null };
+
+    res.json({ ok: true, loggedAt: new Date().toISOString() });
+  } catch (err) {
+    console.error('[sphere] log-touch error:', err.message);
+    res.json({ ok: false, error: err.message });
   }
 });
 
