@@ -6,6 +6,8 @@ import { fileURLToPath } from 'url';
 import multer from 'multer';
 import { createRequire } from 'module';
 import Anthropic from '@anthropic-ai/sdk';
+// Multi-tenant foundation (dormant when DATABASE_URL unset — see MULTI_TENANT_ROADMAP.md)
+import { installMultiTenant } from './lib/multi-tenant-bootstrap.js';
 const _require = createRequire(import.meta.url);
 const pdfParse = _require('pdf-parse');
 
@@ -238,6 +240,19 @@ app.use((req, res, next) => {
   }
   next();
 });
+
+// ─────────────────────────────────────────────
+// Multi-tenant infrastructure (foundation — not enforced by default)
+//
+// Runs Postgres migrations, seeds owner, installs session + auth
+// middleware, and mounts /api/auth/*. No-op if DATABASE_URL is unset.
+// See MULTI_TENANT_ROADMAP.md for activation steps.
+// ─────────────────────────────────────────────
+try {
+  await installMultiTenant(app);
+} catch (err) {
+  console.error('[multi-tenant] install failed — continuing in single-tenant mode:', err.message);
+}
 
 // Serve static frontend
 app.use(express.static(path.join(__dirname, 'dist')));
@@ -6371,6 +6386,64 @@ app.post('/api/listings/ingest', express.json({ limit: '5mb' }), (req, res) => {
     console.error('[Listings] ingest error:', err.message);
     res.json({ ok: false, error: err.message });
   }
+});
+
+// ────────────────────────────────────────────────────────────────
+// Sync Request Log
+// Lightweight audit trail for manual refresh triggers from the dashboard.
+// Every time Jonathan clicks Update Stats / Run Comps / Refresh All,
+// we log it. Used for "requested N min ago" UI badges, diagnostics,
+// and as a future hook point for a Cowork-side drain skill.
+// ────────────────────────────────────────────────────────────────
+const SYNC_REQUESTS_PATH = path.join(DATA_DIR, '.sync-requests.json');
+let syncRequestsState = { requests: [] };
+try {
+  if (fs.existsSync(SYNC_REQUESTS_PATH)) {
+    syncRequestsState = JSON.parse(fs.readFileSync(SYNC_REQUESTS_PATH, 'utf8'));
+    if (!Array.isArray(syncRequestsState.requests)) syncRequestsState = { requests: [] };
+  }
+} catch (e) {
+  console.warn('[sync-requests] load failed:', e.message);
+  syncRequestsState = { requests: [] };
+}
+function saveSyncRequests() {
+  try {
+    if (syncRequestsState.requests.length > 500) {
+      syncRequestsState.requests = syncRequestsState.requests.slice(-500);
+    }
+    fs.writeFileSync(SYNC_REQUESTS_PATH, JSON.stringify(syncRequestsState, null, 2));
+  } catch (e) { console.warn('[sync-requests] save failed:', e.message); }
+}
+
+// POST /api/sync/request
+// body: { kind: 'update-stats' | 'run-comps' | 'full-refresh', mlsId?: string, source?: string }
+app.post('/api/sync/request', express.json(), (req, res) => {
+  const kind = String(req.body?.kind || '').trim();
+  const mlsId = req.body?.mlsId ? String(req.body.mlsId).trim() : null;
+  if (!['update-stats', 'run-comps', 'full-refresh'].includes(kind)) {
+    return res.json({ ok: false, error: 'kind must be update-stats, run-comps, or full-refresh' });
+  }
+  const entry = {
+    id: 'sr_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8),
+    kind,
+    mlsId,
+    source: String(req.body?.source || 'dashboard'),
+    requestedAt: new Date().toISOString(),
+    status: 'requested',
+  };
+  syncRequestsState.requests.push(entry);
+  saveSyncRequests();
+  console.log(`[sync-request] ${kind}${mlsId ? ` for ${mlsId}` : ''}`);
+  res.json({ ok: true, request: entry });
+});
+
+// GET /api/sync/requests?mlsId=&limit=
+app.get('/api/sync/requests', (req, res) => {
+  const mlsId = req.query?.mlsId ? String(req.query.mlsId).trim() : null;
+  const limit = Math.min(parseInt(req.query?.limit || '50') || 50, 200);
+  let requests = syncRequestsState.requests.slice().reverse();
+  if (mlsId) requests = requests.filter(r => r.mlsId === mlsId);
+  res.json({ ok: true, requests: requests.slice(0, limit), total: syncRequestsState.requests.length });
 });
 
 // GET /api/listings — returns current listings for the UI

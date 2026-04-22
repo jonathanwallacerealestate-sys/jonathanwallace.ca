@@ -7664,6 +7664,24 @@ function ActiveListingsSection() {
   const [diagnosticsSummary, setDiagnosticsSummary] = useState(null);
   const [feedbackMlsId, setFeedbackMlsId] = useState(null);
   const [weeklyEmailMlsId, setWeeklyEmailMlsId] = useState(null);
+  const [toast, setToast] = useState(null); // { kind, mlsId?, prompt, title }
+
+  // Click handler for any "request a refresh" button.
+  // Logs the intent to /api/sync/request and copies the prompt
+  // so Jonathan can paste it into Cowork to execute now.
+  const requestSync = async ({ kind, mlsId = null, prompt, title }) => {
+    // Log the intent (non-blocking — we don't let a logging failure break UX)
+    fetch('/api/sync/request', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ kind, mlsId }),
+    }).catch(() => {});
+    // Copy the prompt to clipboard
+    try { await navigator.clipboard.writeText(prompt); } catch {}
+    // Show toast
+    setToast({ kind, mlsId, prompt, title });
+    setTimeout(() => setToast(null), 4500);
+  };
 
   const loadDiagnostics = async () => {
     try {
@@ -7771,8 +7789,18 @@ function ActiveListingsSection() {
           <button onClick={load} title="Reload from server" style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'transparent', border: '1px solid #e5e7eb', borderRadius: 8, padding: '6px 12px', cursor: 'pointer', fontSize: 12, color: '#374151' }}>
             <RotateCw size={12} />Reload
           </button>
-          <button onClick={() => setSyncModalOpen(true)} style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'linear-gradient(135deg,#c8a96e,#d4b878)', color: '#fff', border: 'none', borderRadius: 8, padding: '8px 14px', cursor: 'pointer', fontSize: 12, fontWeight: 700, boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
-            <Sparkles size={12} />Sync Fresh Data
+          <button
+            onClick={() => requestSync({
+              kind: 'full-refresh',
+              prompt: 'refresh my active listings, pull listtrac stats, then run comp watch',
+              title: 'Full Refresh — all 3 data sources',
+            })}
+            title="BrokerBay + ListTrac + Comp Watch — copies prompt to clipboard"
+            style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'linear-gradient(135deg,#c8a96e,#d4b878)', color: '#fff', border: 'none', borderRadius: 8, padding: '8px 14px', cursor: 'pointer', fontSize: 12, fontWeight: 700, boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
+            <RefreshCw size={12} />Refresh All Data
+          </button>
+          <button onClick={() => setSyncModalOpen(true)} title="Granular sync options" style={{ background: 'transparent', border: 'none', color: '#6b7280', fontSize: 11, textDecoration: 'underline', cursor: 'pointer', padding: '6px 4px' }}>
+            Options…
           </button>
         </div>
       </div>
@@ -7916,6 +7944,28 @@ function ActiveListingsSection() {
 
               {/* Actions */}
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 'auto' }}>
+                <button
+                  onClick={() => requestSync({
+                    kind: 'update-stats',
+                    mlsId: l.mlsId,
+                    prompt: `pull listtrac stats for MLS# ${l.mlsId} (${l.address})`,
+                    title: `Update Stats — ${l.address}`,
+                  })}
+                  title="Re-pull ListTrac views / inquiries / favorites for this listing — copies prompt for Cowork"
+                  style={{ display: 'flex', alignItems: 'center', gap: 4, background: '#eef6ff', border: '1px solid #bfdbfe', borderRadius: 8, padding: '6px 10px', fontSize: 11, fontWeight: 600, cursor: 'pointer', color: '#1d4ed8' }}>
+                  <RotateCw size={11} />Update Stats
+                </button>
+                <button
+                  onClick={() => requestSync({
+                    kind: 'run-comps',
+                    mlsId: l.mlsId,
+                    prompt: `run comp watch for MLS# ${l.mlsId} (${l.address})`,
+                    title: `Run Comps — ${l.address}`,
+                  })}
+                  title="Re-scan REALM for recent solds + new competition — copies prompt for Cowork"
+                  style={{ display: 'flex', alignItems: 'center', gap: 4, background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, padding: '6px 10px', fontSize: 11, fontWeight: 600, cursor: 'pointer', color: '#166534' }}>
+                  <BarChart3 size={11} />Run Comps
+                </button>
                 <button onClick={() => genInsight(l.mlsId)} disabled={insightLoading === l.mlsId} style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'linear-gradient(135deg,#c8a96e,#d4b878)', color: '#fff', border: 'none', borderRadius: 8, padding: '6px 10px', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>
                   <Sparkles size={11} />{insightLoading === l.mlsId ? 'Thinking…' : (l.lastInsight ? 'Re-run AI' : 'AI Insight')}
                 </button>
@@ -8088,6 +8138,32 @@ function ActiveListingsSection() {
         if (!l) return null;
         return <WeeklyEmailModal listing={l} onClose={() => setWeeklyEmailMlsId(null)} />;
       })()}
+
+      {/* Sync-request toast */}
+      {toast && (
+        <div
+          onClick={() => setToast(null)}
+          style={{
+            position: 'fixed', bottom: 24, right: 24, zIndex: 2000,
+            background: '#0f172a', color: '#fff', borderRadius: 12,
+            padding: '14px 18px', boxShadow: '0 10px 25px rgba(0,0,0,0.25)',
+            maxWidth: 380, cursor: 'pointer', fontSize: 12, lineHeight: 1.5,
+            border: '1px solid #1e293b',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+            <Check size={14} color="#4ade80" />
+            <strong style={{ fontSize: 13 }}>{toast.title}</strong>
+          </div>
+          <div style={{ color: '#cbd5e1', marginBottom: 6 }}>
+            Prompt copied. Open Cowork and paste to run.
+          </div>
+          <code style={{ display: 'block', background: '#1e293b', padding: '6px 8px', borderRadius: 6, fontSize: 11, color: '#e2e8f0', fontFamily: 'ui-monospace, SFMono-Regular, monospace', wordBreak: 'break-word' }}>
+            {toast.prompt}
+          </code>
+          <div style={{ fontSize: 10, color: '#64748b', marginTop: 6 }}>click to dismiss</div>
+        </div>
+      )}
     </div>
   );
 }
@@ -8315,9 +8391,18 @@ function WeeklyEmailModal({ listing, onClose }) {
   };
 
   const seller = (listing.linkedContacts || []).find(c => c.role === 'seller');
-  const mailto = () => {
-    const href = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
-    window.open(href, '_blank');
+  // Open in Follow Up Boss so sends are tracked in the contact card activity log.
+  // Pre-fill subject and body; include `to=` if we have the seller's email
+  // (from linkedContacts), otherwise leave it blank so FUB's compose modal
+  // lets Jonathan pick the right contact.
+  const openInFub = () => {
+    const sellerEmail = seller?.email || '';
+    const base = 'https://app.followupboss.com/app/inbox/compose';
+    const qs = new URLSearchParams();
+    if (sellerEmail) qs.set('to', sellerEmail);
+    qs.set('subject', subject);
+    qs.set('body', body);
+    window.open(`${base}?${qs.toString()}`, '_blank');
   };
 
   return (
@@ -8356,8 +8441,8 @@ function WeeklyEmailModal({ listing, onClose }) {
               <button onClick={copy} style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#c8a96e', color: '#fff', border: 'none', borderRadius: 8, padding: '8px 14px', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
                 {copied ? <><Check size={12} />Copied</> : <>Copy</>}
               </button>
-              <button onClick={mailto} style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#eef2ff', color: '#3730a3', border: '1px solid #c7d2fe', borderRadius: 8, padding: '8px 14px', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
-                <Mail size={12} />Open in email client
+              <button onClick={openInFub} title="Opens Follow Up Boss compose with subject + body pre-filled. Sent email is logged on the contact card." style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#eef2ff', color: '#3730a3', border: '1px solid #c7d2fe', borderRadius: 8, padding: '8px 14px', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
+                <Mail size={12} />Open in Follow Up Boss
               </button>
               <button onClick={generate} disabled={generating} style={{ background: 'transparent', color: '#6b7280', border: '1px solid #e5e7eb', borderRadius: 8, padding: '8px 14px', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
                 {generating ? 'Regenerating…' : 'Regenerate'}
