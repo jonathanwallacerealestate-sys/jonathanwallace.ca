@@ -217,6 +217,28 @@ loadTokens();
 // ─────────────────────────────────────────────
 app.use(express.json());
 
+// CORS — allow Jonathan to POST scraped data from the MLS/BrokerBay/ListTrac
+// domains straight into Agent HQ from a browser console. Limited to the
+// specific origins he uses; everything else gets no header (so same-origin
+// from hq.jonathanwallace.ca keeps working as before).
+const ALLOWED_CORS_ORIGINS = new Set([
+  'https://edge.brokerbay.com',
+  'https://app.realmmlp.ca',
+  'https://trreb.listtrac.com',
+]);
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  if (origin && ALLOWED_CORS_ORIGINS.has(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Vary', 'Origin');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, DELETE, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    res.setHeader('Access-Control-Max-Age', '86400');
+    if (req.method === 'OPTIONS') return res.sendStatus(204);
+  }
+  next();
+});
+
 // Serve static frontend
 app.use(express.static(path.join(__dirname, 'dist')));
 
