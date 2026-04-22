@@ -8533,9 +8533,7 @@ function SphereSection() {
   const [data, setData] = useState(null);
   const [tab, setTab] = useState('overdue');
   const [onlyOverdue, setOnlyOverdue] = useState(false);
-  const [loggingId, setLoggingId] = useState(null);
-  const [logType, setLogType] = useState('call');
-  const [logNotes, setLogNotes] = useState('');
+  const [busyId, setBusyId] = useState(null); // { fubId, type } while a quick-log POST is in flight
   const [toast, setToast] = useState(null);
 
   const load = async (refresh = false) => {
@@ -8551,24 +8549,37 @@ function SphereSection() {
   };
   useEffect(() => { load(); }, []);
 
-  const logTouch = async (contact) => {
+  // One-tap quick-log: optionally open a channel (tel:/sms:/web URL), then POST
+  // the touch to FUB. Refreshes the list so the contact drops off Overdue.
+  // openMode: null (no channel), 'self' (window.location for tel:/sms:), 'tab' (new tab)
+  const quickLog = async (contact, type, channelUrl = null, openMode = null) => {
+    const labels = { call: 'Call', text: 'Text', email: 'Email', popby: 'Pop-by', meeting: 'Meeting', other: 'Touch' };
+    setBusyId({ fubId: contact.fubId, type });
+    if (channelUrl) {
+      if (openMode === 'tab') window.open(channelUrl, '_blank', 'noopener,noreferrer');
+      else if (openMode === 'self') window.location.href = channelUrl;
+    }
     try {
       const r = await fetch('/api/sphere/log-touch', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fubId: contact.fubId, type: logType, notes: logNotes }),
+        body: JSON.stringify({ fubId: contact.fubId, type }),
       });
       const j = await r.json();
       if (j.ok) {
-        setToast(`Touch logged: ${contact.name} (${logType})`);
+        setToast(`${labels[type] || 'Touch'} logged: ${contact.name}`);
         setTimeout(() => setToast(null), 2500);
-        setLoggingId(null);
-        setLogNotes('');
-        load(true); // refresh the list
+        load(true); // refresh — overdue contacts will drop off
       } else {
-        alert('Error: ' + (j.error || 'unknown'));
+        setToast(`Couldn't log: ${j.error || 'unknown error'}`);
+        setTimeout(() => setToast(null), 4000);
       }
-    } catch (e) { alert(e.message); }
+    } catch (e) {
+      setToast(`Couldn't log: ${e.message}`);
+      setTimeout(() => setToast(null), 4000);
+    } finally {
+      setBusyId(null);
+    }
   };
 
   const tierColor = (tier) => ({
@@ -8735,60 +8746,58 @@ function SphereSection() {
 
               {c.phone && <div style={{ fontSize: 11, color: '#475569' }}>{c.phone}</div>}
 
-              {/* Actions */}
+              {/* Quick-action toolbar — one tap = open channel + log touch */}
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 'auto' }}>
                 {c.phone && (
-                  <a href={`tel:${c.phone}`} style={{ display: 'flex', alignItems: 'center', gap: 4, background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 6, padding: '4px 8px', fontSize: 11, fontWeight: 600, color: '#1d4ed8', textDecoration: 'none' }}>
-                    <Phone size={11} />Call
-                  </a>
+                  <button
+                    onClick={() => quickLog(c, 'call', `tel:${c.phone}`, 'self')}
+                    disabled={busyId?.fubId === c.fubId}
+                    title="Call & log"
+                    style={{ display: 'flex', alignItems: 'center', gap: 4, background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 6, padding: '6px 10px', fontSize: 11, fontWeight: 700, color: '#1d4ed8', cursor: 'pointer', opacity: busyId?.fubId === c.fubId ? 0.5 : 1 }}
+                  >
+                    <Phone size={12} />Call
+                  </button>
                 )}
                 {c.phone && (
-                  <a href={`sms:${c.phone}`} style={{ display: 'flex', alignItems: 'center', gap: 4, background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 6, padding: '4px 8px', fontSize: 11, fontWeight: 600, color: '#166534', textDecoration: 'none' }}>
-                    <MessageCircle size={11} />Text
-                  </a>
+                  <button
+                    onClick={() => quickLog(c, 'text', `sms:${c.phone}`, 'self')}
+                    disabled={busyId?.fubId === c.fubId}
+                    title="Text & log"
+                    style={{ display: 'flex', alignItems: 'center', gap: 4, background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 6, padding: '6px 10px', fontSize: 11, fontWeight: 700, color: '#166534', cursor: 'pointer', opacity: busyId?.fubId === c.fubId ? 0.5 : 1 }}
+                  >
+                    <MessageCircle size={12} />Text
+                  </button>
                 )}
                 {c.email && (
-                  <a
-                    href={`https://app.followupboss.com/app/inbox/compose?to=${encodeURIComponent(c.email)}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    style={{ display: 'flex', alignItems: 'center', gap: 4, background: '#eef2ff', border: '1px solid #c7d2fe', borderRadius: 6, padding: '4px 8px', fontSize: 11, fontWeight: 600, color: '#3730a3', textDecoration: 'none' }}
+                  <button
+                    onClick={() => quickLog(c, 'email', `https://app.followupboss.com/app/inbox/compose?to=${encodeURIComponent(c.email)}`, 'tab')}
+                    disabled={busyId?.fubId === c.fubId}
+                    title="Email via FUB & log"
+                    style={{ display: 'flex', alignItems: 'center', gap: 4, background: '#eef2ff', border: '1px solid #c7d2fe', borderRadius: 6, padding: '6px 10px', fontSize: 11, fontWeight: 700, color: '#3730a3', cursor: 'pointer', opacity: busyId?.fubId === c.fubId ? 0.5 : 1 }}
                   >
-                    <Mail size={11} />Email (FUB)
-                  </a>
+                    <Mail size={12} />Email
+                  </button>
                 )}
+                <button
+                  onClick={() => quickLog(c, 'popby', null, null)}
+                  disabled={busyId?.fubId === c.fubId}
+                  title="Log an in-person pop-by"
+                  style={{ display: 'flex', alignItems: 'center', gap: 4, background: '#fef3c7', border: '1px solid #fde68a', borderRadius: 6, padding: '6px 10px', fontSize: 11, fontWeight: 700, color: '#92400e', cursor: 'pointer', opacity: busyId?.fubId === c.fubId ? 0.5 : 1 }}
+                >
+                  <Home size={12} />Pop-By
+                </button>
                 {c.fubUrl && (
                   <a
                     href={c.fubUrl}
                     target="_blank"
                     rel="noopener noreferrer"
-                    style={{ display: 'flex', alignItems: 'center', gap: 4, background: '#f3f4f6', border: '1px solid #e5e7eb', borderRadius: 6, padding: '4px 8px', fontSize: 11, fontWeight: 600, color: '#374151', textDecoration: 'none' }}
+                    title="Open in Follow Up Boss"
+                    style={{ display: 'flex', alignItems: 'center', gap: 4, background: '#f3f4f6', border: '1px solid #e5e7eb', borderRadius: 6, padding: '6px 10px', fontSize: 11, fontWeight: 600, color: '#374151', textDecoration: 'none', marginLeft: 'auto' }}
                   >
                     <ExternalLink size={11} />FUB
                   </a>
                 )}
-                <button
-                  onClick={() => setLoggingId(loggingId === c.fubId ? null : c.fubId)}
-                  style={{ display: 'flex', alignItems: 'center', gap: 4, background: '#c8a96e', color: '#fff', border: 'none', borderRadius: 6, padding: '4px 10px', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}
-                >
-                  <Check size={11} />Log Touch
-                </button>
               </div>
-
-              {loggingId === c.fubId && (
-                <div style={{ background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 8, padding: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  <div style={{ display: 'flex', gap: 4 }}>
-                    {['call','text','email','meeting','other'].map(t => (
-                      <button key={t} onClick={() => setLogType(t)} style={{ flex: 1, background: logType === t ? '#c8a96e' : '#fff', color: logType === t ? '#fff' : '#374151', border: '1px solid #e5e7eb', borderRadius: 4, padding: '4px 6px', fontSize: 10, fontWeight: 600, cursor: 'pointer', textTransform: 'capitalize' }}>{t}</button>
-                    ))}
-                  </div>
-                  <textarea value={logNotes} onChange={e => setLogNotes(e.target.value)} placeholder="Notes (optional)" style={{ fontSize: 11, padding: 6, border: '1px solid #e5e7eb', borderRadius: 4, resize: 'vertical', minHeight: 40 }} />
-                  <div style={{ display: 'flex', gap: 6 }}>
-                    <button onClick={() => logTouch(c)} style={{ background: '#c8a96e', color: '#fff', border: 'none', borderRadius: 4, padding: '6px 12px', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>Save to FUB</button>
-                    <button onClick={() => { setLoggingId(null); setLogNotes(''); }} style={{ background: 'transparent', border: '1px solid #e5e7eb', borderRadius: 4, padding: '6px 12px', fontSize: 11, cursor: 'pointer', color: '#6b7280' }}>Cancel</button>
-                  </div>
-                </div>
-              )}
             </div>
           );
         })}
