@@ -14,6 +14,9 @@ import {
   flattenOverdue,
   CADENCE_DAYS_BY_TIER,
 } from './lib/sphere.js';
+// Deploy service — GitHub API-based commits for frictionless deploys
+import { commitFiles } from './lib/github-deploy.js';
+import crypto from 'crypto';
 const _require = createRequire(import.meta.url);
 const pdfParse = _require('pdf-parse');
 
@@ -3747,6 +3750,103 @@ app.get('/api/sphere/overdue', async (req, res) => {
     console.error('[sphere] overdue error:', err.message);
     res.json({ ok: false, error: err.message });
   }
+});
+
+// ────────────────────────────────────────────────────────────────
+// Deploy service — Claude pushes directly to main via GitHub API.
+//
+// Eliminates the "laptop in the loop" step of every deploy.
+// Requires two env vars on Railway:
+//   GITHUB_DEPLOY_TOKEN — PAT with repo scope for the deploy bot
+//   DEPLOY_SECRET       — long random string; caller must send it
+//                          in the X-Deploy-Secret header
+//
+// Neither secret is ever returned in responses. Failed attempts
+// log the source IP but not the secret that was sent.
+// ────────────────────────────────────────────────────────────────
+
+const DEPLOY_REPO_OWNER = process.env.DEPLOY_REPO_OWNER || 'jonathanwallacerealestate-sys';
+const DEPLOY_REPO_NAME  = process.env.DEPLOY_REPO_NAME  || 'jonathanwallace.ca';
+const DEPLOY_BRANCH     = process.env.DEPLOY_BRANCH     || 'main';
+
+/** Constant-time comparison to avoid timing side-channels. */
+function safeEqual(a, b) {
+  const ab = Buffer.from(String(a || ''), 'utf8');
+  const bb = Buffer.from(String(b || ''), 'utf8');
+  if (ab.length !== bb.length) return false;
+  try { return crypto.timingSafeEqual(ab, bb); } catch { return false; }
+}
+
+// POST /api/admin/deploy
+// Headers: X-Deploy-Secret: <secret>
+// Body: { message: string, files: [{ path: "agent-hq/lib/foo.js", content: "..." }], author?: {name,email} }
+app.post('/api/admin/deploy', express.json({ limit: '20mb' }), async (req, res) => {
+  const token  = process.env.GITHUB_DEPLOY_TOKEN || '';
+  const secret = process.env.DEPLOY_SECRET || '';
+
+  if (!token || !secret) {
+    return res.status(501).json({
+      ok: false,
+      error: 'deploy service not configured (missing GITHUB_DEPLOY_TOKEN or DEPLOY_SECRET env vars)',
+    });
+  }
+
+  const provided = req.headers['x-deploy-secret'] || '';
+  if (!safeEqual(provided, secret)) {
+    const ip = req.headers['x-forwarded-for'] || req.ip || 'unknown';
+    console.warn(`[deploy] forbidden attempt from ${ip}`);
+    return res.status(403).json({ ok: false, error: 'forbidden' });
+  }
+
+  const { message, files, author } = req.body || {};
+  if (!message || typeof message !== 'string') {
+    return res.status(400).json({ ok: false, error: 'message (string) is required' });
+  }
+  if (!Array.isArray(files) || files.length === 0) {
+    return res.status(400).json({ ok: false, error: 'files (non-empty array) is required' });
+  }
+  for (const f of files) {
+    if (!f?.path || typeof f.content !== 'string') {
+      return res.status(400).json({ ok: false, error: 'each file must have {path, content}' });
+    }
+  }
+
+  try {
+    const started = Date.now();
+    const result = await commitFiles({
+      token,
+      owner: DEPLOY_REPO_OWNER,
+      repo:  DEPLOY_REPO_NAME,
+      branch: DEPLOY_BRANCH,
+      message,
+      files,
+      author: author || { name: 'Agent HQ Deploy Bot', email: 'deploy@jonathanwallace.ca' },
+    });
+    const ms = Date.now() - started;
+    console.log(`[deploy] commit ${result.commitSha.slice(0, 7)} pushed in ${ms}ms (${files.length} file(s), ${result.attempts} attempt(s))`);
+    res.json({
+      ok: true,
+      commitSha: result.commitSha,
+      shortSha: result.commitSha.slice(0, 7),
+      attempts: result.attempts,
+      fileCount: files.length,
+      durationMs: ms,
+      commitUrl: `https://github.com/${DEPLOY_REPO_OWNER}/${DEPLOY_REPO_NAME}/commit/${result.commitSha}`,
+    });
+  } catch (err) {
+    console.error('[deploy] failed:', err.message);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// GET /api/admin/deploy/status — non-privileged health check
+app.get('/api/admin/deploy/status', (req, res) => {
+  res.json({
+    ok: true,
+    configured: !!(process.env.GITHUB_DEPLOY_TOKEN && process.env.DEPLOY_SECRET),
+    repo: `${DEPLOY_REPO_OWNER}/${DEPLOY_REPO_NAME}`,
+    branch: DEPLOY_BRANCH,
+  });
 });
 
 // POST /api/sphere/log-touch — log a touch for a contact.
