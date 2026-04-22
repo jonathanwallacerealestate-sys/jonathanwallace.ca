@@ -16,6 +16,7 @@ import {
 } from './lib/sphere.js';
 // Deploy service — GitHub API-based commits for frictionless deploys
 import { commitFiles } from './lib/github-deploy.js';
+import { startDeploySpool, getSpoolState } from './lib/deploy-spool.js';
 import crypto from 'crypto';
 const _require = createRequire(import.meta.url);
 const pdfParse = _require('pdf-parse');
@@ -60,6 +61,7 @@ const SCOPES = [
   'https://www.googleapis.com/auth/gmail.readonly',
   'https://www.googleapis.com/auth/gmail.labels',
   'https://www.googleapis.com/auth/drive.file', // For state backups — only files Agent HQ creates
+  'https://www.googleapis.com/auth/drive',      // For deploy spool — read folders/files created by other apps (Cowork MCP)
 ];
 const TOKEN_PATH = path.join(DATA_DIR, '.gcal-tokens.json');
 
@@ -3846,13 +3848,30 @@ app.get('/api/admin/deploy/status', (req, res) => {
     configured: !!(process.env.GITHUB_DEPLOY_TOKEN && process.env.DEPLOY_SECRET),
     repo: `${DEPLOY_REPO_OWNER}/${DEPLOY_REPO_NAME}`,
     branch: DEPLOY_BRANCH,
+    spool: {
+      enabled: !!process.env.DEPLOY_SPOOL_PENDING_FOLDER_ID,
+      driveScopeGranted: hasFullDriveScope(),
+    },
+  });
+});
+
+// GET /api/admin/deploy/spool/status — observability for the Drive deploy spool
+app.get('/api/admin/deploy/spool/status', (req, res) => {
+  const state = getSpoolState();
+  res.json({
+    ok: true,
+    ...state,
+    driveScopeGranted: hasFullDriveScope(),
+    note: state.enabled
+      ? null
+      : 'Spool inactive. Set DEPLOY_SPOOL_PENDING_FOLDER_ID env var and restart.',
   });
 });
 
 // POST /api/sphere/log-touch — log a touch for a contact.
 // Creates a FUB note so lastCommunication updates, which advances
 // the cadence clock. Body: { fubId, type, notes? }
-//   type: 'call' | 'text' | 'email' | 'meeting' | 'other'
+//   type: 'call' | 'text' | 'email' | 'popby' | 'meeting' | 'other'
 app.post('/api/sphere/log-touch', express.json(), async (req, res) => {
   if (!FUB_API_KEY) {
     return res.json({ ok: false, error: 'FUB_API_KEY not configured' });
@@ -3863,13 +3882,13 @@ app.post('/api/sphere/log-touch', express.json(), async (req, res) => {
 
   if (!fubId) return res.json({ ok: false, error: 'fubId required' });
 
-  const validTypes = ['call', 'text', 'email', 'meeting', 'other'];
+  const validTypes = ['call', 'text', 'email', 'popby', 'meeting', 'other'];
   if (!validTypes.includes(type)) {
     return res.json({ ok: false, error: `type must be one of ${validTypes.join(', ')}` });
   }
 
   try {
-    const label = { call: 'Call', text: 'Text', email: 'Email', meeting: 'Meeting', other: 'Touch' }[type];
+    const label = { call: 'Call', text: 'Text', email: 'Email', popby: 'Pop-by', meeting: 'Meeting', other: 'Touch' }[type];
     const body = notes
       ? `${label} — ${notes}`
       : `${label} logged from Agent HQ Sphere`;
@@ -7827,6 +7846,15 @@ function hasDriveScope() {
   return scope.includes('drive.file') || scope.includes('drive');
 }
 
+// Strict check: full `drive` scope (NOT drive.file) — required for the
+// deploy spool because it reads files in folders Agent HQ didn't create.
+function hasFullDriveScope() {
+  if (!tokens) return false;
+  const scope = tokens.scope || '';
+  // Match the bare drive scope URL, not drive.file / drive.readonly / drive.metadata / etc.
+  return /https:\/\/www\.googleapis\.com\/auth\/drive(?:\s|$)/.test(scope);
+}
+
 async function ensureBackupFolder(drive) {
   if (backupState.folderId) {
     // Verify folder still exists
@@ -8001,4 +8029,18 @@ app.listen(PORT, '0.0.0.0', () => {
   if (tokens) {
     console.log(`[GCal] Token expires: ${tokens.expiry_date ? new Date(tokens.expiry_date).toISOString() : 'unknown'}`);
   }
+
+  // Start the Drive-backed deploy spool. No-ops if env vars are missing.
+  // The getDrive() factory checks scope on each poll so re-auth flows pick up automatically.
+  startDeploySpool({
+    getDrive: () => {
+      if (!hasFullDriveScope()) return null;
+      return google.drive({ version: 'v3', auth: oauth2Client });
+    },
+    deploySecret: process.env.DEPLOY_SECRET || '',
+    githubToken:  process.env.GITHUB_DEPLOY_TOKEN || '',
+    repoOwner:    DEPLOY_REPO_OWNER,
+    repoName:     DEPLOY_REPO_NAME,
+    branch:       DEPLOY_BRANCH,
+  });
 });
