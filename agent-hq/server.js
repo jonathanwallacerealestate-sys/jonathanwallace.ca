@@ -226,7 +226,7 @@ loadTokens();
 // ─────────────────────────────────────────────
 // Middleware
 // ─────────────────────────────────────────────
-app.use(express.json());
+app.use(express.json({ limit: '25mb' }));
 
 // CORS — allow Jonathan to POST scraped data from the MLS/BrokerBay/ListTrac
 // domains straight into Agent HQ from a browser console. Limited to the
