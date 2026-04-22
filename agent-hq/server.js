@@ -3931,6 +3931,113 @@ app.get('/api/fub/people/:id', async (req, res) => {
   }
 });
 
+// GET /api/sphere/contact/:fubId — fetch a single contact for the editor drawer
+app.get('/api/sphere/contact/:fubId', async (req, res) => {
+  if (!FUB_API_KEY) return res.json({ ok: false, error: 'FUB_API_KEY not configured' });
+  try {
+    const resp = await fetch(`${FUB_BASE}/people/${req.params.fubId}`, { headers: fubHeaders() });
+    if (!resp.ok) {
+      const t = await resp.text().catch(() => '');
+      return res.json({ ok: false, error: `FUB ${resp.status}: ${t.slice(0, 200)}` });
+    }
+    res.json({ ok: true, contact: await resp.json() });
+  } catch (e) {
+    res.json({ ok: false, error: e.message });
+  }
+});
+
+// PUT /api/sphere/contact/:fubId — update editable fields on a contact
+// Body may include: firstName, lastName, emails[], phones[], addresses[], background, tags[], stage
+// Only fields that are PRESENT in the body are forwarded — undefined fields are left alone.
+app.put('/api/sphere/contact/:fubId', express.json(), async (req, res) => {
+  if (!FUB_API_KEY) return res.json({ ok: false, error: 'FUB_API_KEY not configured' });
+  try {
+    const { firstName, lastName, emails, phones, addresses, background, tags, stage } = req.body || {};
+    const payload = {};
+    if (firstName !== undefined) payload.firstName = String(firstName).trim();
+    if (lastName !== undefined)  payload.lastName  = String(lastName).trim();
+    if (Array.isArray(emails))    payload.emails    = emails;
+    if (Array.isArray(phones))    payload.phones    = phones;
+    if (Array.isArray(addresses)) payload.addresses = addresses;
+    if (background !== undefined) payload.background = String(background);
+    if (Array.isArray(tags))      payload.tags      = tags;
+    if (stage !== undefined && stage !== null) payload.stage = String(stage);
+
+    if (Object.keys(payload).length === 0) {
+      return res.json({ ok: false, error: 'no editable fields supplied' });
+    }
+
+    const resp = await fetch(`${FUB_BASE}/people/${req.params.fubId}`, {
+      method: 'PUT',
+      headers: fubHeaders(),
+      body: JSON.stringify(payload),
+    });
+    if (!resp.ok) {
+      const t = await resp.text().catch(() => '');
+      return res.json({ ok: false, error: `FUB ${resp.status}: ${t.slice(0, 200)}` });
+    }
+    const updated = await resp.json();
+    // Cache invalidation so the next sphere list pull reflects edits (especially tier-tag changes)
+    sphereCache = { payload: null, key: null };
+    res.json({ ok: true, contact: updated });
+  } catch (e) {
+    console.error('[sphere] update error:', e.message);
+    res.json({ ok: false, error: e.message });
+  }
+});
+
+// POST /api/sphere/contact/:fubId/note — add a note to the contact
+// Body: { subject?, body }
+// Unlike /api/sphere/log-touch, this does NOT advance the cadence clock — it's
+// for personal-detail notes ("spouse Sarah, kids Mason+Olivia") rather than touches.
+app.post('/api/sphere/contact/:fubId/note', express.json(), async (req, res) => {
+  if (!FUB_API_KEY) return res.json({ ok: false, error: 'FUB_API_KEY not configured' });
+  const body = String(req.body?.body || '').trim();
+  if (!body) return res.json({ ok: false, error: 'note body required' });
+  const subject = String(req.body?.subject || 'Note (Agent HQ)').trim();
+  try {
+    const resp = await fetch(`${FUB_BASE}/notes`, {
+      method: 'POST',
+      headers: fubHeaders(),
+      body: JSON.stringify({
+        personId: parseInt(req.params.fubId, 10),
+        subject,
+        body,
+      }),
+    });
+    if (!resp.ok) {
+      const t = await resp.text().catch(() => '');
+      return res.json({ ok: false, error: `FUB ${resp.status}: ${t.slice(0, 200)}` });
+    }
+    res.json({ ok: true, addedAt: new Date().toISOString() });
+  } catch (e) {
+    res.json({ ok: false, error: e.message });
+  }
+});
+
+// GET /api/fub/stages — list FUB stages so the dropdown is dynamic
+let fubStagesCache = { stages: null, fetchedAt: 0 };
+app.get('/api/fub/stages', async (req, res) => {
+  if (!FUB_API_KEY) return res.json({ ok: false, error: 'FUB_API_KEY not configured' });
+  // 30-min cache — stages don't change often
+  if (fubStagesCache.stages && Date.now() - fubStagesCache.fetchedAt < 30 * 60 * 1000) {
+    return res.json({ ok: true, stages: fubStagesCache.stages, cached: true });
+  }
+  try {
+    const resp = await fetch(`${FUB_BASE}/stages`, { headers: fubHeaders() });
+    if (!resp.ok) {
+      const t = await resp.text().catch(() => '');
+      return res.json({ ok: false, error: `FUB ${resp.status}: ${t.slice(0, 200)}` });
+    }
+    const data = await resp.json();
+    const stages = Array.isArray(data?.stages) ? data.stages.map(s => s.name).filter(Boolean) : [];
+    fubStagesCache = { stages, fetchedAt: Date.now() };
+    res.json({ ok: true, stages, cached: false });
+  } catch (e) {
+    res.json({ ok: false, error: e.message });
+  }
+});
+
 // ─────────────────────────────────────────────
 // FUB LEAD AUTO-IMPORT FROM GMAIL
 // ─────────────────────────────────────────────

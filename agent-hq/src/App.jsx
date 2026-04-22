@@ -8535,6 +8535,8 @@ function SphereSection() {
   const [onlyOverdue, setOnlyOverdue] = useState(false);
   const [busyId, setBusyId] = useState(null); // { fubId, type } while a quick-log POST is in flight
   const [toast, setToast] = useState(null);
+  const [editingFubId, setEditingFubId] = useState(null); // contact whose detail drawer is open
+  const [searchQuery, setSearchQuery] = useState(''); // name/email search across all tiers
 
   const load = async (refresh = false) => {
     setLoading(true);
@@ -8610,9 +8612,32 @@ function SphereSection() {
     return acc + ((data?.byTier?.[t] || []).filter(c => c.status === 'red').length);
   }, 0);
 
-  // Which contacts to render for the current tab
+  // Which contacts to render. Search overrides tabs — when a search query is
+  // active we flatten across all tiers + untagged and filter by name/email.
+  const isSearching = searchQuery.trim().length > 0;
   let rendered = [];
-  if (tab === 'overdue') {
+  if (isSearching) {
+    const q = searchQuery.trim().toLowerCase();
+    const all = [];
+    for (const t of ['advocate', 'a', 'b', 'c']) {
+      for (const c of data?.byTier?.[t] || []) all.push(c);
+    }
+    for (const u of (data?.untieredSample || [])) all.push({ ...u, tier: null, status: 'unknown' });
+    rendered = all.filter(c => {
+      const name = (c.name || '').toLowerCase();
+      const email = (c.email || '').toLowerCase();
+      return name.includes(q) || email.includes(q);
+    });
+    // Best matches first: name-starts-with > name-contains > email-contains
+    rendered.sort((a, b) => {
+      const an = (a.name || '').toLowerCase();
+      const bn = (b.name || '').toLowerCase();
+      const aw = an.startsWith(q) ? 0 : an.includes(q) ? 1 : 2;
+      const bw = bn.startsWith(q) ? 0 : bn.includes(q) ? 1 : 2;
+      if (aw !== bw) return aw - bw;
+      return an.localeCompare(bn);
+    });
+  } else if (tab === 'overdue') {
     for (const t of ['advocate', 'a', 'b', 'c']) {
       for (const c of data?.byTier?.[t] || []) if (c.status === 'red') rendered.push(c);
     }
@@ -8645,8 +8670,38 @@ function SphereSection() {
         </div>
       </div>
 
-      {/* Tier health strip */}
-      {data && !data.error && (
+      {/* Search bar */}
+      <div style={{ position: 'relative', marginBottom: 14 }}>
+        <Search size={14} color="#9ca3af" style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }} />
+        <input
+          type="text"
+          value={searchQuery}
+          onChange={e => setSearchQuery(e.target.value)}
+          placeholder="Search across all tiers by name or email…"
+          style={{ width: '100%', boxSizing: 'border-box', padding: '8px 32px', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 13, fontFamily: 'inherit', outline: 'none' }}
+        />
+        {isSearching && (
+          <button
+            onClick={() => setSearchQuery('')}
+            title="Clear search"
+            style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', background: 'transparent', border: 'none', cursor: 'pointer', color: '#6b7280', padding: 4 }}
+          >
+            <X size={14} />
+          </button>
+        )}
+      </div>
+
+      {/* Search results count when searching */}
+      {isSearching && data && !data.error && (
+        <div style={{ marginBottom: 12, fontSize: 12, color: '#6b7280' }}>
+          {rendered.length === 0
+            ? <>No matches for <strong>"{searchQuery}"</strong></>
+            : <><strong>{rendered.length}</strong> match{rendered.length === 1 ? '' : 'es'} for <strong>"{searchQuery}"</strong> across all tiers</>}
+        </div>
+      )}
+
+      {/* Tier health strip (hidden during search) */}
+      {!isSearching && data && !data.error && (
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
           {['advocate','a','b','c'].map(t => {
             const tc = tierColor(t);
@@ -8672,8 +8727,8 @@ function SphereSection() {
         </div>
       )}
 
-      {/* Tab bar */}
-      <div style={{ display: 'flex', gap: 4, borderBottom: '1px solid #e5e7eb', marginBottom: 14, flexWrap: 'wrap' }}>
+      {/* Tab bar (hidden during search) */}
+      {!isSearching && <div style={{ display: 'flex', gap: 4, borderBottom: '1px solid #e5e7eb', marginBottom: 14, flexWrap: 'wrap' }}>
         {tierTabs.map(t => (
           <button
             key={t.key}
@@ -8702,13 +8757,13 @@ function SphereSection() {
             Show only overdue
           </label>
         )}
-      </div>
+      </div>}
 
       {loading && <div style={{ padding: 24, textAlign: 'center', color: '#6b7280' }}>Loading sphere contacts from FUB…</div>}
       {data?.error && <div style={{ padding: 16, background: '#fef2f2', color: '#991b1b', borderRadius: 8, fontSize: 12 }}>Error: {data.error}</div>}
 
-      {/* Contact list */}
-      {!loading && !data?.error && rendered.length === 0 && (
+      {/* Contact list — empty state changes based on context */}
+      {!loading && !data?.error && rendered.length === 0 && !isSearching && (
         <div style={{ padding: 32, textAlign: 'center', color: '#6b7280', background: '#f9fafb', borderRadius: 10, border: '1px dashed #d1d5db' }}>
           {tab === 'overdue' ? 'Nobody overdue — you\'re on pace.' : 'No contacts in this tab.'}
         </div>
@@ -8721,8 +8776,14 @@ function SphereSection() {
           return (
             <div key={c.fubId} style={{ border: '1px solid #ede9fe', borderRadius: 10, padding: 14, background: '#fff', display: 'flex', flexDirection: 'column', gap: 8 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
-                <div style={{ minWidth: 0, flex: 1 }}>
-                  <div style={{ fontSize: 14, fontWeight: 700, color: '#111827', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.name}</div>
+                <div
+                  onClick={() => setEditingFubId(c.fubId)}
+                  title="Click to edit contact details"
+                  style={{ minWidth: 0, flex: 1, cursor: 'pointer' }}
+                >
+                  <div style={{ fontSize: 14, fontWeight: 700, color: '#111827', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 4 }}>
+                    {c.name}<PenLine size={11} color="#9ca3af" style={{ opacity: 0.6, flexShrink: 0 }} />
+                  </div>
                   <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>
                     {c.stage || 'No stage'}{c.email ? ` · ${c.email}` : ''}
                   </div>
@@ -8816,6 +8877,359 @@ function SphereSection() {
           {toast}
         </div>
       )}
+
+      {/* Contact detail drawer */}
+      {editingFubId && (
+        <SphereContactDrawer
+          fubId={editingFubId}
+          onClose={() => setEditingFubId(null)}
+          onChanged={() => load(true)}
+          onToast={(msg) => { setToast(msg); setTimeout(() => setToast(null), 2200); }}
+        />
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
+// SPHERE CONTACT DRAWER
+// Slide-in editor for a single FUB contact. Lets you update name/email/phone/
+// address/stage/tags/background, plus add a timestamped note. Quick-tier buttons
+// (Advocate / A / B / C) handle tag swapping cleanly.
+// ─────────────────────────────────────────────
+const SPHERE_TIER_TAGS = ['Advocate', 'A', 'B', 'C'];
+const SPHERE_INPUT_STYLE = { width: '100%', boxSizing: 'border-box', padding: '7px 9px', border: '1px solid #e5e7eb', borderRadius: 6, fontSize: 13, fontFamily: 'inherit', outline: 'none' };
+
+function SphereSectionLabel({ children }) {
+  return <div style={{ fontSize: 10, fontWeight: 700, color: '#6b7280', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>{children}</div>;
+}
+
+function SphereContactDrawer({ fubId, onClose, onChanged, onToast }) {
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [contact, setContact] = useState(null);
+  const [stages, setStages] = useState([]);
+  const [saving, setSaving] = useState(false);
+  const [savingNote, setSavingNote] = useState(false);
+  const [noteText, setNoteText] = useState('');
+
+  const [form, setForm] = useState({
+    firstName: '', lastName: '',
+    email: '', phone: '',
+    street: '', city: '', province: 'ON', postal: '',
+    background: '',
+    stage: '',
+    tags: [],
+    tagInput: '',
+  });
+
+  // Fetch contact + stages
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const [r1, r2] = await Promise.all([
+          fetch(`/api/sphere/contact/${fubId}`).then(r => r.json()),
+          fetch('/api/fub/stages').then(r => r.json()).catch(() => ({ ok: false })),
+        ]);
+        if (cancelled) return;
+        if (!r1.ok) { setError(r1.error || 'Failed to load contact'); return; }
+        const c = r1.contact || {};
+        setContact(c);
+        const e0 = (Array.isArray(c.emails) && c.emails[0]) || {};
+        const p0 = (Array.isArray(c.phones) && c.phones[0]) || {};
+        const a0 = (Array.isArray(c.addresses) && c.addresses[0]) || {};
+        setForm({
+          firstName: c.firstName || '',
+          lastName: c.lastName || '',
+          email: e0.value || '',
+          phone: p0.value || '',
+          street: a0.street || '',
+          city: a0.city || '',
+          province: a0.state || a0.province || 'ON',
+          postal: a0.code || a0.postal || a0.postalCode || '',
+          background: c.background || '',
+          stage: c.stage || '',
+          tags: Array.isArray(c.tags) ? [...c.tags] : [],
+          tagInput: '',
+        });
+        if (r2 && r2.ok && Array.isArray(r2.stages)) setStages(r2.stages);
+      } catch (e) {
+        if (!cancelled) setError(e.message);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [fubId]);
+
+  const setTier = (tier) => {
+    setForm(f => {
+      const others = f.tags.filter(t => !SPHERE_TIER_TAGS.includes(t));
+      // If clicking the active tier, clear it. Otherwise replace.
+      return { ...f, tags: f.tags.includes(tier) ? others : [...others, tier] };
+    });
+  };
+  const removeTag = (t) => setForm(f => ({ ...f, tags: f.tags.filter(x => x !== t) }));
+  const addTag = () => {
+    const t = form.tagInput.trim();
+    if (!t) return;
+    setForm(f => ({
+      ...f,
+      tags: f.tags.includes(t) ? f.tags : [...f.tags, t],
+      tagInput: '',
+    }));
+  };
+
+  const save = async () => {
+    if (!contact) return;
+    setSaving(true);
+    try {
+      // Reconstruct emails/phones/addresses arrays — preserve everything past index 0
+      const emailType = (Array.isArray(contact.emails) && contact.emails[0]?.type) || 'personal';
+      const phoneType = (Array.isArray(contact.phones) && contact.phones[0]?.type) || 'mobile';
+      const addrType  = (Array.isArray(contact.addresses) && contact.addresses[0]?.type) || 'home';
+
+      const newEmails = form.email
+        ? [{ value: form.email, type: emailType, isPrimary: 1 }, ...((contact.emails || []).slice(1))]
+        : ((contact.emails || []).slice(1));
+      const newPhones = form.phone
+        ? [{ value: form.phone, type: phoneType, isPrimary: 1 }, ...((contact.phones || []).slice(1))]
+        : ((contact.phones || []).slice(1));
+      const haveAddress = form.street || form.city || form.postal;
+      const newAddresses = haveAddress
+        ? [{
+            street: form.street, city: form.city,
+            state: form.province, code: form.postal,
+            country: (Array.isArray(contact.addresses) && contact.addresses[0]?.country) || 'CA',
+            type: addrType,
+            isPrimary: 1,
+          }, ...((contact.addresses || []).slice(1))]
+        : ((contact.addresses || []).slice(1));
+
+      const payload = {
+        firstName: form.firstName,
+        lastName: form.lastName,
+        emails: newEmails,
+        phones: newPhones,
+        addresses: newAddresses,
+        background: form.background,
+        tags: form.tags,
+        stage: form.stage,
+      };
+      const r = await fetch(`/api/sphere/contact/${fubId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const j = await r.json();
+      if (j.ok) {
+        if (onToast) onToast('Changes saved');
+        if (onChanged) onChanged();
+        // Refresh local state from server response so stale arrays don't linger
+        if (j.contact) setContact(j.contact);
+      } else {
+        if (onToast) onToast(`Save failed: ${j.error || 'unknown'}`);
+      }
+    } catch (e) {
+      if (onToast) onToast(`Save failed: ${e.message}`);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const addNote = async () => {
+    const t = noteText.trim();
+    if (!t) return;
+    setSavingNote(true);
+    try {
+      const r = await fetch(`/api/sphere/contact/${fubId}/note`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ body: t }),
+      });
+      const j = await r.json();
+      if (j.ok) {
+        setNoteText('');
+        if (onToast) onToast('Note added to FUB');
+      } else {
+        if (onToast) onToast(`Note failed: ${j.error || 'unknown'}`);
+      }
+    } catch (e) {
+      if (onToast) onToast(`Note failed: ${e.message}`);
+    } finally {
+      setSavingNote(false);
+    }
+  };
+
+  return (
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.45)', zIndex: 3000, display: 'flex', justifyContent: 'flex-end' }}>
+      <div onClick={e => e.stopPropagation()} style={{ width: 'min(460px, 95vw)', height: '100%', background: '#fff', overflowY: 'auto', boxShadow: '-10px 0 40px rgba(0,0,0,0.2)', display: 'flex', flexDirection: 'column' }}>
+        {/* Header (sticky) */}
+        <div style={{ padding: '14px 18px', borderBottom: '1px solid #e5e7eb', display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'sticky', top: 0, background: '#fff', zIndex: 1 }}>
+          <div style={{ minWidth: 0, flex: 1 }}>
+            <div style={{ fontSize: 11, color: '#9ca3af', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5 }}>Contact details</div>
+            <div style={{ fontSize: 16, fontWeight: 700, color: '#111827', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {loading ? 'Loading…' : (`${form.firstName} ${form.lastName}`.trim() || '(no name)')}
+            </div>
+          </div>
+          <button onClick={onClose} title="Close" style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: 4, color: '#6b7280' }}>
+            <X size={20} />
+          </button>
+        </div>
+
+        {loading && <div style={{ padding: 24, color: '#6b7280', fontSize: 13 }}>Loading contact from FUB…</div>}
+        {error && <div style={{ margin: 16, padding: 12, background: '#fef2f2', color: '#991b1b', borderRadius: 8, fontSize: 12 }}>Error: {error}</div>}
+
+        {!loading && !error && contact && (
+          <div style={{ padding: 18, display: 'flex', flexDirection: 'column', gap: 16, flex: 1 }}>
+            {/* Tier quick-pick */}
+            <div>
+              <SphereSectionLabel>Tier (sphere classification)</SphereSectionLabel>
+              <div style={{ display: 'flex', gap: 6 }}>
+                {SPHERE_TIER_TAGS.map(t => {
+                  const active = form.tags.includes(t);
+                  return (
+                    <button
+                      key={t}
+                      onClick={() => setTier(t)}
+                      style={{
+                        flex: 1, padding: '7px 10px', borderRadius: 6, fontSize: 12, fontWeight: 700, cursor: 'pointer',
+                        border: active ? '1px solid #c8a96e' : '1px solid #e5e7eb',
+                        background: active ? '#c8a96e' : '#fff',
+                        color: active ? '#fff' : '#374151',
+                      }}
+                    >{t}</button>
+                  );
+                })}
+              </div>
+              <div style={{ fontSize: 10, color: '#9ca3af', marginTop: 4 }}>Click again to clear. Sets the FUB tag that drives Sphere cadence.</div>
+            </div>
+
+            {/* Name */}
+            <div>
+              <SphereSectionLabel>Name</SphereSectionLabel>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <input value={form.firstName} onChange={e => setForm(f => ({ ...f, firstName: e.target.value }))} placeholder="First" style={SPHERE_INPUT_STYLE} />
+                <input value={form.lastName}  onChange={e => setForm(f => ({ ...f, lastName: e.target.value }))}  placeholder="Last"  style={SPHERE_INPUT_STYLE} />
+              </div>
+            </div>
+
+            {/* Email */}
+            <div>
+              <SphereSectionLabel>Primary email</SphereSectionLabel>
+              <input type="email" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} placeholder="email@example.com" style={SPHERE_INPUT_STYLE} />
+              {Array.isArray(contact.emails) && contact.emails.length > 1 && (
+                <div style={{ fontSize: 10, color: '#9ca3af', marginTop: 4 }}>+ {contact.emails.length - 1} other email{contact.emails.length > 2 ? 's' : ''} on file (preserved)</div>
+              )}
+            </div>
+
+            {/* Phone */}
+            <div>
+              <SphereSectionLabel>Primary phone</SphereSectionLabel>
+              <input type="tel" value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} placeholder="(705) 555-1234" style={SPHERE_INPUT_STYLE} />
+              {Array.isArray(contact.phones) && contact.phones.length > 1 && (
+                <div style={{ fontSize: 10, color: '#9ca3af', marginTop: 4 }}>+ {contact.phones.length - 1} other phone{contact.phones.length > 2 ? 's' : ''} on file (preserved)</div>
+              )}
+            </div>
+
+            {/* Address */}
+            <div>
+              <SphereSectionLabel>Address</SphereSectionLabel>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <input value={form.street} onChange={e => setForm(f => ({ ...f, street: e.target.value }))} placeholder="Street" style={SPHERE_INPUT_STYLE} />
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <input value={form.city}     onChange={e => setForm(f => ({ ...f, city: e.target.value }))}     placeholder="City"     style={{ ...SPHERE_INPUT_STYLE, flex: 2 }} />
+                  <input value={form.province} onChange={e => setForm(f => ({ ...f, province: e.target.value }))} placeholder="ON"       style={{ ...SPHERE_INPUT_STYLE, flex: 0, width: 60 }} />
+                  <input value={form.postal}   onChange={e => setForm(f => ({ ...f, postal: e.target.value }))}   placeholder="L4R 1A1"  style={{ ...SPHERE_INPUT_STYLE, flex: 0, width: 110 }} />
+                </div>
+              </div>
+            </div>
+
+            {/* Stage */}
+            <div>
+              <SphereSectionLabel>Stage (FUB pipeline)</SphereSectionLabel>
+              <select value={form.stage} onChange={e => setForm(f => ({ ...f, stage: e.target.value }))} style={{ ...SPHERE_INPUT_STYLE, background: '#fff' }}>
+                <option value="">— select stage —</option>
+                {stages.map(s => <option key={s} value={s}>{s}</option>)}
+                {form.stage && !stages.includes(form.stage) && <option value={form.stage}>{form.stage}</option>}
+              </select>
+            </div>
+
+            {/* Tags */}
+            <div>
+              <SphereSectionLabel>Tags</SphereSectionLabel>
+              {form.tags.length > 0 && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 6 }}>
+                  {form.tags.map(t => (
+                    <span key={t} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: SPHERE_TIER_TAGS.includes(t) ? '#fef3c7' : '#eef2ff', color: SPHERE_TIER_TAGS.includes(t) ? '#92400e' : '#3730a3', borderRadius: 4, padding: '3px 8px', fontSize: 11, fontWeight: 600 }}>
+                      {t}
+                      <button onClick={() => removeTag(t)} title="Remove tag" style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: 0, color: 'inherit', fontSize: 14, lineHeight: 1 }}>×</button>
+                    </span>
+                  ))}
+                </div>
+              )}
+              <div style={{ display: 'flex', gap: 6 }}>
+                <input
+                  value={form.tagInput}
+                  onChange={e => setForm(f => ({ ...f, tagInput: e.target.value }))}
+                  onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addTag(); } }}
+                  placeholder="Add a tag and press Enter"
+                  style={SPHERE_INPUT_STYLE}
+                />
+                <button onClick={addTag} style={{ background: '#374151', color: '#fff', border: 'none', borderRadius: 6, padding: '6px 14px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>Add</button>
+              </div>
+            </div>
+
+            {/* Background */}
+            <div>
+              <SphereSectionLabel>Background (personal details)</SphereSectionLabel>
+              <textarea
+                value={form.background}
+                onChange={e => setForm(f => ({ ...f, background: e.target.value }))}
+                placeholder="Spouse Sarah; kids Mason (12) & Olivia (10); home anniv June 15; loves golf at Brooklea; works at Honda Alliston…"
+                style={{ ...SPHERE_INPUT_STYLE, minHeight: 86, resize: 'vertical' }}
+              />
+            </div>
+
+            {/* Save changes */}
+            <button
+              onClick={save}
+              disabled={saving}
+              style={{ background: '#c8a96e', color: '#fff', border: 'none', borderRadius: 8, padding: '11px 16px', fontSize: 13, fontWeight: 700, cursor: 'pointer', opacity: saving ? 0.6 : 1 }}
+            >
+              {saving ? 'Saving…' : 'Save changes'}
+            </button>
+
+            {/* Add a note (separate action — does NOT count as a touch) */}
+            <div style={{ borderTop: '1px solid #f3f4f6', paddingTop: 14 }}>
+              <SphereSectionLabel>Add a note (timeline only — not a touch)</SphereSectionLabel>
+              <textarea
+                value={noteText}
+                onChange={e => setNoteText(e.target.value)}
+                placeholder="Quick note saved to FUB timeline. Use this for things like 'mentioned planning a kitchen reno' — does NOT reset the cadence clock."
+                style={{ ...SPHERE_INPUT_STYLE, minHeight: 60, resize: 'vertical' }}
+              />
+              <button
+                onClick={addNote}
+                disabled={savingNote || !noteText.trim()}
+                style={{ marginTop: 6, background: '#0f172a', color: '#fff', border: 'none', borderRadius: 6, padding: '7px 14px', fontSize: 12, fontWeight: 600, cursor: (savingNote || !noteText.trim()) ? 'not-allowed' : 'pointer', opacity: (savingNote || !noteText.trim()) ? 0.4 : 1 }}
+              >
+                {savingNote ? 'Adding…' : 'Add note to FUB'}
+              </button>
+            </div>
+
+            {/* Footer link to full FUB record */}
+            <div style={{ textAlign: 'center', paddingBottom: 14 }}>
+              <a href={`https://app.followupboss.com/2/people/view/${fubId}`} target="_blank" rel="noopener noreferrer" style={{ fontSize: 11, color: '#6b7280', textDecoration: 'underline' }}>
+                Open full record in Follow Up Boss →
+              </a>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
