@@ -1,0 +1,3 @@
+Drive deploy spool smoke test
+Timestamp: 2026-04-22T21:22:10.896785Z
+Proves the spool can pick up a bundle from Drive, validate it, commit to GitHub, and move it to applied/.
