@@ -4015,26 +4015,71 @@ app.post('/api/sphere/contact/:fubId/note', express.json(), async (req, res) => 
   }
 });
 
-// GET /api/fub/stages — list FUB stages so the dropdown is dynamic
-let fubStagesCache = { stages: null, fetchedAt: 0 };
+// GET /api/fub/stages — list FUB stages so the dropdown is dynamic.
+// Falls back to a known baseline if FUB returns nothing or an unexpected shape.
+// Pass ?debug=1 to see the raw FUB response for diagnosis.
+const FUB_STAGES_BASELINE = [
+  'Lead',
+  'Active Client',
+  'A - Hot 1-3 Months',
+  'B - Warm 3-6 Months',
+  'C - Cold 6+ Months',
+  'Past Client',
+  'Sphere',
+  'Firm',
+  'Trash',
+];
+let fubStagesCache = { stages: null, fetchedAt: 0, raw: null };
 app.get('/api/fub/stages', async (req, res) => {
   if (!FUB_API_KEY) return res.json({ ok: false, error: 'FUB_API_KEY not configured' });
+  const debug = req.query.debug === '1';
   // 30-min cache — stages don't change often
-  if (fubStagesCache.stages && Date.now() - fubStagesCache.fetchedAt < 30 * 60 * 1000) {
+  if (!debug && fubStagesCache.stages && Date.now() - fubStagesCache.fetchedAt < 30 * 60 * 1000) {
     return res.json({ ok: true, stages: fubStagesCache.stages, cached: true });
   }
   try {
-    const resp = await fetch(`${FUB_BASE}/stages`, { headers: fubHeaders() });
+    const resp = await fetch(`${FUB_BASE}/stages?limit=200`, { headers: fubHeaders() });
+    const text = await resp.text();
+    let data = null;
+    try { data = JSON.parse(text); } catch {}
     if (!resp.ok) {
-      const t = await resp.text().catch(() => '');
-      return res.json({ ok: false, error: `FUB ${resp.status}: ${t.slice(0, 200)}` });
+      console.error(`[stages] FUB ${resp.status}:`, text.slice(0, 200));
+      // Don't fail — fall back to baseline so the dropdown still works
+      const stages = [...FUB_STAGES_BASELINE];
+      fubStagesCache = { stages, fetchedAt: Date.now(), raw: text };
+      return res.json({ ok: true, stages, cached: false, fallback: true, fubStatus: resp.status });
     }
-    const data = await resp.json();
-    const stages = Array.isArray(data?.stages) ? data.stages.map(s => s.name).filter(Boolean) : [];
-    fubStagesCache = { stages, fetchedAt: Date.now() };
-    res.json({ ok: true, stages, cached: false });
+
+    // Try every reasonable shape FUB might return
+    let raw = [];
+    if (Array.isArray(data?.stages))      raw = data.stages;
+    else if (Array.isArray(data?.data))   raw = data.data;
+    else if (Array.isArray(data))         raw = data;
+    else if (Array.isArray(data?.items))  raw = data.items;
+    else if (Array.isArray(data?.results)) raw = data.results;
+
+    const fromApi = raw
+      .map(s => (typeof s === 'string') ? s : (s?.name || s?.label || s?.title || ''))
+      .filter(Boolean);
+
+    // Merge baseline + API, deduped, baseline order preserved then API extras appended
+    const seen = new Set();
+    const stages = [];
+    for (const s of [...FUB_STAGES_BASELINE, ...fromApi]) {
+      const key = s.trim();
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      stages.push(key);
+    }
+
+    fubStagesCache = { stages, fetchedAt: Date.now(), raw: data };
+    const payload = { ok: true, stages, cached: false, fubReturned: fromApi.length };
+    if (debug) payload.raw = data;
+    res.json(payload);
   } catch (e) {
-    res.json({ ok: false, error: e.message });
+    console.error('[stages] error:', e.message);
+    // Network or other failure — still return baseline
+    res.json({ ok: true, stages: [...FUB_STAGES_BASELINE], cached: false, fallback: true, error: e.message });
   }
 });
 
