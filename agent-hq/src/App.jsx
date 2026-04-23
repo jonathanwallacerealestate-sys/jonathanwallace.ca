@@ -698,7 +698,42 @@ function GoogleConnectionBanner() {
     }, 5 * 60 * 1000);
     return () => clearInterval(interval);
   }, []);
-  if (!status || status.connected) return null;
+  if (!status) return null;
+
+  // CONNECTED — small green status pill with Disconnect option
+  if (status.connected) {
+    return (
+      <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 14px", borderRadius: 10, background: "#f0fdf4", border: "1px solid #bbf7d0", marginBottom: 12 }}>
+        <div style={{ width: 8, height: 8, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 6px #22c55e" }} />
+        <div style={{ flex: 1 }}>
+          <span style={{ fontSize: 12, fontWeight: 700, color: "#166534" }}>Google connected</span>
+          <span style={{ fontSize: 11, color: "#15803d", marginLeft: 8 }}>Calendar, Gmail, Drive, and Email AI active.</span>
+        </div>
+        <button onClick={() => { window.location.href = '/api/auth/google'; }} title="Re-run Google consent (e.g. to grant new scopes)" style={{
+          background: "transparent", color: "#15803d", border: "1px solid #bbf7d0",
+          padding: "6px 12px", borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: "pointer",
+          display: "flex", alignItems: "center", gap: 4, whiteSpace: "nowrap",
+        }}>
+          <RefreshCw size={11} /> Reconnect
+        </button>
+        <button onClick={async () => {
+          if (!window.confirm('Disconnect Google?\n\nThis revokes Agent HQ\'s access to your Google account on this server. Calendar/Gmail/Drive features will stop working until you reconnect. Your data on Google is untouched.')) return;
+          try {
+            await fetch('/api/auth/disconnect', { method: 'POST' });
+            window.location.reload();
+          } catch (e) { alert('Disconnect failed: ' + e.message); }
+        }} style={{
+          background: "transparent", color: "#dc2626", border: "1px solid #fecaca",
+          padding: "6px 12px", borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: "pointer",
+          display: "flex", alignItems: "center", gap: 4, whiteSpace: "nowrap",
+        }}>
+          <X size={11} /> Disconnect
+        </button>
+      </div>
+    );
+  }
+
+  // DISCONNECTED — yellow banner with Reconnect button (existing behaviour)
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 16px", borderRadius: 10, background: "#fffbeb", border: "1px solid #fde68a", marginBottom: 12 }}>
       <AlertTriangle size={16} color="#d97706" />
