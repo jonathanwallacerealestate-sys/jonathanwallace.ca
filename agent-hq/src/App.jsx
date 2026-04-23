@@ -6255,7 +6255,7 @@ function ListingForm() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
             <Users size={14} color="#92730a" />
             <span style={{ fontSize: 12, fontWeight: 700, color: '#92730a', textTransform: 'uppercase', letterSpacing: 0.5 }}>
-              Listing Appointments from Follow Up Boss
+              Active Clients from Follow Up Boss
             </span>
             <span style={{ fontSize: 10, fontWeight: 600, color: '#fff', background: '#c8a96e', padding: '2px 8px', borderRadius: 10 }}>
               {fubAppointments.filter(a => !a.hasListingForm).length} new

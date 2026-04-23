@@ -658,7 +658,7 @@ const DEFAULT_QUICKLINKS = [
   { id: 'fub-stages', group: 'Follow Up Boss', label: 'Stages', url: '/api/fub/stages', desc: 'All FUB pipeline stages' },
   { id: 'fub-leadscan', group: 'Follow Up Boss', label: 'Lead Scan', url: '/api/fub/leads/scan', desc: 'Scan Gmail for new FUB lead emails' },
   { id: 'fub-processed', group: 'Follow Up Boss', label: 'Processed Leads', url: '/api/fub/leads/processed', desc: 'Already-imported lead history' },
-  { id: 'fub-listings', group: 'Follow Up Boss', label: 'Listing Appointments', url: '/api/fub/listing-appointments', desc: 'Contacts tagged "Listing Appointment"' },
+  { id: 'fub-listings', group: 'Follow Up Boss', label: 'Active Clients', url: '/api/fub/listing-appointments', desc: 'FUB contacts with stage = "Active Client"' },
   { id: 'tj-setup', group: 'Team Jordan Import', label: 'TJ Setup', url: '/api/tj/setup', desc: 'Create stage + find Gmail label' },
   { id: 'tj-status', group: 'Team Jordan Import', label: 'TJ Status', url: '/api/tj/status', desc: 'Import progress and stats' },
   { id: 'lf-list', group: 'Listing Form', label: 'All Listings', url: '/api/listing-form/list', desc: 'All saved listing forms' },
@@ -5487,22 +5487,23 @@ app.post('/api/fub/log-call', async (req, res) => {
 // FUB LISTING APPOINTMENTS — Auto-populate from tag
 // ─────────────────────────────────────────────
 
-// GET /api/fub/listing-appointments — Fetch contacts tagged "Listing Appointment" in FUB
+// GET /api/fub/listing-appointments — Fetch FUB contacts with stage = "Active Client"
+// (Endpoint path kept for backwards compatibility with existing clients / discovery.)
 app.get('/api/fub/listing-appointments', async (req, res) => {
   if (!FUB_API_KEY) return res.json({ error: 'FUB_API_KEY not configured', appointments: [] });
   try {
-    // FUB API: search people by tag
-    const tag = 'Listing Appointment';
+    const TARGET_STAGE = 'Active Client';
+    const TARGET_STAGE_NORMALIZED = TARGET_STAGE.toLowerCase().trim();
     let allContacts = [];
     let offset = 0;
     const limit = 100;
 
-    // Paginate through all contacts with this tag
+    // Paginate through all contacts in the Active Client stage
     while (true) {
-      const url = `${FUB_BASE}/people?tag=${encodeURIComponent(tag)}&limit=${limit}&offset=${offset}&sort=created&order=desc`;
+      const url = `${FUB_BASE}/people?stage=${encodeURIComponent(TARGET_STAGE)}&limit=${limit}&offset=${offset}&sort=updated&order=desc`;
       const resp = await fetch(url, { headers: fubHeaders() });
       if (!resp.ok) {
-        console.error(`[FUB] Listing appointments fetch error: ${resp.status}`);
+        console.error(`[FUB] Active Client fetch error: ${resp.status}`);
         break;
       }
       const data = await resp.json();
@@ -5513,23 +5514,12 @@ app.get('/api/fub/listing-appointments', async (req, res) => {
       if (offset > 500) break; // safety cap
     }
 
-    // Also try searching by stage name "Listing Appointment" as fallback
-    try {
-      const stageUrl = `${FUB_BASE}/people?stage=${encodeURIComponent(tag)}&limit=100&sort=created&order=desc`;
-      const stageResp = await fetch(stageUrl, { headers: fubHeaders() });
-      if (stageResp.ok) {
-        const stageData = await stageResp.json();
-        const stagePeople = stageData.people || [];
-        // Merge without duplicates
-        const existingIds = new Set(allContacts.map(c => c.id));
-        for (const p of stagePeople) {
-          if (!existingIds.has(p.id)) {
-            allContacts.push(p);
-            existingIds.add(p.id);
-          }
-        }
-      }
-    } catch {}
+    // Defensive filter — FUB has been observed to silently ignore the `stage` filter
+    // and return every contact, so we verify the stage name on the client side too.
+    allContacts = allContacts.filter(c => {
+      const s = (c.stage || '').toLowerCase().trim();
+      return s === TARGET_STAGE_NORMALIZED;
+    });
 
     // Map to clean appointment objects
     const appointments = allContacts.map(c => {
