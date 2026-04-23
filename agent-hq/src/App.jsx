@@ -6265,37 +6265,67 @@ function ListingForm() {
               fontSize: 10, color: '#92730a', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline',
             }}>{loadingFub ? 'Syncing...' : 'Refresh'}</button>
           </div>
+          <div style={{ fontSize: 10, color: '#92730a', marginTop: -4, marginBottom: 8, fontStyle: 'italic' }}>
+            Click a client to open their deal card.
+          </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            {fubAppointments.filter(a => !a.hasListingForm).map(appt => (
-              <div key={appt.fubId} style={{
-                display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px',
-                background: '#fff', borderRadius: 8, border: '1px solid #e5e7eb',
-              }}>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: '#111827' }}>{appt.name || 'Unknown'}</div>
-                  <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>
-                    {appt.address ? `${appt.address}${appt.city ? `, ${appt.city}` : ''}` : 'No address in FUB'}
-                    {appt.phone ? ` · ${appt.phone}` : ''}
-                    {appt.email ? ` · ${appt.email}` : ''}
-                  </div>
-                </div>
-                <button
-                  onClick={() => importFubAppointment(appt)}
-                  disabled={importingFub === appt.fubId}
+            {fubAppointments.filter(a => !a.hasListingForm).map(appt => {
+              const isImporting = importingFub === appt.fubId;
+              const handleOpenDealCard = () => {
+                if (isImporting) return;
+                importFubAppointment(appt);
+              };
+              return (
+                <div
+                  key={appt.fubId}
+                  onClick={handleOpenDealCard}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleOpenDealCard(); } }}
+                  title="Open deal card"
                   style={{
-                    display: 'flex', alignItems: 'center', gap: 5, padding: '6px 14px', borderRadius: 8,
-                    border: '1px solid #c8a96e', background: '#c8a96e', color: '#fff',
-                    fontSize: 11, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap',
+                    display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px',
+                    background: '#fff', borderRadius: 8, border: '1px solid #e5e7eb',
+                    cursor: isImporting ? 'wait' : 'pointer',
+                    opacity: isImporting ? 0.7 : 1,
+                    transition: 'background 0.15s, border-color 0.15s, transform 0.1s',
+                  }}
+                  onMouseEnter={(e) => {
+                    if (isImporting) return;
+                    e.currentTarget.style.background = '#fffbf0';
+                    e.currentTarget.style.borderColor = '#c8a96e';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = '#fff';
+                    e.currentTarget.style.borderColor = '#e5e7eb';
                   }}
                 >
-                  {importingFub === appt.fubId ? (
-                    <><Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> Creating...</>
-                  ) : (
-                    <><Plus size={12} /> Start Listing</>
-                  )}
-                </button>
-              </div>
-            ))}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: '#111827' }}>{appt.name || 'Unknown'}</div>
+                    <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>
+                      {appt.address ? `${appt.address}${appt.city ? `, ${appt.city}` : ''}` : 'No address in FUB'}
+                      {appt.phone ? ` · ${appt.phone}` : ''}
+                      {appt.email ? ` · ${appt.email}` : ''}
+                    </div>
+                  </div>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); handleOpenDealCard(); }}
+                    disabled={isImporting}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 5, padding: '6px 14px', borderRadius: 8,
+                      border: '1px solid #c8a96e', background: '#c8a96e', color: '#fff',
+                      fontSize: 11, fontWeight: 600, cursor: isImporting ? 'wait' : 'pointer', whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {isImporting ? (
+                      <><Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> Opening...</>
+                    ) : (
+                      <><Plus size={12} /> Open Deal Card</>
+                    )}
+                  </button>
+                </div>
+              );
+            })}
           </div>
         </div>
       )}
