@@ -8002,44 +8002,117 @@ ${(() => {
         <h3 style="margin: 0 0 4px; font-size: 14px; color: #0f172a; font-weight: 700;">PRICING DISCIPLINE — what your own market just proved</h3>
         <div style="font-size: 11px; color: #6b7280; margin-bottom: 14px;">Each row: list price → sold price. Bars show how far below original list the home eventually sold.</div>
 
-        <div style="display: flex; flex-direction: column; gap: 10px;">
+        <div style="display: flex; flex-direction: column; gap: 14px;">
           ${studyComps.map(c => {
             const t = tier(c.dropPct);
-            const barWidthPct = Math.max(4, (Math.abs(c.dropPct) / maxDrop) * 70);
             const relistBadge = c.listingCount > 1
-              ? `<span style="display: inline-block; font-size: 8.5px; font-weight: 700; padding: 1px 5px; border-radius: 3px; background: #fee2e2; color: #991b1b; letter-spacing: 0.4px; margin-left: 4px;">RELISTED ${c.listingCount}×</span>`
+              ? `<span style="display: inline-block; font-size: 9px; font-weight: 700; padding: 2px 6px; border-radius: 3px; background: #fee2e2; color: #991b1b; letter-spacing: 0.4px; margin-left: 6px;">RELISTED ${c.listingCount}×</span>`
               : '';
+
+            // Build the price journey SVG when we have multi-listing history.
+            // Each "Listed for Sale" event becomes a price plateau; cancels are vertical drop lines; final sold is highlighted.
+            let journeySvg = '';
+            const history = Array.isArray(c.priceHistory) ? c.priceHistory : [];
+            const events = history
+              .map(h => ({ event: String(h.event || ''), price: parseNum(h.price), dateMs: new Date(h.date).getTime(), date: h.date }))
+              .filter(e => Number.isFinite(e.dateMs))
+              .sort((a, b) => a.dateMs - b.dateMs);
+            const listingEvents = events.filter(e => /list/i.test(e.event));
+            const soldEvent = [...events].reverse().find(e => /sold/i.test(e.event));
+            if (listingEvents.length >= 1 && soldEvent) {
+              const W = 800, H = 130;
+              const padL = 12, padR = 18, padT = 28, padB = 36;
+              const tMin = events[0].dateMs, tMax = soldEvent.dateMs;
+              const tRange = Math.max(1, tMax - tMin);
+              const allPrices = [...events.map(e => e.price), c.sold].filter(Boolean);
+              const pMax = Math.max(...allPrices), pMin = Math.min(...allPrices);
+              const pRange = Math.max(1, pMax - pMin);
+              const xFor = (ms) => padL + ((ms - tMin) / tRange) * (W - padL - padR);
+              const yFor = (p) => padT + ((pMax - p) / pRange) * (H - padT - padB);
+              const fmtDate = (ms) => {
+                const d = new Date(ms);
+                return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+              };
+              const segments = [];
+              for (let i = 0; i < listingEvents.length; i++) {
+                const start = listingEvents[i];
+                const next = listingEvents[i + 1] || soldEvent;
+                segments.push({ start, endMs: next.dateMs, isLast: !listingEvents[i + 1] });
+              }
+              const journeyParts = [];
+              // Time axis
+              journeyParts.push(`<line x1="${padL}" y1="${H - padB + 4}" x2="${W - padR}" y2="${H - padB + 4}" stroke="#d1d5db" stroke-width="1" />`);
+              // Plateaus + drop arrows
+              segments.forEach((seg, i) => {
+                const x1 = xFor(seg.start.dateMs), x2 = xFor(seg.endMs), y = yFor(seg.start.price);
+                const segColor = i === 0 ? '#dc2626' : i === segments.length - 1 ? '#ea580c' : '#f59e0b';
+                journeyParts.push(`<line x1="${x1}" y1="${y}" x2="${x2}" y2="${y}" stroke="${segColor}" stroke-width="3.5" stroke-linecap="round" />`);
+                journeyParts.push(`<circle cx="${x1}" cy="${y}" r="5" fill="${segColor}" stroke="#fff" stroke-width="2" />`);
+                journeyParts.push(`<text x="${x1}" y="${y - 8}" font-size="10" font-weight="700" fill="${segColor}" text-anchor="${i === 0 ? 'start' : 'middle'}">${fmtPrice(seg.start.price)}</text>`);
+                journeyParts.push(`<text x="${x1}" y="${H - padB + 18}" font-size="9" fill="#6b7280" text-anchor="${i === 0 ? 'start' : 'middle'}">${fmtDate(seg.start.dateMs)}</text>`);
+                journeyParts.push(`<text x="${x1}" y="${H - padB + 28}" font-size="8" fill="#9ca3af" text-anchor="${i === 0 ? 'start' : 'middle'}">${i === 0 ? 'LISTED' : 'RELISTED'}</text>`);
+                // Drop arrow to next plateau
+                if (!seg.isLast) {
+                  const nextSeg = segments[i + 1];
+                  const dropX = x2;
+                  const dropY1 = y;
+                  const dropY2 = yFor(nextSeg.start.price);
+                  journeyParts.push(`<line x1="${dropX}" y1="${dropY1}" x2="${dropX}" y2="${dropY2}" stroke="#dc2626" stroke-width="2" stroke-dasharray="3,3" />`);
+                  const dropAmt = seg.start.price - nextSeg.start.price;
+                  journeyParts.push(`<text x="${dropX + 4}" y="${(dropY1 + dropY2) / 2 + 4}" font-size="9" font-weight="700" fill="#dc2626">−${fmtPrice(dropAmt)}</text>`);
+                  // Days-on-this-listing label
+                  const daysOnSeg = Math.max(1, Math.round((seg.endMs - seg.start.dateMs) / (1000 * 60 * 60 * 24)));
+                  journeyParts.push(`<text x="${(x1 + x2) / 2}" y="${y - 22}" font-size="8.5" fill="#9ca3af" text-anchor="middle" font-style="italic">${daysOnSeg}d listed</text>`);
+                } else {
+                  // Last segment — show its DOM too
+                  const daysOnSeg = Math.max(1, Math.round((seg.endMs - seg.start.dateMs) / (1000 * 60 * 60 * 24)));
+                  journeyParts.push(`<text x="${(x1 + x2) / 2}" y="${y - 22}" font-size="8.5" fill="#9ca3af" text-anchor="middle" font-style="italic">${daysOnSeg}d listed</text>`);
+                }
+              });
+              // Final sold marker — drop from last plateau to sold price
+              const lastSeg = segments[segments.length - 1];
+              const lastY = yFor(lastSeg.start.price);
+              const soldX = xFor(soldEvent.dateMs);
+              const soldY = yFor(c.sold);
+              if (Math.abs(soldY - lastY) > 1) {
+                journeyParts.push(`<line x1="${soldX}" y1="${lastY}" x2="${soldX}" y2="${soldY}" stroke="#059669" stroke-width="2" stroke-dasharray="3,3" />`);
+                const finalDrop = lastSeg.start.price - c.sold;
+                if (finalDrop > 0) journeyParts.push(`<text x="${soldX - 4}" y="${(lastY + soldY) / 2 + 4}" font-size="9" font-weight="700" fill="#059669" text-anchor="end">−${fmtPrice(finalDrop)}</text>`);
+              }
+              journeyParts.push(`<circle cx="${soldX}" cy="${soldY}" r="7" fill="#059669" stroke="#fff" stroke-width="2.5" />`);
+              journeyParts.push(`<text x="${soldX}" y="${soldY + 4}" font-size="9" font-weight="700" fill="#fff" text-anchor="middle">✓</text>`);
+              journeyParts.push(`<text x="${soldX}" y="${soldY - 12}" font-size="11" font-weight="800" fill="#059669" text-anchor="end">SOLD ${fmtPrice(c.sold)}</text>`);
+              journeyParts.push(`<text x="${soldX}" y="${H - padB + 18}" font-size="9" fill="#6b7280" text-anchor="end">${fmtDate(soldEvent.dateMs)}</text>`);
+              journeyParts.push(`<text x="${soldX}" y="${H - padB + 28}" font-size="8" fill="#9ca3af" text-anchor="end">SOLD</text>`);
+
+              journeySvg = `
+                <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" style="width: 100%; height: auto; margin-top: 8px; background: #fafafa; border-radius: 6px; border: 1px solid #f3f4f6;">
+                  ${journeyParts.join('')}
+                </svg>
+              `;
+            }
+
             return `
-              <div style="display: grid; grid-template-columns: 1.3fr 1.6fr 0.8fr; gap: 10px; align-items: center; font-size: 11px;">
-                <div>
-                  <div style="font-weight: 700; color: #0f172a;">${esc((c.address || '—').split(',')[0])}${relistBadge}</div>
-                  <div style="font-size: 9.5px; color: #6b7280;">${c.dom} days on market${c.listingCount > 1 ? ' (cumulative)' : ''}</div>
+              <div style="border-left: 3px solid ${t.color}; padding: 10px 14px; background: ${t.bg}; border-radius: 0 8px 8px 0;">
+                <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap;">
+                  <div style="flex: 1; min-width: 180px;">
+                    <div style="font-weight: 700; color: #0f172a; font-size: 12.5px;">${esc((c.address || '—').split(',')[0])}${relistBadge}</div>
+                    <div style="font-size: 10px; color: #6b7280; margin-top: 2px;"><strong style="color: #374151;">${c.dom}</strong> days on market${c.listingCount > 1 ? ' (cumulative across ' + c.listingCount + ' listings)' : ''}</div>
+                  </div>
+                  <div style="text-align: right;">
+                    <span style="display: inline-block; font-size: 9px; font-weight: 700; padding: 2px 7px; border-radius: 3px; background: ${t.color}; color: #fff; letter-spacing: 0.5px;">${t.label}</span>
+                    <div style="font-size: 13px; font-weight: 800; color: ${t.color}; margin-top: 4px;">−${fmtPrice(c.drop)}</div>
+                    <div style="font-size: 10px; color: #6b7280;">−${c.dropPct.toFixed(1)}% off first list</div>
+                  </div>
                 </div>
-                <div>
-                  <div style="display: flex; align-items: center; gap: 6px; font-size: 10.5px;">
-                    <span style="color: #6b7280;">${c.listingCount > 1 ? 'First list' : 'Listed'} <strong style="color: #0f172a;">${fmtPrice(c.orig)}</strong></span>
-                    <span style="color: #9ca3af;">→</span>
+                ${journeySvg || `
+                  <!-- Fallback simple summary when no priceHistory available -->
+                  <div style="margin-top: 8px; display: flex; align-items: center; gap: 6px; font-size: 11px;">
+                    <span style="color: #6b7280;">Listed <strong style="color: #0f172a;">${fmtPrice(c.orig)}</strong></span>
+                    <span style="flex: 1; height: 2px; background: ${t.color}; opacity: 0.5;"></span>
                     <span style="color: #6b7280;">Sold <strong style="color: ${t.color};">${fmtPrice(c.sold)}</strong></span>
                   </div>
-                  <div style="margin-top: 4px; height: 8px; background: #f3f4f6; border-radius: 4px; position: relative; overflow: hidden;">
-                    <div style="position: absolute; left: 0; top: 0; bottom: 0; width: ${barWidthPct}%; background: ${t.color}; border-radius: 4px;"></div>
-                  </div>
-                  ${Array.isArray(c.priceHistory) && c.priceHistory.length > 1 ? `
-                    <div style="font-size: 9px; color: #6b7280; margin-top: 4px; line-height: 1.4;">
-                      ${c.priceHistory.filter(h => /list|term|sold/i.test(h.event || '')).map(h => {
-                        const isTerm = /term/i.test(h.event || '');
-                        const isSold = /sold/i.test(h.event || '');
-                        const eventColor = isTerm ? '#dc2626' : isSold ? t.color : '#0f172a';
-                        return `<span style="color: ${eventColor};">${esc(h.date || '')} ${esc(h.event || '')}${h.price ? ' ' + fmtPrice(parseNum(h.price)) : ''}</span>`;
-                      }).join(' · ')}
-                    </div>
-                  ` : ''}
-                </div>
-                <div style="text-align: right;">
-                  <span style="display: inline-block; font-size: 9px; font-weight: 700; padding: 2px 6px; border-radius: 3px; background: ${t.bg}; color: ${t.color}; letter-spacing: 0.4px;">${t.label}</span>
-                  <div style="font-size: 11px; font-weight: 700; color: ${t.color}; margin-top: 3px;">−${fmtPrice(c.drop)}</div>
-                  <div style="font-size: 9px; color: #6b7280;">−${c.dropPct.toFixed(1)}% off first list</div>
-                </div>
+                `}
               </div>
             `;
           }).join('')}
