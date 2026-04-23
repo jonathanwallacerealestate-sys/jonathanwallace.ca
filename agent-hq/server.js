@@ -7953,16 +7953,37 @@ ${(() => {
     </div>
   ` : ''}
 
-  <!-- PRICING DISCIPLINE CASE STUDY — proves the pyramid using their own data -->
+  <!-- PRICING DISCIPLINE CASE STUDY — proves the pyramid using their own data.
+       Uses cumulative price chase + cumulative DOM when comp.priceHistory is present
+       (captures cancel-and-relist cycles where DOM resets but the home was on the market all along). -->
   ${(() => {
     const studyComps = (cma.comps?.solds || [])
       .map(s => {
         const sold = parseNum(s.priceNumeric || s.price);
-        const orig = parseNum(s.originalListPrice || s.listPrice);
+        // If priceHistory exists, use the FIRST listing's price as the true original (handles cancel/relist cycles).
+        // priceHistory shape: [{ date: 'YYYY-MM-DD', event: 'Listed for Sale|TER|SC|Sold', price: number, mls: '...' }, ...] sorted oldest first.
+        let orig = null;
+        let cumulativeDom = parseInt(s.dom) || 0;
+        let listingCount = 1;
+        if (Array.isArray(s.priceHistory) && s.priceHistory.length) {
+          const listings = s.priceHistory.filter(h => /list/i.test(h.event || ''));
+          if (listings.length) {
+            orig = parseNum(listings[0].price);
+            listingCount = listings.length;
+          }
+          // Cumulative DOM: from first Listed event to final Sold event
+          const firstListedDate = s.priceHistory.find(h => /list/i.test(h.event || ''))?.date;
+          const soldDate = [...s.priceHistory].reverse().find(h => /sold/i.test(h.event || ''))?.date || s.soldDate;
+          if (firstListedDate && soldDate) {
+            const days = Math.round((new Date(soldDate) - new Date(firstListedDate)) / (1000 * 60 * 60 * 24));
+            if (days > 0) cumulativeDom = days;
+          }
+        }
+        if (!orig) orig = parseNum(s.originalListPrice || s.listPrice);
         if (!sold || !orig) return null;
         const drop = orig - sold;
         const dropPct = (drop / orig) * 100;
-        return { ...s, sold, orig, drop, dropPct, dom: parseInt(s.dom) || 0 };
+        return { ...s, sold, orig, drop, dropPct, dom: cumulativeDom, listingCount };
       })
       .filter(Boolean)
       .sort((a, b) => a.dropPct - b.dropPct); // smallest drop first
@@ -7985,26 +8006,39 @@ ${(() => {
           ${studyComps.map(c => {
             const t = tier(c.dropPct);
             const barWidthPct = Math.max(4, (Math.abs(c.dropPct) / maxDrop) * 70);
+            const relistBadge = c.listingCount > 1
+              ? `<span style="display: inline-block; font-size: 8.5px; font-weight: 700; padding: 1px 5px; border-radius: 3px; background: #fee2e2; color: #991b1b; letter-spacing: 0.4px; margin-left: 4px;">RELISTED ${c.listingCount}×</span>`
+              : '';
             return `
               <div style="display: grid; grid-template-columns: 1.3fr 1.6fr 0.8fr; gap: 10px; align-items: center; font-size: 11px;">
                 <div>
-                  <div style="font-weight: 700; color: #0f172a;">${esc((c.address || '—').split(',')[0])}</div>
-                  <div style="font-size: 9.5px; color: #6b7280;">${c.dom} days on market</div>
+                  <div style="font-weight: 700; color: #0f172a;">${esc((c.address || '—').split(',')[0])}${relistBadge}</div>
+                  <div style="font-size: 9.5px; color: #6b7280;">${c.dom} days on market${c.listingCount > 1 ? ' (cumulative)' : ''}</div>
                 </div>
                 <div>
                   <div style="display: flex; align-items: center; gap: 6px; font-size: 10.5px;">
-                    <span style="color: #6b7280;">Listed <strong style="color: #0f172a;">${fmtPrice(c.orig)}</strong></span>
+                    <span style="color: #6b7280;">${c.listingCount > 1 ? 'First list' : 'Listed'} <strong style="color: #0f172a;">${fmtPrice(c.orig)}</strong></span>
                     <span style="color: #9ca3af;">→</span>
                     <span style="color: #6b7280;">Sold <strong style="color: ${t.color};">${fmtPrice(c.sold)}</strong></span>
                   </div>
                   <div style="margin-top: 4px; height: 8px; background: #f3f4f6; border-radius: 4px; position: relative; overflow: hidden;">
                     <div style="position: absolute; left: 0; top: 0; bottom: 0; width: ${barWidthPct}%; background: ${t.color}; border-radius: 4px;"></div>
                   </div>
+                  ${Array.isArray(c.priceHistory) && c.priceHistory.length > 1 ? `
+                    <div style="font-size: 9px; color: #6b7280; margin-top: 4px; line-height: 1.4;">
+                      ${c.priceHistory.filter(h => /list|term|sold/i.test(h.event || '')).map(h => {
+                        const isTerm = /term/i.test(h.event || '');
+                        const isSold = /sold/i.test(h.event || '');
+                        const eventColor = isTerm ? '#dc2626' : isSold ? t.color : '#0f172a';
+                        return `<span style="color: ${eventColor};">${esc(h.date || '')} ${esc(h.event || '')}${h.price ? ' ' + fmtPrice(parseNum(h.price)) : ''}</span>`;
+                      }).join(' · ')}
+                    </div>
+                  ` : ''}
                 </div>
                 <div style="text-align: right;">
                   <span style="display: inline-block; font-size: 9px; font-weight: 700; padding: 2px 6px; border-radius: 3px; background: ${t.bg}; color: ${t.color}; letter-spacing: 0.4px;">${t.label}</span>
                   <div style="font-size: 11px; font-weight: 700; color: ${t.color}; margin-top: 3px;">−${fmtPrice(c.drop)}</div>
-                  <div style="font-size: 9px; color: #6b7280;">−${c.dropPct.toFixed(1)}% off list</div>
+                  <div style="font-size: 9px; color: #6b7280;">−${c.dropPct.toFixed(1)}% off first list</div>
                 </div>
               </div>
             `;
