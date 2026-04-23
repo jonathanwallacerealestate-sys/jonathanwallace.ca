@@ -3893,15 +3893,34 @@ app.post('/api/sphere/log-touch', express.json(), async (req, res) => {
       ? `${label} — ${notes}`
       : `${label} logged from Agent HQ Sphere`;
 
-    const resp = await fetch(`${FUB_BASE}/notes`, {
-      method: 'POST',
-      headers: fubHeaders(),
-      body: JSON.stringify({
-        personId: parseInt(fubId),
-        subject: `${label} (Agent HQ)`,
-        body,
-      }),
-    });
+    // Pop-By is logged as a FUB CALL with note "Pop-by" so it lands in the
+    // communication timeline and updates lastCommunication (notes don't).
+    // The other types continue to create notes — they're already linked to
+    // their natural channels (tel:/sms:/FUB email) and lastTouchAt now picks
+    // the most-recent across all activity fields.
+    let resp;
+    if (type === 'popby') {
+      resp = await fetch(`${FUB_BASE}/calls`, {
+        method: 'POST',
+        headers: fubHeaders(),
+        body: JSON.stringify({
+          personId: parseInt(fubId),
+          outcome: 'Spoke with',
+          isIncoming: false,
+          note: notes ? `Pop-by — ${notes}` : 'Pop-by',
+        }),
+      });
+    } else {
+      resp = await fetch(`${FUB_BASE}/notes`, {
+        method: 'POST',
+        headers: fubHeaders(),
+        body: JSON.stringify({
+          personId: parseInt(fubId),
+          subject: `${label} (Agent HQ)`,
+          body,
+        }),
+      });
+    }
 
     if (!resp.ok) {
       const errText = await resp.text().catch(() => '');
