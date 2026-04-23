@@ -348,7 +348,7 @@ const sidebarItems = [
   { id: "marketing", label: "Marketing", icon: Megaphone, badge: null },
   { id: "learning", label: "Learning", icon: BookOpen, badge: null },
   { id: "active-listings", label: "Active Listings", icon: Home, badge: null },
-  { id: "run-comps", label: "Run Comps", icon: BarChart3, badge: null },
+  { id: "run-comps", label: "CMA", icon: BarChart3, badge: null },
   { id: "aps-parser", label: "APS Parser", icon: FileText, badge: null },
   { id: "listing-form", label: "Listing Form", icon: ClipboardList, badge: null },
   { id: "sellers", label: "Sellers", icon: Briefcase, badge: 3 },
@@ -9306,7 +9306,7 @@ function RunCompsSection() {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, flexWrap: 'wrap', gap: 8 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <BarChart3 size={20} color="#c8a96e" />
-          <h2 style={{ fontSize: 18, fontWeight: 700, margin: 0 }}>Run Comps — CMA</h2>
+          <h2 style={{ fontSize: 18, fontWeight: 700, margin: 0 }}>CMA</h2>
           <span style={{ fontSize: 12, color: '#6b7280', background: '#f3f4f6', padding: '2px 8px', borderRadius: 6, fontWeight: 600 }}>
             {cmas.length}
           </span>
@@ -9536,22 +9536,9 @@ function CmaDetailModal({ id, onClose }) {
           </div>
         </div>
 
-        {/* Subject Summary */}
-        <div style={{ background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 10, padding: 14, marginBottom: 12 }}>
-          <div style={{ fontSize: 10, fontWeight: 700, color: '#6b7280', textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 8 }}>Subject Property</div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, fontSize: 12 }}>
-            <div><strong>Style:</strong> {cma.style || '—'}</div>
-            <div><strong>Beds:</strong> {cma.bedrooms || '—'}</div>
-            <div><strong>Baths:</strong> {cma.bathrooms || '—'}</div>
-            <div><strong>Sqft:</strong> {cma.sqft || '—'}</div>
-            <div><strong>Lot:</strong> {cma.lotSize || '—'}</div>
-            <div><strong>Year:</strong> {cma.yearBuilt || '—'}</div>
-            <div><strong>Foundation:</strong> {cma.foundation || '—'}</div>
-            <div><strong>Garage:</strong> {cma.garage || '—'}</div>
-            <div><strong>Waterfront:</strong> {cma.waterfront ? 'Yes' : 'No'}</div>
-            <div><strong>List Price:</strong> {money(cma.listPrice)}</div>
-          </div>
-        </div>
+        {/* Subject Summary — every field is inline-editable on click; auto-saves on blur or Enter */}
+        <SubjectPropertyEditor cma={cma} onPatch={patch} />
+
 
         {/* Pending banner with run prompt */}
         {cma.status === 'pending' && (
@@ -9642,6 +9629,116 @@ function CmaDetailModal({ id, onClose }) {
           <textarea value={cma.notes || ''} onChange={e => patch({ notes: e.target.value })} placeholder="Anything worth capturing — seller motivation, deferred maintenance, timing preferences, showing feedback, etc." style={{ width: '100%', minHeight: 100, padding: 10, border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 12, fontFamily: 'inherit', resize: 'vertical' }} />
         </div>
       </div>
+    </div>
+  );
+}
+
+// Inline-editable Subject Property tile. Click any field to edit; auto-saves
+// on blur or Enter. Esc cancels. Used in the CMA detail modal so Jonathan can
+// fix sqft / year / foundation / etc. without going through the intake form again.
+function SubjectPropertyEditor({ cma, onPatch }) {
+  const fields = [
+    { k: 'style',       label: 'Style',       type: 'text',     placeholder: 'Bungalow / 1.5 Storey / 2-Storey…' },
+    { k: 'bedrooms',    label: 'Beds',        type: 'text',     placeholder: 'e.g. 3 or 2+1' },
+    { k: 'bathrooms',   label: 'Baths',       type: 'text',     placeholder: 'e.g. 2' },
+    { k: 'sqft',        label: 'Sqft',        type: 'text',     placeholder: 'e.g. 1100-1500' },
+    { k: 'lotSize',     label: 'Lot',         type: 'text',     placeholder: 'e.g. 60 x 150' },
+    { k: 'yearBuilt',   label: 'Year built',  type: 'text',     placeholder: 'e.g. 1985' },
+    { k: 'foundation',  label: 'Foundation',  type: 'text',     placeholder: 'Poured / Block / Stone' },
+    { k: 'garage',      label: 'Garage',      type: 'text',     placeholder: 'None / Single / Double' },
+    { k: 'waterfront',  label: 'Waterfront',  type: 'select',   options: [['', '—'], ['true', 'Yes'], ['false', 'No']] },
+    { k: 'listPrice',   label: 'List price',  type: 'money',    placeholder: '525000' },
+  ];
+
+  return (
+    <div style={{ background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 10, padding: 14, marginBottom: 12 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+        <div style={{ fontSize: 10, fontWeight: 700, color: '#6b7280', textTransform: 'uppercase', letterSpacing: 0.4 }}>Subject Property</div>
+        <div style={{ fontSize: 10, color: '#9ca3af' }}>Click any field to edit</div>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10 }}>
+        {fields.map(f => (
+          <SubjectField
+            key={f.k}
+            label={f.label}
+            value={cma[f.k]}
+            type={f.type}
+            placeholder={f.placeholder}
+            options={f.options}
+            onSave={(v) => {
+              if (f.type === 'money') {
+                const n = v ? Number(String(v).replace(/[^0-9.]/g, '')) : null;
+                onPatch({ [f.k]: n || null });
+              } else if (f.type === 'select' && f.k === 'waterfront') {
+                onPatch({ waterfront: v === 'true' });
+              } else {
+                onPatch({ [f.k]: v });
+              }
+            }}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function SubjectField({ label, value, type, placeholder, options, onSave }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState('');
+  const fmtMoney = (n) => (n || n === 0) ? '$' + Number(n).toLocaleString() : '—';
+  const display = type === 'money'
+    ? fmtMoney(value)
+    : type === 'select' && options
+      ? (options.find(o => String(o[0]) === String(value))?.[1] ?? (value === true ? 'Yes' : value === false ? 'No' : '—'))
+      : (value || value === 0 ? String(value) : '—');
+
+  const startEdit = () => {
+    setDraft(type === 'select' ? (value === true ? 'true' : value === false ? 'false' : '') : (value ?? ''));
+    setEditing(true);
+  };
+  const commit = () => {
+    setEditing(false);
+    onSave(draft);
+  };
+  const cancel = () => setEditing(false);
+
+  return (
+    <div style={{ fontSize: 12, minWidth: 0 }}>
+      <div style={{ fontSize: 10, fontWeight: 700, color: '#6b7280', textTransform: 'uppercase', letterSpacing: 0.3, marginBottom: 2 }}>{label}</div>
+      {editing ? (
+        type === 'select' ? (
+          <select
+            autoFocus
+            value={draft}
+            onChange={e => setDraft(e.target.value)}
+            onBlur={commit}
+            style={{ width: '100%', padding: '4px 6px', border: '1px solid #c8a96e', borderRadius: 4, fontSize: 12, background: '#fff' }}
+          >
+            {options.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+          </select>
+        ) : (
+          <input
+            autoFocus
+            type={type === 'money' ? 'text' : 'text'}
+            value={draft}
+            placeholder={placeholder}
+            onChange={e => setDraft(e.target.value)}
+            onBlur={commit}
+            onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); commit(); } else if (e.key === 'Escape') { e.preventDefault(); cancel(); } }}
+            style={{ width: '100%', padding: '4px 6px', border: '1px solid #c8a96e', borderRadius: 4, fontSize: 12, fontFamily: 'inherit' }}
+          />
+        )
+      ) : (
+        <div
+          onClick={startEdit}
+          title="Click to edit"
+          style={{ cursor: 'pointer', padding: '4px 6px', borderRadius: 4, border: '1px solid transparent', color: (value === undefined || value === null || value === '') ? '#9ca3af' : '#111827', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+          onMouseEnter={e => { e.currentTarget.style.background = '#fff'; e.currentTarget.style.borderColor = '#e5e7eb'; }}
+          onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.borderColor = 'transparent'; }}
+        >
+          {display}
+        </div>
+      )}
     </div>
   );
 }

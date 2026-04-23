@@ -7587,7 +7587,7 @@ app.get('/api/cma/:id', (req, res) => {
 app.patch('/api/cma/:id', express.json({ limit: '1mb' }), (req, res) => {
   const cma = cmasState.cmas.find(c => c.id === req.params.id);
   if (!cma) return res.status(404).json({ ok: false, error: 'CMA not found' });
-  const allowed = ['notes', 'priceRange', 'estimatedDom', 'pricingNarrative', 'sellerUpdate', 'status', 'address', 'city', 'bedrooms', 'bathrooms', 'sqft', 'lotSize', 'style', 'yearBuilt', 'foundation', 'garage', 'waterfront', 'propertyClass', 'mlsId', 'listPrice'];
+  const allowed = ['notes', 'priceRange', 'estimatedDom', 'pricingNarrative', 'pricingBullets', 'sellerUpdate', 'status', 'address', 'city', 'bedrooms', 'bathrooms', 'sqft', 'lotSize', 'style', 'yearBuilt', 'foundation', 'garage', 'waterfront', 'propertyClass', 'mlsId', 'listPrice', 'suggestedListPrice'];
   const body = req.body || {};
   for (const k of allowed) if (k in body) cma[k] = body[k];
   // Nested comp edits
@@ -7655,10 +7655,24 @@ ${cma.marketTrend ? `MARKET TREND (segment): ${cma.marketTrend}` : ''}
 Return JSON in this exact shape (no markdown, no code fences):
 {
   "priceRange": { "low": <number>, "mid": <number>, "high": <number> },
+  "suggestedListPrice": <number>,
   "estimatedDom": <integer>,
-  "pricingNarrative": "<3-4 paragraph analysis: what the comps say, adjustments applied, recommended list price, why>",
+  "pricingBullets": [
+    "<bullet 1: subject snapshot — style, beds/baths, sqft, lot, year>",
+    "<bullet 2: where the comp solds cluster — actual prices, range>",
+    "<bullet 3: what the comps say about market temperature — DOM, price reductions>",
+    "<bullet 4: key adjustments applied to subject (vintage, baths, garage, lot, condition) with $ figures>",
+    "<bullet 5: where the actives sit and what that ceiling tells us>",
+    "<bullet 6: recommended list price + the negotiating room it leaves>",
+    "<bullet 7: realistic DOM expectation>"
+  ],
+  "pricingNarrative": "<3-4 paragraph version of the same analysis for the long-form section>",
   "sellerUpdate": "<3-4 sentence message Jonathan can send the seller explaining the comp set and recommended price range>"
 }
+
+The "suggestedListPrice" should normally be the priceRange.mid, OR mid plus a small premium (1-3%) to leave negotiation room — whichever you'd actually recommend listing at. Round to a clean ending ($429K, $432.5K, $435K — never $431,847).
+
+The "pricingBullets" must be 5-8 short bullets (each ≤ 25 words), one idea per bullet. Be specific. Reference actual comp addresses with $ figures. Apply adjustments explicitly. Designed for in-person presentation — clean, scannable, no fluff.
 
 Be specific. Reference actual comp addresses. Apply adjustments explicitly. If comps are sparse, say so and widen scope.`;
 
@@ -7674,6 +7688,12 @@ Be specific. Reference actual comp addresses. Apply adjustments explicitly. If c
         cma.estimatedDom = parsed.estimatedDom || cma.estimatedDom;
         cma.pricingNarrative = parsed.pricingNarrative || cma.pricingNarrative;
         cma.sellerUpdate = parsed.sellerUpdate || cma.sellerUpdate;
+        if (Array.isArray(parsed.pricingBullets)) cma.pricingBullets = parsed.pricingBullets;
+        if (typeof parsed.suggestedListPrice === 'number') cma.suggestedListPrice = parsed.suggestedListPrice;
+        // Sensible default for suggestedListPrice if model omitted: 2% above mid, rounded to nearest $500
+        if (!cma.suggestedListPrice && cma.priceRange?.mid) {
+          cma.suggestedListPrice = Math.round((cma.priceRange.mid * 1.02) / 500) * 500;
+        }
       } catch (e) {
         cma.pricingNarrative = text;
       }
@@ -7704,8 +7724,13 @@ app.get('/cma/:id/print', (req, res) => {
   if (!cma) return res.status(404).send('CMA not found');
   const esc = s => String(s || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
   const money = n => n ? '$' + Number(n).toLocaleString() : '—';
-  const streetViewUrl = `https://maps.googleapis.com/maps/api/streetview?size=1200x600&location=${encodeURIComponent(cma.address + ', ' + cma.city + ', ON')}&key=${process.env.GOOGLE_MAPS_API_KEY || ''}`;
-  const coverPhoto = cma.subjectPhotos?.[0] || (process.env.GOOGLE_MAPS_API_KEY ? streetViewUrl : null);
+  // Subject photo: try explicit subject photo → previous-listing photo → Google Street View → styled placeholder.
+  const mapsKey = process.env.GOOGLE_MAPS_API_KEY || '';
+  const streetViewUrl = mapsKey
+    ? `https://maps.googleapis.com/maps/api/streetview?size=1200x600&location=${encodeURIComponent(cma.address + ', ' + cma.city + ', ON, Canada')}&fov=80&pitch=0&key=${mapsKey}`
+    : null;
+  const previousListingPhoto = (cma.subjectHistory || []).find(h => h.photoUrl)?.photoUrl || null;
+  const coverPhoto = cma.subjectPhotos?.[0] || previousListingPhoto || streetViewUrl;
 
   res.send(`<!doctype html>
 <html><head>
@@ -7750,7 +7775,13 @@ app.get('/cma/:id/print', (req, res) => {
 
 <!-- PAGE 1: Cover -->
 <div class="page">
-  ${coverPhoto ? `<img src="${esc(coverPhoto)}" class="hero-photo" alt="${esc(cma.address)}" onerror="this.style.display='none'">` : ''}
+  ${coverPhoto
+    ? `<div style="position:relative;">
+         <img src="${esc(coverPhoto)}" class="hero-photo" alt="${esc(cma.address)}" onerror="this.parentElement.querySelector('.hero-fallback').style.display='flex'; this.style.display='none';">
+         <div class="hero-fallback" style="display:none; width:100%; height:320px; background: linear-gradient(135deg, #c8a96e, #78350f); border-radius: 8px; align-items: center; justify-content: center; color: #fff; font-size: 22px; font-weight: 700; text-align: center; padding: 20px; margin-bottom: 16px;">${esc(cma.address)}<br><span style="font-size: 14px; font-weight: 400; opacity: 0.85;">${esc(cma.city)}, ${esc(cma.province)}</span></div>
+       </div>`
+    : `<div style="width:100%; height:320px; background: linear-gradient(135deg, #c8a96e, #78350f); border-radius: 8px; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #fff; font-size: 22px; font-weight: 700; text-align: center; padding: 20px; margin-bottom: 16px;">${esc(cma.address)}<div style="font-size: 14px; font-weight: 400; opacity: 0.85; margin-top: 4px;">${esc(cma.city)}, ${esc(cma.province)}</div><div style="font-size: 11px; font-weight: 400; opacity: 0.65; margin-top: 12px;">Add GOOGLE_MAPS_API_KEY env var on Railway for Street View photos</div></div>`
+  }
   <h1>${esc(cma.address)}</h1>
   <div class="sub">${esc(cma.city)}, ${esc(cma.province)} · Comparative Market Analysis · Prepared ${new Date(cma.ranAt || cma.createdAt).toLocaleDateString('en-CA', { month: 'long', day: 'numeric', year: 'numeric' })}</div>
 
@@ -7774,6 +7805,14 @@ app.get('/cma/:id/print', (req, res) => {
     </div>
     ${cma.estimatedDom ? `<div style="text-align:center; margin-top: 12px; font-size: 12px; color: #78350f;"><strong>Estimated Days on Market:</strong> ${cma.estimatedDom}</div>` : ''}
   </div>
+
+  ${cma.suggestedListPrice ? `
+    <div style="background: #0f172a; color: #fff; border-radius: 10px; padding: 18px; margin: 8px 0 16px; text-align: center;">
+      <div style="font-size: 10px; font-weight: 700; color: #c8a96e; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 6px;">Suggested List Price</div>
+      <div style="font-size: 36px; font-weight: 800; color: #fff;">${money(cma.suggestedListPrice)}</div>
+      ${cma.priceRange?.mid && cma.suggestedListPrice !== cma.priceRange.mid ? `<div style="font-size: 11px; color: #9ca3af; margin-top: 6px;">Most-likely sale ${money(cma.priceRange.mid)} · listing premium ${Math.round(((cma.suggestedListPrice / cma.priceRange.mid) - 1) * 1000) / 10}% leaves negotiation room</div>` : ''}
+    </div>
+  ` : ''}
 
   <div class="footer">Jonathan Wallace · Faris Team Real Estate Brokerage · Page 1 of 5</div>
 </div>
@@ -7860,14 +7899,13 @@ ${(() => {
       <text x="0" y="134" font-size="10" fill="#4b5563" font-style="italic">Your home must be priced with intent.</text>
     </g>
 
-    <!-- SOLD TIMELINE -->
+    <!-- SOLD TIMELINE — clean version: only the recommended band + subject marker + comp dots, no inline labels -->
     <g transform="translate(20, 360)">
       <text x="0" y="0" font-size="12" font-weight="700" fill="#374151" style="letter-spacing:1px">RECENT SOLD DATA — WHERE YOUR HOME FITS</text>
-      <text x="0" y="18" font-size="10" fill="#6b7280">Each dot is a comparable sale. Your recommended range shown in gold.</text>
+      <text x="0" y="18" font-size="10" fill="#6b7280">Each green dot is a comparable sale. Numbered to the legend below. Recommended range in gold; subject mid price in dark circle.</text>
 
       <!-- Axis line -->
       <line x1="60" y1="90" x2="860" y2="90" stroke="#9ca3af" stroke-width="1.5" />
-      <!-- axis tick labels — min and max -->
       <text x="60" y="110" font-size="10" fill="#6b7280" text-anchor="middle">${fmtPrice(minP)}</text>
       <text x="860" y="110" font-size="10" fill="#6b7280" text-anchor="middle">${fmtPrice(maxP)}</text>
       <text x="460" y="110" font-size="10" fill="#6b7280" text-anchor="middle">${fmtPrice((minP + maxP) / 2)}</text>
@@ -7876,85 +7914,197 @@ ${(() => {
       <line x1="460" y1="86" x2="460" y2="94" stroke="#9ca3af" stroke-width="1" />
 
       ${cma.priceRange?.low && cma.priceRange?.high ? `
-        <!-- Recommended range band -->
         <rect x="${xFor(cma.priceRange.low)}" y="72" width="${Math.max(4, xFor(cma.priceRange.high) - xFor(cma.priceRange.low))}" height="36" fill="#fef3c7" stroke="#ca8a04" stroke-width="1.5" opacity="0.9" />
         <text x="${(xFor(cma.priceRange.low) + xFor(cma.priceRange.high)) / 2}" y="55" font-size="10" font-weight="700" fill="#78350f" text-anchor="middle">YOUR RECOMMENDED RANGE</text>
         <text x="${(xFor(cma.priceRange.low) + xFor(cma.priceRange.high)) / 2}" y="68" font-size="10" font-weight="700" fill="#78350f" text-anchor="middle">${fmtPrice(cma.priceRange.low)} – ${fmtPrice(cma.priceRange.high)}</text>
       ` : ''}
 
       ${cma.priceRange?.mid ? `
-        <!-- Subject's recommended mid price marker -->
-        <circle cx="${xFor(cma.priceRange.mid)}" cy="90" r="9" fill="#c8a96e" stroke="#78350f" stroke-width="2" />
-        <text x="${xFor(cma.priceRange.mid)}" y="138" font-size="11" font-weight="700" fill="#78350f" text-anchor="middle">${fmtPrice(cma.priceRange.mid)}</text>
-        <text x="${xFor(cma.priceRange.mid)}" y="150" font-size="9" fill="#78350f" text-anchor="middle">(recommended)</text>
+        <circle cx="${xFor(cma.priceRange.mid)}" cy="90" r="10" fill="#c8a96e" stroke="#78350f" stroke-width="2.5" />
+        <text x="${xFor(cma.priceRange.mid)}" y="140" font-size="11" font-weight="700" fill="#78350f" text-anchor="middle">${fmtPrice(cma.priceRange.mid)} (recommended)</text>
       ` : ''}
 
       ${cma.listPrice && cma.priceRange?.mid !== cma.listPrice ? `
-        <!-- Current listing price marker (if different from mid) -->
         <circle cx="${xFor(cma.listPrice)}" cy="90" r="7" fill="#111827" stroke="#fff" stroke-width="2" />
-        <text x="${xFor(cma.listPrice)}" y="180" font-size="10" font-weight="700" fill="#111827" text-anchor="middle">${fmtPrice(cma.listPrice)}</text>
-        <text x="${xFor(cma.listPrice)}" y="192" font-size="9" fill="#111827" text-anchor="middle">(current list)</text>
       ` : ''}
 
       ${compPrices.map((c, i) => {
         const cx = xFor(c.price);
-        const stagger = (i % 2 === 0) ? 14 : -14;
         return `
-          <circle cx="${cx}" cy="90" r="5" fill="#059669" stroke="#fff" stroke-width="1.5" />
-          <line x1="${cx}" y1="90" x2="${cx}" y2="${110 + stagger}" stroke="#9ca3af" stroke-width="0.5" stroke-dasharray="2,2" />
-          <text x="${cx}" y="${124 + stagger}" font-size="8.5" fill="#065f46" text-anchor="middle" font-weight="600">${esc((c.address || '').slice(0, 22))}</text>
-          <text x="${cx}" y="${134 + stagger}" font-size="8" fill="#065f46" text-anchor="middle">${fmtPrice(c.price)}${c.dom ? ` · ${c.dom}d` : ''}</text>
+          <circle cx="${cx}" cy="90" r="7" fill="#059669" stroke="#fff" stroke-width="1.5" />
+          <text x="${cx}" y="94" font-size="9" font-weight="700" fill="#fff" text-anchor="middle">${i + 1}</text>
         `;
       }).join('')}
     </g>
   </svg>
+
+  <!-- Legend — clean numbered list of comps below the chart, no overlap -->
+  ${compPrices.length ? `
+    <div style="margin-top: 8px; display: grid; grid-template-columns: 1fr 1fr; gap: 6px 18px; font-size: 11px;">
+      ${compPrices.map((c, i) => `
+        <div style="display: flex; align-items: center; gap: 8px; padding: 4px 0;">
+          <div style="flex: 0 0 18px; height: 18px; border-radius: 50%; background: #059669; color: #fff; font-size: 10px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center;">${i + 1}</div>
+          <div style="flex: 1; min-width: 0; overflow: hidden;">
+            <div style="font-weight: 600; color: #065f46; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${esc(c.address || '—')}</div>
+            <div style="font-size: 10px; color: #6b7280;">${fmtPrice(c.price)}${c.dom ? ` · ${c.dom} DOM` : ''}</div>
+          </div>
+        </div>
+      `).join('')}
+    </div>
+  ` : ''}
+
+  <!-- PRICING DISCIPLINE CASE STUDY — proves the pyramid using their own data -->
+  ${(() => {
+    const studyComps = (cma.comps?.solds || [])
+      .map(s => {
+        const sold = parseNum(s.priceNumeric || s.price);
+        const orig = parseNum(s.originalListPrice || s.listPrice);
+        if (!sold || !orig) return null;
+        const drop = orig - sold;
+        const dropPct = (drop / orig) * 100;
+        return { ...s, sold, orig, drop, dropPct, dom: parseInt(s.dom) || 0 };
+      })
+      .filter(Boolean)
+      .sort((a, b) => a.dropPct - b.dropPct); // smallest drop first
+    if (studyComps.length < 2) return '';
+    const maxDrop = Math.max(...studyComps.map(c => Math.abs(c.dropPct)), 1);
+    const tier = (pct) => {
+      if (pct < 2) return { label: 'PRICED RIGHT', color: '#059669', bg: '#dcfce7' };
+      if (pct < 4) return { label: 'CLOSE',        color: '#ca8a04', bg: '#fef3c7' };
+      if (pct < 7) return { label: 'CHASED',       color: '#ea580c', bg: '#ffedd5' };
+      return                   { label: 'OVERPRICED',   color: '#dc2626', bg: '#fee2e2' };
+    };
+    const best = studyComps[0];
+    const worst = studyComps[studyComps.length - 1];
+    return `
+      <div style="margin-top: 24px; padding-top: 18px; border-top: 2px solid #e5e7eb;">
+        <h3 style="margin: 0 0 4px; font-size: 14px; color: #0f172a; font-weight: 700;">PRICING DISCIPLINE — what your own market just proved</h3>
+        <div style="font-size: 11px; color: #6b7280; margin-bottom: 14px;">Each row: list price → sold price. Bars show how far below original list the home eventually sold.</div>
+
+        <div style="display: flex; flex-direction: column; gap: 10px;">
+          ${studyComps.map(c => {
+            const t = tier(c.dropPct);
+            const barWidthPct = Math.max(4, (Math.abs(c.dropPct) / maxDrop) * 70);
+            return `
+              <div style="display: grid; grid-template-columns: 1.3fr 1.6fr 0.8fr; gap: 10px; align-items: center; font-size: 11px;">
+                <div>
+                  <div style="font-weight: 700; color: #0f172a;">${esc((c.address || '—').split(',')[0])}</div>
+                  <div style="font-size: 9.5px; color: #6b7280;">${c.dom} days on market</div>
+                </div>
+                <div>
+                  <div style="display: flex; align-items: center; gap: 6px; font-size: 10.5px;">
+                    <span style="color: #6b7280;">Listed <strong style="color: #0f172a;">${fmtPrice(c.orig)}</strong></span>
+                    <span style="color: #9ca3af;">→</span>
+                    <span style="color: #6b7280;">Sold <strong style="color: ${t.color};">${fmtPrice(c.sold)}</strong></span>
+                  </div>
+                  <div style="margin-top: 4px; height: 8px; background: #f3f4f6; border-radius: 4px; position: relative; overflow: hidden;">
+                    <div style="position: absolute; left: 0; top: 0; bottom: 0; width: ${barWidthPct}%; background: ${t.color}; border-radius: 4px;"></div>
+                  </div>
+                </div>
+                <div style="text-align: right;">
+                  <span style="display: inline-block; font-size: 9px; font-weight: 700; padding: 2px 6px; border-radius: 3px; background: ${t.bg}; color: ${t.color}; letter-spacing: 0.4px;">${t.label}</span>
+                  <div style="font-size: 11px; font-weight: 700; color: ${t.color}; margin-top: 3px;">−${fmtPrice(c.drop)}</div>
+                  <div style="font-size: 9px; color: #6b7280;">−${c.dropPct.toFixed(1)}% off list</div>
+                </div>
+              </div>
+            `;
+          }).join('')}
+        </div>
+
+        <div style="margin-top: 14px; padding: 12px 14px; background: #0f172a; color: #fff; border-radius: 8px;">
+          <div style="font-size: 10px; font-weight: 700; color: #c8a96e; text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 4px;">The takeaway</div>
+          <div style="font-size: 11.5px; line-height: 1.5;">
+            <strong style="color: #4ade80;">${esc((best.address || '').split(',')[0])}</strong> priced closest to fair market (only −${best.dropPct.toFixed(1)}% off list) and sold in ${best.dom} days for ${fmtPrice(best.sold)}.
+            <strong style="color: #f87171;">${esc((worst.address || '').split(',')[0])}</strong> started ${worst.dropPct.toFixed(1)}% above market — chased the price down for ${worst.dom} days and gave up <strong>${fmtPrice(worst.drop)}</strong> in negotiation.
+            The homes priced with discipline got the highest % of list, fastest. Overpriced sellers paid the carrying costs AND took the bigger discount.
+          </div>
+        </div>
+      </div>
+    `;
+  })()}
 
   <div class="footer">Jonathan Wallace · Faris Team Real Estate Brokerage · Page 2 of 5</div>
 </div>
 `;
 })()}
 
-<!-- PAGE 3: Comps -->
-<div class="page">
-  <h2>Recent Solds (${cma.comps?.solds?.length || 0})</h2>
-  <table>
-    <thead><tr><th>Address</th><th>Sold</th><th>Price</th><th>Bed/Bath</th><th>Sqft</th><th>Style</th><th>DOM</th></tr></thead>
-    <tbody>
-      ${(cma.comps?.solds || []).map(s => `<tr>
-        <td><strong>${esc(s.address)}</strong></td>
-        <td>${esc(s.soldDate || '—')}</td>
-        <td>${esc(s.price || '—')}${s.priceChange ? `<br><span style="color:#dc2626;font-size:10px">${esc(s.priceChange)}</span>` : ''}</td>
-        <td>${esc(s.beds)}/${esc(s.baths)}</td>
-        <td>${esc(s.sqft || '—')}</td>
-        <td>${esc(s.style || '—')}</td>
-        <td>${esc(s.dom || '—')}</td>
-      </tr>`).join('') || '<tr><td colspan="7" style="text-align:center; color:#9ca3af; padding: 20px;">No sold comps yet</td></tr>'}
-    </tbody>
-  </table>
+<!-- PAGE 3: Comp cards with photos -->
+${(() => {
+  const mapsKey = process.env.GOOGLE_MAPS_API_KEY || '';
+  const compPhoto = (c) => {
+    if (c.photoUrl) return esc(c.photoUrl);
+    if (mapsKey && c.address) {
+      const loc = encodeURIComponent(`${c.address}, ${cma.city || 'Midland'}, ON, Canada`);
+      return `https://maps.googleapis.com/maps/api/streetview?size=400x260&location=${loc}&fov=80&pitch=0&key=${mapsKey}`;
+    }
+    return null;
+  };
+  const compCard = (c, kind) => {
+    const photo = compPhoto(c);
+    const accent = kind === 'sold' ? '#059669' : '#1e40af';
+    const accentBg = kind === 'sold' ? '#dcfce7' : '#dbeafe';
+    const accentText = kind === 'sold' ? '#166534' : '#1e40af';
+    return `
+      <div style="border: 1px solid #e5e7eb; border-radius: 10px; overflow: hidden; background: #fff; display: flex; flex-direction: column;">
+        ${photo
+          ? `<img src="${photo}" alt="${esc(c.address)}" style="width: 100%; height: 130px; object-fit: cover; display: block;" onerror="this.parentElement.querySelector('.photo-fallback').style.display='flex'; this.style.display='none';">
+             <div class="photo-fallback" style="display:none; width: 100%; height: 130px; background: linear-gradient(135deg, #f3f4f6, #e5e7eb); align-items: center; justify-content: center; color: #6b7280; font-size: 11px; font-weight: 600;">${esc(c.address)}</div>`
+          : `<div style="width: 100%; height: 130px; background: linear-gradient(135deg, #f3f4f6, #e5e7eb); display: flex; align-items: center; justify-content: center; color: #6b7280; font-size: 11px; font-weight: 600; text-align: center; padding: 8px;">${esc(c.address)}</div>`
+        }
+        <div style="padding: 10px 12px; flex: 1; display: flex; flex-direction: column;">
+          <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 6px; margin-bottom: 6px;">
+            <div style="font-size: 12px; font-weight: 700; color: #0f172a; min-width: 0; flex: 1; line-height: 1.25;">${esc(c.address)}</div>
+            <span style="font-size: 9px; font-weight: 700; color: ${accentText}; background: ${accentBg}; padding: 2px 6px; border-radius: 3px; text-transform: uppercase; letter-spacing: 0.4px; white-space: nowrap;">${kind === 'sold' ? 'SOLD' : (esc(c.status || 'Active'))}</span>
+          </div>
+          <div style="font-size: 18px; font-weight: 800; color: ${accent}; margin-bottom: 6px;">${esc(c.price || '—')}${c.priceChange ? `<span style="font-size: 10px; color: #dc2626; font-weight: 600; margin-left: 6px;">${esc(c.priceChange)}</span>` : ''}</div>
+          <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; font-size: 10px; color: #4b5563;">
+            <div><strong style="color:#0f172a;">${esc(c.beds || '—')}</strong> bed</div>
+            <div><strong style="color:#0f172a;">${esc(c.baths || '—')}</strong> bath</div>
+            <div><strong style="color:#0f172a;">${esc(c.sqft || '—')}</strong> sqft</div>
+            <div><strong style="color:#0f172a;">${esc(c.dom || '—')}</strong> DOM</div>
+          </div>
+          ${kind === 'sold' && c.soldDate ? `<div style="font-size: 9px; color: #9ca3af; margin-top: 6px;">Sold ${esc(c.soldDate)}</div>` : ''}
+          ${c.style ? `<div style="font-size: 9px; color: #9ca3af; margin-top: ${kind === 'sold' && c.soldDate ? '2px' : '6px'};">${esc(c.style)}</div>` : ''}
+        </div>
+      </div>
+    `;
+  };
+  const solds = cma.comps?.solds || [];
+  const actives = cma.comps?.actives || [];
+  return `
+    <div class="page">
+      <h2>Recent Solds (${solds.length})</h2>
+      <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin: 8px 0 18px;">
+        ${solds.length ? solds.map(s => compCard(s, 'sold')).join('') : '<div style="grid-column: span 2; text-align: center; color: #9ca3af; padding: 30px; font-size: 12px;">No sold comps yet</div>'}
+      </div>
 
-  <h2>Current Competition — Actives (${cma.comps?.actives?.length || 0})</h2>
-  <table>
-    <thead><tr><th>Address</th><th>Status</th><th>Price</th><th>Bed/Bath</th><th>Sqft</th><th>Style</th><th>DOM</th></tr></thead>
-    <tbody>
-      ${(cma.comps?.actives || []).map(a => `<tr>
-        <td><strong>${esc(a.address)}</strong></td>
-        <td>${esc(a.status || 'Active')}</td>
-        <td>${esc(a.price || '—')}</td>
-        <td>${esc(a.beds)}/${esc(a.baths)}</td>
-        <td>${esc(a.sqft || '—')}</td>
-        <td>${esc(a.style || '—')}</td>
-        <td>${esc(a.dom || '—')}</td>
-      </tr>`).join('') || '<tr><td colspan="7" style="text-align:center; color:#9ca3af; padding: 20px;">No active comps yet</td></tr>'}
-    </tbody>
-  </table>
+      <h2>Current Competition — Actives (${actives.length})</h2>
+      <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin: 8px 0;">
+        ${actives.length ? actives.map(a => compCard(a, 'active')).join('') : '<div style="grid-column: span 2; text-align: center; color: #9ca3af; padding: 30px; font-size: 12px;">No active comps yet</div>'}
+      </div>
 
-  <div class="footer">Jonathan Wallace · Faris Team Real Estate Brokerage · Page 3 of 5</div>
-</div>
+      <div class="footer">Jonathan Wallace · Faris Team Real Estate Brokerage · Page 3 of 5</div>
+    </div>
+  `;
+})()}
 
-<!-- PAGE 3: Analysis -->
+<!-- PAGE 4: Analysis (bullet-point format for in-person presentation) -->
 <div class="page">
   <h2>Pricing Analysis</h2>
-  <div class="narrative">${esc(cma.pricingNarrative || 'Pricing analysis will be generated once comps are ingested.')}</div>
+  ${Array.isArray(cma.pricingBullets) && cma.pricingBullets.length ? `
+    <ul style="font-size: 13px; line-height: 1.7; color: #1f2937; padding-left: 22px; margin: 8px 0 16px;">
+      ${cma.pricingBullets.map(b => `<li style="margin-bottom: 8px;">${esc(b)}</li>`).join('')}
+    </ul>
+  ` : `
+    <div class="narrative">${esc(cma.pricingNarrative || 'Pricing analysis will be generated once comps are ingested.')}</div>
+  `}
+
+  ${cma.suggestedListPrice ? `
+    <div style="background: #fef3c7; border-left: 4px solid #c8a96e; padding: 14px 18px; border-radius: 6px; margin: 18px 0 24px;">
+      <div style="font-size: 11px; font-weight: 700; color: #92400e; text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 4px;">Suggested List Price</div>
+      <div style="font-size: 28px; font-weight: 800; color: #78350f;">${money(cma.suggestedListPrice)}</div>
+    </div>
+  ` : ''}
 
   ${cma.sellerUpdate ? `
     <h2>Seller Update</h2>
