@@ -6431,6 +6431,21 @@ function ListingForm() {
             background: '#fff', color: '#6b7280', border: '1px solid #d1d5db', fontSize: 12, fontWeight: 600, cursor: 'pointer',
           }}><RotateCcw size={13} /> Reset</button>
           {activePropertyId && (
+            <button
+              onClick={async () => {
+                // Save first so the print view reflects the latest edits.
+                await saveForm();
+                const url = `/api/listing-form/${activePropertyId}/print`;
+                window.open(url, '_blank', 'noopener,noreferrer');
+              }}
+              title="Open a printable listing sheet in a new tab — the print dialog launches automatically; pick Save as PDF"
+              style={{
+                display: 'flex', alignItems: 'center', gap: 6, padding: '8px 12px', borderRadius: 8,
+                background: '#fff', color: '#2563eb', border: '1px solid #2563eb', fontSize: 12, fontWeight: 600, cursor: 'pointer',
+              }}
+            ><FileText size={13} /> Print / PDF</button>
+          )}
+          {activePropertyId && (
             <button onClick={closeListing} title="Close the listing: archive the deal card, scrub the address from FUB, move the contact to Past Client" style={{
               display: 'flex', alignItems: 'center', gap: 6, padding: '8px 12px', borderRadius: 8,
               background: '#fff', color: '#059669', border: '1px solid #10b981', fontSize: 12, fontWeight: 600, cursor: 'pointer',
