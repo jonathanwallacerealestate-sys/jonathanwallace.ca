@@ -5958,6 +5958,7 @@ function ListingForm() {
   const [fubAppointments, setFubAppointments] = useState([]);
   const [loadingFub, setLoadingFub] = useState(false);
   const [importingFub, setImportingFub] = useState(null);
+  const [appointmentsExpanded, setAppointmentsExpanded] = useState(true);
   const geoFileRef = useRef(null);
   const mlsFileRef = useRef(null);
   const saveTimerRef = useRef(null);
@@ -6186,6 +6187,13 @@ function ListingForm() {
 
   useEffect(() => { fetchProperties(); fetchFubAppointments(); }, []);
 
+  // Auto-collapse the Active Clients panel when a deal card is opened (so the
+  // form below stays visible); auto-expand when Jonathan returns to a blank slate.
+  useEffect(() => {
+    if (activePropertyId) setAppointmentsExpanded(false);
+    else setAppointmentsExpanded(true);
+  }, [activePropertyId]);
+
   // Auto-generate propertyId when address changes
   useEffect(() => {
     if (!activePropertyId && form.address && form.address.length > 3) {
@@ -6249,10 +6257,27 @@ function ListingForm() {
         }}><Trash size={14} color="#ef4444" /></button>}
       </div>
 
-      {/* FUB LISTING APPOINTMENTS — incoming from Follow Up Boss */}
+      {/* ACTIVE CLIENTS FROM FUB — collapses to a thin bar when a deal card is
+          open so the form below stays visible. Click the header to expand/collapse. */}
       {fubAppointments.filter(a => !a.hasListingForm).length > 0 && (
-        <div style={{ background: '#fffbf0', borderRadius: 10, border: '1px solid #f0dca0', padding: '14px 16px', marginBottom: 12 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+        <div style={{
+          background: '#fffbf0', borderRadius: 10, border: '1px solid #f0dca0',
+          padding: appointmentsExpanded ? '14px 16px' : '8px 14px',
+          marginBottom: 12, transition: 'padding 0.15s',
+        }}>
+          <div
+            onClick={() => setAppointmentsExpanded(e => !e)}
+            role="button"
+            tabIndex={0}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setAppointmentsExpanded(v => !v); } }}
+            title={appointmentsExpanded ? 'Collapse' : 'Expand to see active clients'}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer',
+              marginBottom: appointmentsExpanded ? 10 : 0,
+              userSelect: 'none',
+            }}
+          >
+            {appointmentsExpanded ? <ChevronDown size={14} color="#92730a" /> : <ChevronRight size={14} color="#92730a" />}
             <Users size={14} color="#92730a" />
             <span style={{ fontSize: 12, fontWeight: 700, color: '#92730a', textTransform: 'uppercase', letterSpacing: 0.5 }}>
               Active Clients from Follow Up Boss
@@ -6261,10 +6286,15 @@ function ListingForm() {
               {fubAppointments.filter(a => !a.hasListingForm).length} new
             </span>
             <div style={{ flex: 1 }} />
-            <button onClick={fetchFubAppointments} disabled={loadingFub} style={{
-              fontSize: 10, color: '#92730a', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline',
-            }}>{loadingFub ? 'Syncing...' : 'Refresh'}</button>
+            <button
+              onClick={(e) => { e.stopPropagation(); fetchFubAppointments(); }}
+              disabled={loadingFub}
+              style={{
+                fontSize: 10, color: '#92730a', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline',
+              }}
+            >{loadingFub ? 'Syncing...' : 'Refresh'}</button>
           </div>
+          {appointmentsExpanded && (<>
           <div style={{ fontSize: 10, color: '#92730a', marginTop: -4, marginBottom: 8, fontStyle: 'italic' }}>
             Click a client to open their deal card.
           </div>
@@ -6327,6 +6357,7 @@ function ListingForm() {
               );
             })}
           </div>
+          </>)}
         </div>
       )}
 
