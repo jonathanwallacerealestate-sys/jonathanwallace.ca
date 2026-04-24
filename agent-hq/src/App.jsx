@@ -5959,6 +5959,14 @@ function ListingForm() {
   const [loadingFub, setLoadingFub] = useState(false);
   const [importingFub, setImportingFub] = useState(null);
   const [appointmentsExpanded, setAppointmentsExpanded] = useState(true);
+  const [photos, setPhotos] = useState([]);
+  const [photosLoading, setPhotosLoading] = useState(false);
+  const [photosUploading, setPhotosUploading] = useState(false);
+  const [extractLoading, setExtractLoading] = useState(false);
+  const [extractResult, setExtractResult] = useState(null);
+  const [photosDragOver, setPhotosDragOver] = useState(false);
+  const [dismissedSuggestions, setDismissedSuggestions] = useState({}); // keyed by field name
+  const photoFileRef = useRef(null);
   const geoFileRef = useRef(null);
   const mlsFileRef = useRef(null);
   const saveTimerRef = useRef(null);
@@ -6196,6 +6204,105 @@ function ListingForm() {
     setImportingFub(null);
   };
 
+  // ─── PHOTOS ───
+  const fetchPhotos = async (propertyId) => {
+    if (!propertyId) { setPhotos([]); setExtractResult(null); return; }
+    setPhotosLoading(true);
+    try {
+      const res = await fetch(`/api/listing-form/${propertyId}/photos`);
+      const data = await res.json();
+      if (data.success) {
+        setPhotos(data.photos || []);
+        setExtractResult(data.extract || null);
+      }
+    } catch (err) { console.error('Failed to load photos:', err); }
+    setPhotosLoading(false);
+  };
+
+  const uploadPhotos = async (fileList) => {
+    const propertyId = activePropertyId || form.propertyId;
+    if (!propertyId) { alert('Save the deal card first (needs an address) before uploading photos.'); return; }
+    const files = Array.from(fileList || []).filter(f => /^image\//.test(f.type));
+    if (files.length === 0) return;
+    setPhotosUploading(true);
+    try {
+      const fd = new FormData();
+      for (const f of files) fd.append('photos', f, f.name);
+      const res = await fetch(`/api/listing-form/${propertyId}/photos`, { method: 'POST', body: fd });
+      const data = await res.json();
+      if (data.success) await fetchPhotos(propertyId);
+      else alert(`Upload failed: ${data.error || 'unknown'}`);
+    } catch (err) { alert(`Upload failed: ${err.message}`); }
+    setPhotosUploading(false);
+  };
+
+  const deletePhoto = async (filename) => {
+    const propertyId = activePropertyId || form.propertyId;
+    if (!propertyId) return;
+    if (!confirm(`Delete ${filename}?`)) return;
+    try {
+      await fetch(`/api/listing-form/${propertyId}/photos/${encodeURIComponent(filename)}`, { method: 'DELETE' });
+      fetchPhotos(propertyId);
+    } catch {}
+  };
+
+  const runExtract = async () => {
+    const propertyId = activePropertyId || form.propertyId;
+    if (!propertyId) return;
+    if (photos.length === 0) { alert('Upload some photos first.'); return; }
+    setExtractLoading(true);
+    setDismissedSuggestions({});
+    try {
+      const res = await fetch(`/api/listing-form/${propertyId}/photos/extract`, { method: 'POST' });
+      const data = await res.json();
+      if (data.success) setExtractResult(data);
+      else alert(`Extract failed: ${data.error || 'unknown'}`);
+    } catch (err) { alert(`Extract failed: ${err.message}`); }
+    setExtractLoading(false);
+  };
+
+  // Mapping from photo-vision field name -> deal-card form field
+  const SUGGESTION_FIELD_MAP = {
+    roofType:         { formField: 'roofType',         label: 'Roof Type' },
+    roofAge:          { formField: 'roofAge',          label: 'Roof Condition' },
+    exteriorMaterial: { formField: 'exteriorMaterial', label: 'Exterior Material' },
+    foundationType:   { formField: 'foundationType',   label: 'Foundation Type' },
+    flooringSummary:  { formField: null,               label: 'Flooring (summary)', informational: true },
+    bathroomsDetected:{ formField: null,               label: 'Bathrooms detected', informational: true },
+    kitchenSummary:   { formField: 'kitchenFeatures',  label: 'Kitchen', createField: true },
+    acUnitOutsideSummary:{ formField: 'acUnitOutside', label: 'A/C (outside)', createField: true },
+    heatSystem:       { formField: 'heatingType',      label: 'Heating System' },
+    waterfront:       { formField: 'waterfront',       label: 'Waterfront' },
+    notableFeatures:  { formField: 'notableFeatures',  label: 'Notable features', createField: true },
+  };
+
+  const acceptSuggestion = (suggestion) => {
+    const map = SUGGESTION_FIELD_MAP[suggestion.field];
+    if (!map) return;
+    if (map.informational) {
+      // Just dismiss informational suggestions; no form field to fill.
+      setDismissedSuggestions(prev => ({ ...prev, [suggestion.field]: 'accepted' }));
+      return;
+    }
+    if (!map.formField) return;
+    updateField(map.formField, suggestion.value);
+    setDismissedSuggestions(prev => ({ ...prev, [suggestion.field]: 'accepted' }));
+  };
+
+  const rejectSuggestion = async (suggestion) => {
+    const propertyId = activePropertyId || form.propertyId;
+    setDismissedSuggestions(prev => ({ ...prev, [suggestion.field]: 'rejected' }));
+    if (!propertyId) return;
+    try {
+      await fetch(`/api/listing-form/${propertyId}/photos/suggestions/reject`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          field: suggestion.field, suggestedValue: suggestion.value, evidence: suggestion.evidence,
+        }),
+      });
+    } catch {}
+  };
+
   useEffect(() => {
     fetchProperties();
     fetchFubAppointments();
@@ -6216,6 +6323,13 @@ function ListingForm() {
   useEffect(() => {
     if (activePropertyId) setAppointmentsExpanded(false);
     else setAppointmentsExpanded(true);
+  }, [activePropertyId]);
+
+  // When the active deal changes, pull its attached photos (and any cached
+  // extract result). When we unload / hit New Listing, clear.
+  useEffect(() => {
+    fetchPhotos(activePropertyId);
+    setDismissedSuggestions({});
   }, [activePropertyId]);
 
   // Auto-generate propertyId when address changes
@@ -6501,6 +6615,211 @@ function ListingForm() {
               <FormField label="Email">{inp('sellerEmail2', '')}</FormField>
               <FormField label="Occupancy Status">{sel('occupancy', ['Owner Occupied', 'Tenant Occupied', 'Vacant', 'Seasonal'], 'Select...')}</FormField>
             </div>
+          </FormSection>
+
+          {/* SECTION 2B: PHOTOS — drop photos, auto-extract into the data sheet */}
+          <FormSection title="Photos" icon={FileText} expanded={expanded.photos !== false} onToggle={() => toggle('photos')} badge={photos.length || null}>
+            {!activePropertyId && (
+              <div style={{ fontSize: 12, color: '#6b7280', padding: '12px 2px' }}>
+                Save the deal card first (fill in the address) to attach photos.
+              </div>
+            )}
+            {activePropertyId && (
+              <>
+                {/* Dropzone */}
+                <div
+                  onDragOver={(e) => { e.preventDefault(); setPhotosDragOver(true); }}
+                  onDragLeave={() => setPhotosDragOver(false)}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    setPhotosDragOver(false);
+                    if (e.dataTransfer?.files) uploadPhotos(e.dataTransfer.files);
+                  }}
+                  onClick={() => photoFileRef.current?.click()}
+                  style={{
+                    border: `2px dashed ${photosDragOver ? '#c8a96e' : '#d1d5db'}`,
+                    background: photosDragOver ? '#fffbf0' : '#fafafa',
+                    borderRadius: 10, padding: '20px 16px', textAlign: 'center', cursor: 'pointer',
+                    marginBottom: 12, transition: 'background 0.12s, border-color 0.12s',
+                  }}
+                >
+                  <input
+                    ref={photoFileRef}
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    style={{ display: 'none' }}
+                    onChange={(e) => { uploadPhotos(e.target.files); e.target.value = ''; }}
+                  />
+                  <div style={{ fontSize: 13, color: '#4b5563', fontWeight: 600, marginBottom: 4 }}>
+                    {photosUploading ? 'Uploading…' : 'Drop photos here, or click to browse'}
+                  </div>
+                  <div style={{ fontSize: 11, color: '#9ca3af' }}>
+                    JPG / PNG / HEIC up to 25MB each · one folder per listing
+                  </div>
+                </div>
+
+                {/* Photo grid */}
+                {photosLoading ? (
+                  <div style={{ textAlign: 'center', color: '#9ca3af', fontSize: 12, padding: 12 }}>
+                    <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> Loading photos…
+                  </div>
+                ) : photos.length === 0 ? (
+                  <div style={{ fontSize: 11, color: '#9ca3af', textAlign: 'center', padding: 4 }}>
+                    No photos attached yet.
+                  </div>
+                ) : (
+                  <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fill, minmax(110px, 1fr))',
+                    gap: 8, marginBottom: 12,
+                  }}>
+                    {photos.map(p => (
+                      <div key={p.filename} style={{
+                        position: 'relative', borderRadius: 8, overflow: 'hidden',
+                        border: '1px solid #e5e7eb', background: '#f3f4f6',
+                        aspectRatio: '1 / 1',
+                      }}>
+                        <img
+                          src={`/api/listing-form/${activePropertyId}/photos/${encodeURIComponent(p.filename)}`}
+                          alt={p.filename}
+                          style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+                        />
+                        <button
+                          onClick={() => deletePhoto(p.filename)}
+                          title="Delete photo"
+                          style={{
+                            position: 'absolute', top: 4, right: 4, width: 22, height: 22,
+                            borderRadius: 11, border: 'none', background: 'rgba(17,24,39,0.65)',
+                            color: '#fff', cursor: 'pointer', display: 'flex',
+                            alignItems: 'center', justifyContent: 'center',
+                          }}
+                        ><X size={12} /></button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Extract button + summary */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                  <button
+                    onClick={runExtract}
+                    disabled={extractLoading || photos.length === 0}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 8,
+                      border: '1px solid #c8a96e', background: photos.length === 0 ? '#f3f4f6' : '#c8a96e',
+                      color: photos.length === 0 ? '#9ca3af' : '#fff',
+                      fontSize: 12, fontWeight: 600, cursor: photos.length === 0 ? 'not-allowed' : 'pointer',
+                    }}
+                  >
+                    {extractLoading ? (
+                      <><Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> Analyzing {photos.length} photo{photos.length === 1 ? '' : 's'}…</>
+                    ) : (
+                      <><Play size={13} /> Extract from photos</>
+                    )}
+                  </button>
+                  {extractResult && (
+                    <span style={{ fontSize: 11, color: '#6b7280' }}>
+                      {extractResult.analyzed}/{extractResult.photoCount} analyzed
+                      {extractResult.extractedAt && ` · ${new Date(extractResult.extractedAt).toLocaleTimeString()}`}
+                    </span>
+                  )}
+                </div>
+
+                {/* Suggestions */}
+                {extractResult && extractResult.suggestions && extractResult.suggestions.length > 0 && (
+                  <div style={{ marginTop: 14, borderTop: '1px dashed #e5e7eb', paddingTop: 12 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: '#6b7280', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 }}>
+                      Suggestions — only fields still empty will be filled
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      {extractResult.suggestions.map(s => {
+                        const map = SUGGESTION_FIELD_MAP[s.field] || { label: s.field };
+                        const status = dismissedSuggestions[s.field]; // 'accepted' | 'rejected' | undefined
+                        const currentFormValue = map.formField ? (form[map.formField] || '') : '';
+                        const fieldAlreadyFilled = !!currentFormValue && !map.informational;
+                        const confidenceColor = s.confidence === 'high' ? '#059669' : s.confidence === 'medium' ? '#d97706' : '#9ca3af';
+                        return (
+                          <div key={s.field} style={{
+                            display: 'flex', alignItems: 'center', gap: 10,
+                            padding: '10px 12px', borderRadius: 8,
+                            border: '1px solid ' + (status === 'accepted' ? '#10b981' : status === 'rejected' ? '#e5e7eb' : '#e5e7eb'),
+                            background: status === 'accepted' ? '#ecfdf5' : '#fff',
+                            opacity: status === 'rejected' ? 0.55 : 1,
+                          }}>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ fontSize: 12, fontWeight: 700, color: '#111827' }}>
+                                {map.label}
+                                <span style={{ marginLeft: 8, fontSize: 10, fontWeight: 600, color: confidenceColor, textTransform: 'uppercase', letterSpacing: 0.3 }}>
+                                  {s.confidence}
+                                </span>
+                                {s.evidence && s.evidence.length > 0 && (
+                                  <span style={{ marginLeft: 8, fontSize: 10, color: '#9ca3af' }}>
+                                    · {s.evidence.length} photo{s.evidence.length === 1 ? '' : 's'}
+                                  </span>
+                                )}
+                              </div>
+                              <div style={{ fontSize: 12, color: '#374151', marginTop: 2, wordBreak: 'break-word' }}>
+                                {s.value}
+                              </div>
+                              {fieldAlreadyFilled && (
+                                <div style={{ fontSize: 10, color: '#d97706', marginTop: 2, fontStyle: 'italic' }}>
+                                  Field already has "{currentFormValue}" — accept will overwrite.
+                                </div>
+                              )}
+                              {map.informational && (
+                                <div style={{ fontSize: 10, color: '#6b7280', marginTop: 2, fontStyle: 'italic' }}>
+                                  Informational — use to update Bedrooms / Bathrooms / Rooms manually.
+                                </div>
+                              )}
+                            </div>
+                            {!status && (
+                              <>
+                                <button
+                                  onClick={() => acceptSuggestion(s)}
+                                  disabled={map.informational === true && !map.formField}
+                                  title={map.informational ? 'Acknowledge and dismiss' : 'Fill the field with this value'}
+                                  style={{
+                                    padding: '6px 12px', borderRadius: 6, border: '1px solid #10b981',
+                                    background: '#10b981', color: '#fff', fontSize: 11, fontWeight: 600, cursor: 'pointer',
+                                  }}
+                                >{map.informational ? 'OK' : 'Accept'}</button>
+                                <button
+                                  onClick={() => rejectSuggestion(s)}
+                                  title="Mark wrong — helps the next run learn"
+                                  style={{
+                                    padding: '6px 12px', borderRadius: 6, border: '1px solid #fca5a5',
+                                    background: '#fff', color: '#ef4444', fontSize: 11, fontWeight: 600, cursor: 'pointer',
+                                  }}
+                                >Reject</button>
+                              </>
+                            )}
+                            {status === 'accepted' && (
+                              <span style={{ fontSize: 11, fontWeight: 600, color: '#059669', display: 'flex', alignItems: 'center', gap: 4 }}>
+                                <CheckCircle2 size={13} /> Accepted
+                              </span>
+                            )}
+                            {status === 'rejected' && (
+                              <span style={{ fontSize: 11, fontWeight: 600, color: '#9ca3af' }}>Rejected</span>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                    {extractResult.descriptive && extractResult.descriptive.length > 0 && (
+                      <div style={{ marginTop: 12, padding: 10, background: '#fffbf0', borderRadius: 8, border: '1px dashed #f0dca0' }}>
+                        <div style={{ fontSize: 10, fontWeight: 700, color: '#92730a', textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 6 }}>
+                          Descriptive snippets — saved for MLS description generator (Stage 2)
+                        </div>
+                        <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12, color: '#4b5563', lineHeight: 1.5 }}>
+                          {extractResult.descriptive.slice(0, 8).map((s, i) => <li key={i}>{s}</li>)}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </>
+            )}
           </FormSection>
 
           {/* SECTION 3: BEDROOMS & BATHROOMS */}
