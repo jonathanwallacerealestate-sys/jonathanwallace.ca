@@ -7,7 +7,7 @@ import {
   UserCheck, CalendarPlus, Zap, MessageCircle, X, Sparkles, Timer, Star,
   Send, Archive, Reply, AlertTriangle, Coffee, Sun, Flame, Snowflake,
   UserPlus, RotateCcw, Eye, EyeOff, ChevronUp, MoreHorizontal, Inbox,
-  Flag, Trash2, PenLine, Check, ExternalLink, RefreshCw,
+  Flag, Trash2, PenLine, Check, ExternalLink, RefreshCw, Copy,
   GripVertical, ClipboardList, Home, Plus, Save, Loader2, Trash, RotateCw,
   TrendingUp, BarChart3, MessageSquare,
 } from "lucide-react";
@@ -6577,6 +6577,59 @@ function ListingForm() {
           border: '1px solid #c8a96e', background: '#fffbf0', color: '#92730a',
           fontSize: 11, fontWeight: 600, cursor: 'pointer',
         }}><Send size={13} /> Send Form to Seller</button>
+      </div>
+
+      {/* DEPLOY TARGETS — where this listing's data is pushed. Today: Sisu.
+          Tomorrow (once the REALM destination is wired) this row grows to
+          hold a REALM URL too. The /sisu-export endpoint already returns
+          whatever is pasted here as `sisuUrl` so the Chrome extension can
+          navigate before populating fields. */}
+      <div style={{
+        background: '#fff', borderRadius: 10, border: '1px solid #e5e7eb',
+        padding: '12px 16px', marginBottom: 12,
+        display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
+      }}>
+        <span style={{ fontSize: 11, fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', letterSpacing: 0.5, marginRight: 4 }}>
+          Deploy → Sisu:
+        </span>
+        <input
+          type="url"
+          value={form.sisuTransactionUrl || ''}
+          onChange={e => updateField('sisuTransactionUrl', e.target.value)}
+          placeholder="Paste Sisu transaction URL (e.g. https://app.sisu.co/app/transactions/6361210/edit/draft-100a-…)"
+          style={{ flex: 1, minWidth: 240, fontSize: 12, padding: '6px 10px', borderRadius: 6, border: '1px solid #d1d5db' }}
+        />
+        {form.sisuTransactionUrl && (
+          <a
+            href={form.sisuTransactionUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{
+              display: 'flex', alignItems: 'center', gap: 5, padding: '6px 12px', borderRadius: 8,
+              border: '1px solid #7c3aed', background: '#f5f3ff', color: '#6d28d9',
+              fontSize: 11, fontWeight: 600, cursor: 'pointer', textDecoration: 'none', whiteSpace: 'nowrap',
+            }}
+          ><ArrowUpRight size={13} /> Open in Sisu</a>
+        )}
+        {activePropertyId && (
+          <button
+            onClick={async () => {
+              try {
+                const r = await fetch(`/api/listing-form/${activePropertyId}/sisu-export`);
+                const data = await r.json();
+                if (!data.success) { alert(`Export failed: ${data.error || 'unknown'}`); return; }
+                await navigator.clipboard.writeText(JSON.stringify(data, null, 2));
+                alert(`Copied ${data.fieldCount} field(s) to clipboard.${data.sisuUrl ? `\nTarget URL: ${data.sisuUrl}` : ''}`);
+              } catch (err) { alert(`Export failed: ${err.message}`); }
+            }}
+            title="Copy the Sisu field mapping JSON to the clipboard (for the Chrome extension or a Make scenario)"
+            style={{
+              display: 'flex', alignItems: 'center', gap: 5, padding: '6px 12px', borderRadius: 8,
+              border: '1px solid #d1d5db', background: '#fff', color: '#4b5563',
+              fontSize: 11, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap',
+            }}
+          ><Copy size={13} /> Copy Export JSON</button>
+        )}
       </div>
 
       {loading ? (
