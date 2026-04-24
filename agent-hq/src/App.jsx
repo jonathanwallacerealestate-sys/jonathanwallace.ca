@@ -6641,21 +6641,38 @@ function ListingForm() {
         {activePropertyId && (
           <button
             onClick={async () => {
+              if (!form.sisuTransactionUrl) {
+                alert('Paste the Sisu transaction URL in this bar first, then Push to Sisu.');
+                return;
+              }
               try {
+                // 1) Save first so the export reflects the latest edits.
+                await saveForm();
+                // 2) Fetch the export JSON.
                 const r = await fetch(`/api/listing-form/${activePropertyId}/sisu-export`);
                 const data = await r.json();
                 if (!data.success) { alert(`Export failed: ${data.error || 'unknown'}`); return; }
-                await navigator.clipboard.writeText(JSON.stringify(data, null, 2));
-                alert(`Copied ${data.fieldCount} field(s) to clipboard.${data.sisuUrl ? `\nTarget URL: ${data.sisuUrl}` : ''}`);
-              } catch (err) { alert(`Export failed: ${err.message}`); }
+                data.exportedAt = new Date().toISOString();
+                setSisuExport(data);
+                // 3) Stash the export in clipboard for the autofill skill to read.
+                try { await navigator.clipboard.writeText(JSON.stringify(data, null, 2)); } catch {}
+                // 4) Open the Sisu transaction URL in a new tab.
+                window.open(form.sisuTransactionUrl, '_blank', 'noopener,noreferrer');
+                // 5) Tell Jonathan what to do next.
+                alert(
+                  `Sisu opened in a new tab with ${data.fieldCount} field(s) mapped${data.roomCount ? ` and ${data.roomCount} room(s)` : ''}.\n\n` +
+                  `The export JSON is on your clipboard.\n\n` +
+                  `Next: switch to the Cowork chat and say "autofill Sisu" — Claude will read the clipboard and fill the form on the open tab.`
+                );
+              } catch (err) { alert(`Push failed: ${err.message}`); }
             }}
-            title="Copy the Sisu field mapping JSON to the clipboard (for the Chrome extension or a Make scenario)"
+            title="Save, export, open Sisu, copy the field JSON to clipboard — then ask Claude to autofill"
             style={{
-              display: 'flex', alignItems: 'center', gap: 5, padding: '6px 12px', borderRadius: 8,
-              border: '1px solid #d1d5db', background: '#fff', color: '#4b5563',
-              fontSize: 11, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap',
+              display: 'flex', alignItems: 'center', gap: 5, padding: '8px 14px', borderRadius: 8,
+              border: '1px solid #2563eb', background: '#2563eb', color: '#fff',
+              fontSize: 11, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap',
             }}
-          ><Copy size={13} /> Copy Export JSON</button>
+          ><ArrowUpRight size={13} /> Push to Sisu</button>
         )}
       </div>
 
@@ -7260,39 +7277,21 @@ function ListingForm() {
             </div>
           </FormSection>
 
-          {/* SECTION: SISU EXPORT */}
+          {/* SECTION: SISU EXPORT — duplicated URL input removed; use the
+              Deploy → Sisu bar at the top of this form. Keep only the
+              last-export status summary here so Jonathan can see field
+              counts after pushing. */}
           <FormSection title="Export to Sisu" icon={ExternalLink} expanded={expanded.sisu} onToggle={() => toggle('sisu')}>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              <FormField label="Sisu Transaction URL">
-                <input style={inputStyle} value={form.sisuTransactionUrl || ''} onChange={e => updateField('sisuTransactionUrl', e.target.value)} placeholder="https://app.sisu.co/app/transactions/123456/edit/draft-100a-..." />
-              </FormField>
-              <p style={{ fontSize: 11, color: '#6b7280', margin: 0 }}>
-                Paste the full Sisu transaction form URL above, then click "Generate Sisu Export" to prepare the data. Ask Claude to fill the Sisu form using Chrome automation.
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <p style={{ fontSize: 12, color: '#4b5563', margin: 0 }}>
+                Paste the Sisu transaction URL in the <strong>Deploy → Sisu</strong> bar at the top of this deal card, then click <strong>Push to Sisu</strong>. Sisu opens in a new tab and the field data copies to your clipboard — ready for the autofill skill.
               </p>
-              <div style={{ display: 'flex', gap: 8 }}>
-                <button type="button" onClick={async () => {
-                  if (!activePropertyId) return;
-                  await saveForm();
-                  try {
-                    const res = await fetch(`/api/listing-form/${activePropertyId}/sisu-export`);
-                    const data = await res.json();
-                    if (data.success) {
-                      setSisuExport(data);
-                      alert(`Sisu export ready! ${data.fieldCount} fields mapped. Ask Claude to "export this listing to Sisu" and it will fill the form automatically.`);
-                    } else {
-                      alert('Export failed: ' + (data.error || 'Unknown error'));
-                    }
-                  } catch (err) { alert('Export failed: ' + err.message); }
-                }} style={{
-                  padding: '10px 20px', borderRadius: 8, background: 'linear-gradient(135deg, #2563eb, #3b82f6)',
-                  color: '#fff', border: 'none', fontSize: 12, fontWeight: 600, cursor: 'pointer',
-                  display: 'flex', alignItems: 'center', gap: 6,
-                }}><ExternalLink size={13} /> Generate Sisu Export</button>
-              </div>
               {sisuExport && (
                 <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, padding: 12 }}>
-                  <div style={{ fontSize: 12, fontWeight: 600, color: '#166534', marginBottom: 4 }}>Export Ready</div>
-                  <div style={{ fontSize: 11, color: '#15803d' }}>{sisuExport.fieldCount} fields mapped to Sisu. {sisuExport.roomCount || 0} rooms with details. Ask Claude: "Fill my Sisu form for this listing."</div>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: '#166534', marginBottom: 4 }}>Last Export</div>
+                  <div style={{ fontSize: 11, color: '#15803d' }}>
+                    {sisuExport.fieldCount} fields mapped · {sisuExport.roomCount || 0} rooms · exported {sisuExport.exportedAt ? new Date(sisuExport.exportedAt).toLocaleTimeString() : 'just now'}.
+                  </div>
                 </div>
               )}
             </div>
