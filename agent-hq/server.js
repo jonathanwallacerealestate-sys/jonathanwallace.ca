@@ -6758,7 +6758,7 @@ app.delete('/api/aps/deals/:id', (req, res) => {
 // ─────────────────────────────────────────────
 app.get('/api/listing-form/:id/sisu-export', async (req, res) => {
   try {
-    const filePath = path.join(DATA_DIR, 'listing-forms', `${req.params.id}.json`);
+    const filePath = path.join(LISTING_FORMS_DIR, `${req.params.id}.json`);
     if (!fs.existsSync(filePath)) return res.json({ success: false, error: 'Property not found' });
     const form = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
 
