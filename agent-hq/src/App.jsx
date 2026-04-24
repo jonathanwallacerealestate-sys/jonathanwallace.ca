@@ -5625,7 +5625,7 @@ const HEATING_OPTIONS = ['Forced Air Gas', 'Forced Air Propane', 'Electric Baseb
 const AC_OPTIONS = ['Central Air', 'Ductless Mini-Split', 'Window Units', 'None'];
 const APPLIANCE_OPTIONS = ['Fridge', 'Stove', 'Dishwasher', 'Microwave', 'Washer', 'Dryer', 'Range Hood', 'Built-in Oven', 'Wine Fridge', 'Chest Freezer', 'Garburator', 'Water Softener', 'Central Vac'];
 const INCLUSION_OPTIONS = ['Window Coverings', 'California Shutters', 'Light Fixtures', 'Garage Door Opener', 'Hot Tub', 'Pool Equipment', 'Storage Shed', 'ELFs', 'Smart Home Devices', 'Security System', 'Water Treatment System', 'Satellite Dish', 'TV Wall Mount(s)', 'Sump Pump', 'Built-in Generator', 'Bar Fridge / Beer Fridge', 'Pool Table'];
-const FOUNDATION_TYPES = ['Poured Concrete', 'Block', 'Stone', 'Slab', 'Crawl Space', 'Pier / Post', 'Other'];
+const FOUNDATION_TYPES = ['Concrete', 'Concrete Block', 'Poured Concrete', 'Block', 'Stone', 'Slab', 'Crawl Space', 'Pier / Post', 'Other'];
 const ROOF_TYPES = ['Asphalt Shingle', 'Metal', 'Cedar Shake', 'Slate', 'Flat / Torch-On', 'Tile', 'Other'];
 const STYLE_OPTIONS = ['2-Storey', '3-Storey', 'Bungalow', 'Raised Bungalow', 'Bungaloft', 'Sidesplit', 'Backsplit', '1.5 Storey', 'Mobile/Trailer/Modular', 'Other'];
 const PROPERTY_TYPES = ['Detached', 'Semi-Detached', 'Townhouse', 'Condo', 'Bungalow', 'Multi-Family', 'Vacant Land', 'Farm', 'Cottage / Waterfront', 'Commercial', 'Other'];
@@ -5966,11 +5966,19 @@ function ListingForm() {
   const toggle = (key) => setExpanded(p => ({ ...p, [key]: !p[key] }));
 
   const updateField = (field, value) => {
-    setForm(p => ({ ...p, [field]: value }));
+    const nextForm = { ...form, [field]: value };
+    setForm(nextForm);
     setDirty(true);
+    // Mirror to localStorage so a browser refresh / tab switch keeps typed
+    // data even before the first server save (which waits for an address).
+    try {
+      if (!activePropertyId) {
+        localStorage.setItem('agenthq.listing-form.draft', JSON.stringify(nextForm));
+      }
+    } catch {}
     // Auto-save after 3 seconds of inactivity
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-    saveTimerRef.current = setTimeout(() => { saveForm({ ...form, [field]: value }); }, 3000);
+    saveTimerRef.current = setTimeout(() => { saveForm(nextForm); }, 3000);
   };
 
   const fetchProperties = async () => {
@@ -6015,6 +6023,8 @@ function ListingForm() {
         if (result.propertyId) setForm(p => ({ ...p, propertyId: result.propertyId }));
         setDirty(false);
         setLastSaved(new Date().toISOString());
+        // Server is now source of truth — drop the local draft.
+        try { localStorage.removeItem('agenthq.listing-form.draft'); } catch {}
         fetchProperties(); // refresh list
       }
     } catch (err) { console.error('Failed to save:', err); }
@@ -6027,6 +6037,7 @@ function ListingForm() {
     setDirty(false);
     setLastSaved(null);
     setExpanded({ property: true, seller: true });
+    try { localStorage.removeItem('agenthq.listing-form.draft'); } catch {}
   };
 
   const deleteProperty = async (propertyId) => {
@@ -6185,7 +6196,20 @@ function ListingForm() {
     setImportingFub(null);
   };
 
-  useEffect(() => { fetchProperties(); fetchFubAppointments(); }, []);
+  useEffect(() => {
+    fetchProperties();
+    fetchFubAppointments();
+    // Restore an in-progress draft if one exists and we have no saved deal loaded.
+    try {
+      const raw = localStorage.getItem('agenthq.listing-form.draft');
+      if (raw) {
+        const draft = JSON.parse(raw);
+        if (draft && !draft.propertyId) {
+          setForm(prev => ({ ...prev, ...draft }));
+        }
+      }
+    } catch {}
+  }, []);
 
   // Auto-collapse the Active Clients panel when a deal card is opened (so the
   // form below stays visible); auto-expand when Jonathan returns to a blank slate.
@@ -6216,6 +6240,38 @@ function ListingForm() {
     <textarea style={textareaStyle} value={form[field] || ''} onChange={e => updateField(field, e.target.value)} placeholder={placeholder} />
   );
 
+  // Reset — wipes the in-progress form + local draft so Jonathan can start
+  // blank. Does NOT touch saved listings on the server; use the trash icon
+  // for that.
+  const resetForm = () => {
+    if (!confirm('Reset the form? Any unsaved edits on this deal card will be cleared. Saved listings on the server are not affected.')) return;
+    try { localStorage.removeItem('agenthq.listing-form.draft'); } catch {}
+    createNew();
+  };
+
+  // Close — archive the listing, scrub the property address from the FUB
+  // contact, and flip their stage to Past Client.
+  const closeListing = async () => {
+    if (!activePropertyId) return;
+    const confirmed = confirm(
+      `Mark "${form.address || activePropertyId}" as closed?\n\n` +
+      `• Deal card will be archived (kept as read-only).\n` +
+      `• The property address will be removed from the FUB contact.\n` +
+      `• The contact will move to the Past Client stage.\n\n` +
+      `You can continue working with this client, but this property will no longer be active.`
+    );
+    if (!confirmed) return;
+    try {
+      const res = await fetch(`/api/listing-form/${activePropertyId}/close`, { method: 'POST' });
+      const data = await res.json();
+      if (!data.success) { alert(`Could not close listing: ${data.error || 'unknown error'}`); return; }
+      await fetchProperties();
+      createNew();
+    } catch (err) {
+      alert(`Could not close listing: ${err.message}`);
+    }
+  };
+
   return (
     <div style={{ maxWidth: 960, margin: '0 auto' }}>
       {/* HEADER BAR */}
@@ -6229,6 +6285,16 @@ function ListingForm() {
           {lastSaved && <span style={{ fontSize: 10, color: '#9ca3af' }}>Saved {new Date(lastSaved).toLocaleTimeString()}</span>}
           {saving && <Loader2 size={14} color="#c8a96e" style={{ animation: 'spin 1s linear infinite' }} />}
           {dirty && <span style={{ fontSize: 10, color: '#f59e0b', fontWeight: 600 }}>Unsaved</span>}
+          <button onClick={resetForm} title="Reset the form — clears unsaved edits" style={{
+            display: 'flex', alignItems: 'center', gap: 6, padding: '8px 12px', borderRadius: 8,
+            background: '#fff', color: '#6b7280', border: '1px solid #d1d5db', fontSize: 12, fontWeight: 600, cursor: 'pointer',
+          }}><RotateCcw size={13} /> Reset</button>
+          {activePropertyId && (
+            <button onClick={closeListing} title="Close the listing: archive the deal card, scrub the address from FUB, move the contact to Past Client" style={{
+              display: 'flex', alignItems: 'center', gap: 6, padding: '8px 12px', borderRadius: 8,
+              background: '#fff', color: '#059669', border: '1px solid #10b981', fontSize: 12, fontWeight: 600, cursor: 'pointer',
+            }}><CheckCircle2 size={13} /> House is Closed</button>
+          )}
           <button onClick={() => saveForm()} style={{
             display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderRadius: 8,
             background: '#c8a96e', color: '#fff', border: 'none', fontSize: 12, fontWeight: 600, cursor: 'pointer',

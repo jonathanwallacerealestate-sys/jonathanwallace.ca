@@ -17,6 +17,7 @@ import {
 // Deploy service — GitHub API-based commits for frictionless deploys
 import { commitFiles } from './lib/github-deploy.js';
 import { startDeploySpool, getSpoolState } from './lib/deploy-spool.js';
+import * as listingSync from './lib/listing-sync/index.js';
 import crypto from 'crypto';
 const _require = createRequire(import.meta.url);
 const pdfParse = _require('pdf-parse');
@@ -5515,10 +5516,18 @@ app.get('/api/fub/listing-appointments', async (req, res) => {
     }
 
     // Defensive filter — FUB has been observed to silently ignore the `stage` filter
-    // and return every contact, so we verify the stage name on the client side too.
+    // and return every contact, so we verify the stage name on the server side too.
+    // Also require the 'Seller' tag so buyers in the same Active Client stage don't
+    // clutter the Listing Form panel.
+    const TARGET_TAG_NORMALIZED = 'seller';
     allContacts = allContacts.filter(c => {
       const s = (c.stage || '').toLowerCase().trim();
-      return s === TARGET_STAGE_NORMALIZED;
+      if (s !== TARGET_STAGE_NORMALIZED) return false;
+      const tags = (c.tags || []).map(t => {
+        if (typeof t === 'string') return t;
+        return (t && (t.tag || t.name)) || '';
+      }).map(x => String(x).toLowerCase().trim());
+      return tags.includes(TARGET_TAG_NORMALIZED);
     });
 
     // Map to clean appointment objects
@@ -5780,6 +5789,7 @@ function slugify(str) {
 // List all saved listing forms
 app.get('/api/listing-form/list', (req, res) => {
   try {
+    const includeClosed = req.query.includeClosed === '1' || req.query.includeClosed === 'true';
     const files = fs.readdirSync(LISTING_FORMS_DIR).filter(f => f.endsWith('.json'));
     const listings = files.map(f => {
       try {
@@ -5791,11 +5801,14 @@ app.get('/api/listing-form/list', (req, res) => {
           sellerName: data.sellerName || '',
           listPrice: data.listPrice || '',
           status: data.status || 'draft',
+          closedAt: data.closedAt || '',
           updatedAt: data.updatedAt || data.createdAt || '',
           createdAt: data.createdAt || '',
         };
       } catch { return null; }
-    }).filter(Boolean).sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
+    }).filter(Boolean)
+      .filter(l => includeClosed || l.status !== 'closed')
+      .sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
     res.json({ success: true, listings });
   } catch (err) {
     console.error('[ListingForm] List error:', err.message);
@@ -5840,6 +5853,12 @@ app.post('/api/listing-form/save', (req, res) => {
       body: JSON.stringify(data),
     }).catch(err => console.log('[ListingForm] Make.com sync (non-critical):', err.message));
 
+    // Fan out to registered listing-sync destinations (FUB contact, future REALM, etc.)
+    // Non-blocking: never let destination errors break the save.
+    listingSync.syncOnSave(data, {
+      fubApiKey: FUB_API_KEY, fubBase: FUB_BASE, fubHeaders, logger: console,
+    }).catch(err => console.log('[ListingForm] listing-sync syncOnSave error:', err.message));
+
     console.log(`[ListingForm] Saved: ${data.propertyId} (${data.address})`);
     res.json({ success: true, propertyId: data.propertyId });
   } catch (err) {
@@ -5856,6 +5875,30 @@ app.delete('/api/listing-form/:propertyId', (req, res) => {
     fs.unlinkSync(filePath);
     res.json({ success: true });
   } catch (err) {
+    res.json({ success: false, error: err.message });
+  }
+});
+
+// Close a listing — archive the form, scrub the property address from the
+// linked FUB contact, and move the contact to Past Client. Fan out to every
+// registered destination module (today: fub; later: realm).
+app.post('/api/listing-form/:propertyId/close', async (req, res) => {
+  const filePath = path.join(LISTING_FORMS_DIR, `${req.params.propertyId}.json`);
+  if (!fs.existsSync(filePath)) return res.json({ success: false, error: 'Not found' });
+  try {
+    const form = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    form.status = 'closed';
+    form.closedAt = new Date().toISOString();
+    fs.writeFileSync(filePath, JSON.stringify(form, null, 2));
+
+    const syncResults = await listingSync.syncOnClose(form, {
+      fubApiKey: FUB_API_KEY, fubBase: FUB_BASE, fubHeaders, logger: console,
+    });
+
+    console.log(`[ListingForm] Closed: ${form.propertyId} (${form.address}) sync=${JSON.stringify(syncResults)}`);
+    res.json({ success: true, propertyId: form.propertyId, sync: syncResults });
+  } catch (err) {
+    console.error('[ListingForm] Close error:', err.message);
     res.json({ success: false, error: err.message });
   }
 });
