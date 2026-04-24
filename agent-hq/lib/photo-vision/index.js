@@ -3,6 +3,7 @@
 // Vision extraction over listing photos. See README.md for the flow.
 
 import { buildPrompt, PROMPT_VERSION } from './prompt.js';
+import { buildClusterPrompt, CLUSTER_PROMPT_VERSION, labelFor } from './cluster-prompt.js';
 
 // Map common extensions -> Anthropic-supported media types.
 function mediaTypeFor(filename) {
@@ -70,6 +71,235 @@ export async function analyzePhoto(buffer, ctx = {}) {
     logger.warn(`[photo-vision] analyzePhoto error for ${filename}: ${err.message}`);
     return { ok: false, filename, error: err.message };
   }
+}
+
+// ─── Clustering (second pass) ───
+
+// Room types where two or more photos plausibly = two or more physical rooms.
+// (Kitchens almost always = 1 room even with many photos.)
+const MULTI_ROOM_POSSIBLE = new Set([
+  'bedroom', 'primary_bedroom',
+  'bathroom', 'powder_room',
+  'basement', 'office_den',
+]);
+
+// Room types we should return as a single room when present (no clustering
+// needed, just flatten).
+const SINGLE_ROOM_TYPES = new Set([
+  'kitchen', 'living', 'dining', 'laundry', 'mechanical', 'garage',
+]);
+
+// Don't emit rooms for these classifications.
+const NON_ROOM_TYPES = new Set([
+  'exterior_front', 'exterior_back', 'exterior_side', 'exterior_detail',
+  'aerial', 'yard_landscape', 'waterfront', 'deck_patio',
+  'staircase', 'hallway_foyer', 'other',
+]);
+
+export async function clusterRoomsOfType(photos, classification, ctx = {}) {
+  // photos: [{ filename, buffer, perPhoto }]
+  const { anthropic, model = 'claude-haiku-4-5-20251001', logger = console } = ctx;
+  if (!photos || photos.length === 0) return [];
+
+  // Single photo or no anthropic client: flatten into one room.
+  if (photos.length === 1 || !anthropic) {
+    const p = photos[0];
+    const name = nameSingleton(classification, photos[0]?.perPhoto);
+    return [{
+      label: name.label,
+      photoFilenames: photos.map(x => x.filename),
+      flooring: pickFlooring(photos.map(x => x.perPhoto)),
+      features: pickFeatures(photos.map(x => x.perPhoto)),
+      bathroomPieces: pickBathroomPieces(photos.map(x => x.perPhoto), classification),
+      isEnsuite: classification === 'bathroom' ? null : false,
+      likelyLevel: guessLevel(classification),
+      reasoning: 'single photo',
+    }];
+  }
+
+  try {
+    const content = [];
+    for (let i = 0; i < photos.length; i++) {
+      content.push({
+        type: 'image',
+        source: {
+          type: 'base64',
+          media_type: mediaTypeFor(photos[i].filename),
+          data: photos[i].buffer.toString('base64'),
+        },
+      });
+      content.push({ type: 'text', text: `Photo ${i}: ${photos[i].filename}` });
+    }
+    content.push({ type: 'text', text: buildClusterPrompt(classification, photos.length) });
+
+    const msg = await anthropic.messages.create({
+      model,
+      max_tokens: 2048,
+      messages: [{ role: 'user', content }],
+    });
+    const text = (msg.content || []).filter(b => b.type === 'text').map(b => b.text).join('\n');
+    const parsed = extractJson(text);
+    if (!parsed || !Array.isArray(parsed.rooms)) {
+      logger.warn(`[photo-vision] cluster parse failed for ${classification}; raw: ${text.slice(0, 200)}`);
+      // Fallback: treat every photo as its own room
+      return photos.map((p, i) => ({
+        label: `${labelFor(classification)} ${i + 1}`,
+        photoFilenames: [p.filename],
+        flooring: pickFlooring([p.perPhoto]),
+        features: pickFeatures([p.perPhoto]),
+        bathroomPieces: pickBathroomPieces([p.perPhoto], classification),
+        isEnsuite: null,
+        likelyLevel: guessLevel(classification),
+        reasoning: 'cluster parse failed — each photo treated as own room',
+      }));
+    }
+
+    // Map indices → filenames, enrich with per-photo data we already have.
+    return parsed.rooms.map((room, idx) => {
+      const indices = Array.isArray(room.photoIndices) ? room.photoIndices.filter(i => Number.isInteger(i) && i >= 0 && i < photos.length) : [];
+      const photoFilenames = indices.map(i => photos[i].filename);
+      const perPhotos = indices.map(i => photos[i].perPhoto);
+      return {
+        label: room.label || `${labelFor(classification)}${indices.length > 0 ? ' ' + (idx + 1) : ''}`,
+        photoFilenames,
+        flooring: room.flooring || pickFlooring(perPhotos),
+        features: Array.isArray(room.features) ? room.features : pickFeatures(perPhotos),
+        bathroomPieces: Number.isFinite(room.bathroomPieces) ? room.bathroomPieces : pickBathroomPieces(perPhotos, classification),
+        isEnsuite: typeof room.isEnsuite === 'boolean' ? room.isEnsuite : null,
+        likelyLevel: room.likelyLevel || guessLevel(classification),
+        reasoning: room.reasoning || '',
+      };
+    });
+  } catch (err) {
+    logger.warn(`[photo-vision] clusterRoomsOfType(${classification}) error: ${err.message}`);
+    return photos.map((p, i) => ({
+      label: `${labelFor(classification)} ${i + 1}`,
+      photoFilenames: [p.filename],
+      flooring: pickFlooring([p.perPhoto]),
+      features: pickFeatures([p.perPhoto]),
+      bathroomPieces: pickBathroomPieces([p.perPhoto], classification),
+      isEnsuite: null,
+      likelyLevel: guessLevel(classification),
+      reasoning: 'cluster api error — each photo treated as own room',
+    }));
+  }
+}
+
+function pickFlooring(perPhotos) {
+  for (const p of perPhotos) {
+    if (p?.fields?.flooring) return String(p.fields.flooring).split(',')[0].trim();
+  }
+  return '';
+}
+function pickFeatures(perPhotos) {
+  const bag = new Set();
+  for (const p of perPhotos) {
+    const nf = p?.fields?.notableFeatures;
+    if (Array.isArray(nf)) for (const f of nf) bag.add(String(f));
+  }
+  return [...bag];
+}
+function pickBathroomPieces(perPhotos, cls) {
+  if (cls !== 'bathroom' && cls !== 'powder_room') return null;
+  // Take the max piece-count observed — the most complete angle wins.
+  let max = 0;
+  for (const p of perPhotos) {
+    const n = Number(p?.fields?.bathroomPieces);
+    if (n > max) max = n;
+  }
+  return max || null;
+}
+function guessLevel(cls) {
+  if (cls === 'basement' || cls === 'mechanical') return 'Basement';
+  if (cls === 'bedroom' || cls === 'primary_bedroom') return 'Upper';
+  if (cls === 'garage') return 'Main';
+  if (cls === 'laundry') return 'Main';
+  if (['kitchen', 'living', 'dining'].includes(cls)) return 'Main';
+  return 'Main';
+}
+function nameSingleton(cls, perPhoto) {
+  if (cls === 'primary_bedroom') return { label: 'Primary Bedroom' };
+  if (cls === 'bedroom')         return { label: 'Bedroom' };
+  if (cls === 'bathroom') {
+    const n = Number(perPhoto?.fields?.bathroomPieces);
+    return { label: n ? `${n}-piece Bath` : 'Bath' };
+  }
+  if (cls === 'powder_room')     return { label: '2-piece Powder Room' };
+  if (cls === 'kitchen')         return { label: 'Kitchen' };
+  if (cls === 'living')          return { label: 'Living Room' };
+  if (cls === 'dining')          return { label: 'Dining Room' };
+  if (cls === 'laundry')         return { label: 'Laundry' };
+  if (cls === 'mechanical')      return { label: 'Mechanical Room' };
+  if (cls === 'garage')          return { label: 'Garage' };
+  if (cls === 'office_den')      return { label: 'Office / Den' };
+  if (cls === 'basement')        return { label: 'Basement' };
+  return { label: labelFor(cls) };
+}
+
+// Drive clustering across every room-type group. Returns a flat rooms[] list.
+// `buffersByFilename` is a Map<filename, Buffer>.
+export async function clusterAllRooms(perPhotoResults, buffersByFilename, ctx = {}) {
+  const ok = perPhotoResults.filter(p => p.ok && p.classification);
+  const byClass = new Map();
+  for (const p of ok) {
+    if (NON_ROOM_TYPES.has(p.classification)) continue;
+    const g = byClass.get(p.classification) || [];
+    g.push(p);
+    byClass.set(p.classification, g);
+  }
+
+  const all = [];
+  for (const [cls, items] of byClass) {
+    const photos = items.map(i => ({
+      filename: i.filename,
+      buffer: buffersByFilename.get(i.filename),
+      perPhoto: i,
+    })).filter(x => x.buffer); // drop any that lost their buffer (shouldn't happen)
+
+    if (photos.length === 0) continue;
+
+    // Single-room types: flatten to one room, never call clustering.
+    if (SINGLE_ROOM_TYPES.has(cls) || !MULTI_ROOM_POSSIBLE.has(cls)) {
+      const name = nameSingleton(cls, photos[0].perPhoto);
+      all.push({
+        label: name.label,
+        photoFilenames: photos.map(p => p.filename),
+        flooring: pickFlooring(photos.map(p => p.perPhoto)),
+        features: pickFeatures(photos.map(p => p.perPhoto)),
+        bathroomPieces: pickBathroomPieces(photos.map(p => p.perPhoto), cls),
+        isEnsuite: null,
+        likelyLevel: guessLevel(cls),
+        reasoning: photos.length > 1 ? `all ${photos.length} photos assumed same ${cls}` : '',
+      });
+      continue;
+    }
+
+    // Multi-room-possible types: cluster via Claude.
+    const clusters = await clusterRoomsOfType(photos, cls, ctx);
+    for (const c of clusters) all.push(c);
+  }
+
+  // Number duplicate bedrooms/bathrooms for clarity: "Bedroom 1", "Bedroom 2", ...
+  const counts = new Map();
+  for (const r of all) {
+    const base = String(r.label).trim();
+    // Don't renumber primary / powder / kitchen / dining
+    if (/^(Primary Bedroom|2-piece Powder Room|Kitchen|Dining Room|Living Room|Office \/ Den|Basement|Laundry|Mechanical Room|Garage)$/i.test(base)) continue;
+    const key = base.replace(/\s+\d+$/, '');
+    const seen = counts.get(key) || 0;
+    counts.set(key, seen + 1);
+  }
+  const running = new Map();
+  for (const r of all) {
+    const base = String(r.label).replace(/\s+\d+$/, '');
+    if (/^(Primary Bedroom|2-piece Powder Room|Kitchen|Dining Room|Living Room|Office \/ Den|Basement|Laundry|Mechanical Room|Garage)$/i.test(base)) continue;
+    if ((counts.get(base) || 0) <= 1) continue;
+    const n = (running.get(base) || 0) + 1;
+    running.set(base, n);
+    r.label = `${base} ${n}`;
+  }
+
+  return all;
 }
 
 // ─── Aggregation ───
@@ -272,7 +502,7 @@ function buildDescriptive(perPhoto) {
   return out;
 }
 
-export function mergeResults(perPhotoList) {
+export function mergeResults(perPhotoList, clusteredRooms = null) {
   const suggestions = [];
   for (const def of FIELD_DEFS) {
     const s = aggregateField(def, perPhotoList);
@@ -290,11 +520,13 @@ export function mergeResults(perPhotoList) {
 
   return {
     promptVersion: PROMPT_VERSION,
+    clusterPromptVersion: CLUSTER_PROMPT_VERSION,
     photoCount: perPhotoList.length,
     analyzed: perPhotoList.filter(p => p.ok).length,
     failed:   perPhotoList.filter(p => !p.ok).length,
     suggestions,
     descriptive,
+    rooms: Array.isArray(clusteredRooms) ? clusteredRooms : [],
     perPhoto: perPhotoList.map(p => ({
       filename: p.filename, ok: p.ok, classification: p.classification, confidence: p.confidence, error: p.error,
     })),

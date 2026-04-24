@@ -6289,6 +6289,33 @@ function ListingForm() {
     setDismissedSuggestions(prev => ({ ...prev, [suggestion.field]: 'accepted' }));
   };
 
+  // Map a photo-vision clustered room into the form.rooms[] shape.
+  const roomFromCluster = (r) => ({
+    name: r.label || 'Room',
+    level: r.likelyLevel || 'Main',
+    dimensions: '',
+    flooring: r.flooring || '',
+    features: Array.isArray(r.features) ? r.features.join(', ') : (r.features || ''),
+    details: [],
+    // Non-visible helpers stored alongside so we can trace back to photos:
+    photoFilenames: r.photoFilenames || [],
+    bathroomPieces: r.bathroomPieces || null,
+    isEnsuite: r.isEnsuite || false,
+  });
+
+  const applyClusteredRooms = () => {
+    const rooms = extractResult?.rooms || [];
+    if (rooms.length === 0) return;
+    const existing = form.rooms || [];
+    if (existing.length > 0) {
+      if (!confirm(`Overwrite ${existing.length} existing room entr${existing.length === 1 ? 'y' : 'ies'} with ${rooms.length} photo-detected room${rooms.length === 1 ? '' : 's'}?`)) return;
+    }
+    updateField('rooms', rooms.map(roomFromCluster));
+    setDismissedSuggestions(prev => ({ ...prev, __rooms: 'accepted' }));
+    // Expand the Room-by-Room section so Jonathan can see the result immediately.
+    setExpanded(p => ({ ...p, rooms: true }));
+  };
+
   const rejectSuggestion = async (suggestion) => {
     const propertyId = activePropertyId || form.propertyId;
     setDismissedSuggestions(prev => ({ ...prev, [suggestion.field]: 'rejected' }));
@@ -6778,6 +6805,55 @@ function ListingForm() {
                     </span>
                   )}
                 </div>
+
+                {/* Rooms detected — offer to populate the Room-by-Room section */}
+                {extractResult && Array.isArray(extractResult.rooms) && extractResult.rooms.length > 0 && (
+                  <div style={{ marginTop: 14, borderTop: '1px dashed #e5e7eb', paddingTop: 12 }}>
+                    <div style={{
+                      display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
+                      padding: '12px 14px', borderRadius: 8,
+                      border: '1px solid ' + (dismissedSuggestions.__rooms === 'accepted' ? '#10b981' : '#c8a96e'),
+                      background: dismissedSuggestions.__rooms === 'accepted' ? '#ecfdf5' : '#fffbf0',
+                    }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: '#111827' }}>
+                          Room-by-Room · {extractResult.rooms.length} unique room{extractResult.rooms.length === 1 ? '' : 's'} detected
+                        </div>
+                        <div style={{ fontSize: 11, color: '#4b5563', marginTop: 3, lineHeight: 1.5 }}>
+                          {extractResult.rooms.map((r, i) => {
+                            const piece = r.bathroomPieces ? ` (${r.bathroomPieces}-pc)` : '';
+                            const ens = r.isEnsuite ? ' · ensuite' : '';
+                            const lvl = r.likelyLevel ? ` · ${r.likelyLevel}` : '';
+                            const photoN = (r.photoFilenames || []).length;
+                            return (
+                              <span key={i} style={{ display: 'inline-block', marginRight: 10 }}>
+                                <strong>{r.label}</strong>{piece}{ens}{lvl}
+                                <span style={{ color: '#9ca3af' }}> · {photoN} photo{photoN === 1 ? '' : 's'}</span>
+                              </span>
+                            );
+                          })}
+                        </div>
+                        <div style={{ fontSize: 10, color: '#92730a', marginTop: 4, fontStyle: 'italic' }}>
+                          Same-room detection uses linens / artwork for bedrooms, fixture layout for baths.
+                        </div>
+                      </div>
+                      {dismissedSuggestions.__rooms === 'accepted' ? (
+                        <span style={{ fontSize: 11, fontWeight: 600, color: '#059669', display: 'flex', alignItems: 'center', gap: 4 }}>
+                          <CheckCircle2 size={13} /> Rooms filled
+                        </span>
+                      ) : (
+                        <button
+                          onClick={applyClusteredRooms}
+                          style={{
+                            padding: '8px 14px', borderRadius: 7, border: '1px solid #c8a96e',
+                            background: '#c8a96e', color: '#fff', fontSize: 11, fontWeight: 600,
+                            cursor: 'pointer', whiteSpace: 'nowrap',
+                          }}
+                        >Fill Room-by-Room</button>
+                      )}
+                    </div>
+                  </div>
+                )}
 
                 {/* Suggestions */}
                 {extractResult && extractResult.suggestions && extractResult.suggestions.length > 0 && (

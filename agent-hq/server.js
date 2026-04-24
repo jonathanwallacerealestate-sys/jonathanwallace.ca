@@ -6028,6 +6028,13 @@ app.post('/api/listing-form/:id/photos/extract', async (req, res) => {
   console.log(`[photo-vision] Extracting from ${files.length} photo(s) for ${propertyId}`);
   const started = Date.now();
 
+  // Pre-read all buffers once; we need them for both per-photo analysis AND
+  // the room-clustering second pass.
+  const buffersByFilename = new Map();
+  for (const f of files) {
+    try { buffersByFilename.set(f, fs.readFileSync(path.join(dir, f))); } catch {}
+  }
+
   // Limit concurrency so we don't hit API rate limits on big photo sets.
   const CONCURRENCY = 4;
   const results = [];
@@ -6037,7 +6044,7 @@ app.post('/api/listing-form/:id/photos/extract', async (req, res) => {
       const myIdx = idx++;
       const filename = files[myIdx];
       try {
-        const buf = fs.readFileSync(path.join(dir, filename));
+        const buf = buffersByFilename.get(filename);
         const r = await photoVision.analyzePhoto(buf, {
           anthropic, filename, address: listingCtx.address, city: listingCtx.city, logger: console,
         });
@@ -6049,7 +6056,17 @@ app.post('/api/listing-form/:id/photos/extract', async (req, res) => {
   }
   await Promise.all(Array.from({ length: Math.min(CONCURRENCY, files.length) }, () => worker()));
 
-  const merged = photoVision.mergeResults(results);
+  // Second pass: cluster multi-photo room types into unique rooms.
+  let clusteredRooms = [];
+  try {
+    clusteredRooms = await photoVision.clusterAllRooms(results, buffersByFilename, {
+      anthropic, logger: console,
+    });
+  } catch (err) {
+    console.warn(`[photo-vision] clusterAllRooms error: ${err.message}`);
+  }
+
+  const merged = photoVision.mergeResults(results, clusteredRooms);
   merged.extractedAt = new Date().toISOString();
   merged.elapsedMs = Date.now() - started;
 
