@@ -22,6 +22,7 @@ import * as photoVision from './lib/photo-vision/index.js';
 import { renderPrintHtml } from './lib/listing-print.js';
 import { parseGeoWarehouseText } from './lib/parsers/geowarehouse.js';
 import * as listingPhotosRoutes from './lib/routes/listing-photos.js';
+import * as listingFormCrudRoutes from './lib/routes/listing-form-crud.js';
 import * as health from './lib/health.js';
 const _require = createRequire(import.meta.url);
 const pdfParse = _require('pdf-parse');
@@ -5722,125 +5723,10 @@ app.get('/api/ea/fub-sent-diagnostic', async (req, res) => {
 const LISTING_FORMS_DIR = path.join(DATA_DIR, '.listing-forms');
 if (!fs.existsSync(LISTING_FORMS_DIR)) fs.mkdirSync(LISTING_FORMS_DIR, { recursive: true });
 
-function slugify(str) {
-  return str.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 80);
-}
-
-// List all saved listing forms
-app.get('/api/listing-form/list', (req, res) => {
-  try {
-    const includeClosed = req.query.includeClosed === '1' || req.query.includeClosed === 'true';
-    const files = fs.readdirSync(LISTING_FORMS_DIR).filter(f => f.endsWith('.json'));
-    const listings = files.map(f => {
-      try {
-        const data = JSON.parse(fs.readFileSync(path.join(LISTING_FORMS_DIR, f), 'utf8'));
-        return {
-          propertyId: data.propertyId,
-          address: data.address || '',
-          city: data.city || '',
-          sellerName: data.sellerName || '',
-          listPrice: data.listPrice || '',
-          status: data.status || 'draft',
-          closedAt: data.closedAt || '',
-          updatedAt: data.updatedAt || data.createdAt || '',
-          createdAt: data.createdAt || '',
-        };
-      } catch { return null; }
-    }).filter(Boolean)
-      .filter(l => includeClosed || l.status !== 'closed')
-      .sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
-    res.json({ success: true, listings });
-  } catch (err) {
-    console.error('[ListingForm] List error:', err.message);
-    res.json({ success: false, error: err.message, listings: [] });
-  }
-});
-
-// Load a specific listing form
-app.get('/api/listing-form/load/:propertyId', (req, res) => {
-  const filePath = path.join(LISTING_FORMS_DIR, `${req.params.propertyId}.json`);
-  if (!fs.existsSync(filePath)) {
-    return res.json({ success: false, error: 'Not found' });
-  }
-  try {
-    const data = JSON.parse(fs.readFileSync(filePath, 'utf8'));
-    res.json({ success: true, data });
-  } catch (err) {
-    res.json({ success: false, error: err.message });
-  }
-});
-
-// Save listing form
-app.post('/api/listing-form/save', (req, res) => {
-  try {
-    const data = req.body;
-    if (!data.propertyId) {
-      // Auto-generate propertyId from address + city
-      if (!data.address) return res.json({ success: false, error: 'Address or propertyId required' });
-      data.propertyId = slugify(`${data.address} ${data.city || 'midland'}`);
-    }
-    if (!data.createdAt) data.createdAt = new Date().toISOString();
-    data.updatedAt = new Date().toISOString();
-
-    const filePath = path.join(LISTING_FORMS_DIR, `${data.propertyId}.json`);
-    fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
-
-    // Also forward to Make.com webhook if configured (async, non-blocking)
-    const MAKE_SAVE_WEBHOOK = 'https://hook.us2.make.com/95nk30o9mrpff5rfrz31l1tnxgf3ydf7';
-    fetch(MAKE_SAVE_WEBHOOK, {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain' },
-      body: JSON.stringify(data),
-    }).catch(err => console.log('[ListingForm] Make.com sync (non-critical):', err.message));
-
-    // Fan out to registered listing-sync destinations (FUB contact, future REALM, etc.)
-    // Non-blocking: never let destination errors break the save.
-    listingSync.syncOnSave(data, {
-      fubApiKey: FUB_API_KEY, fubBase: FUB_BASE, fubHeaders, logger: console,
-    }).catch(err => console.log('[ListingForm] listing-sync syncOnSave error:', err.message));
-
-    console.log(`[ListingForm] Saved: ${data.propertyId} (${data.address})`);
-    res.json({ success: true, propertyId: data.propertyId });
-  } catch (err) {
-    console.error('[ListingForm] Save error:', err.message);
-    res.json({ success: false, error: err.message });
-  }
-});
-
-// Delete a listing form
-app.delete('/api/listing-form/:propertyId', (req, res) => {
-  const filePath = path.join(LISTING_FORMS_DIR, `${req.params.propertyId}.json`);
-  if (!fs.existsSync(filePath)) return res.json({ success: false, error: 'Not found' });
-  try {
-    fs.unlinkSync(filePath);
-    res.json({ success: true });
-  } catch (err) {
-    res.json({ success: false, error: err.message });
-  }
-});
-
-// Close a listing — archive the form, scrub the property address from the
-// linked FUB contact, and move the contact to Past Client. Fan out to every
-// registered destination module (today: fub; later: realm).
-app.post('/api/listing-form/:propertyId/close', async (req, res) => {
-  const filePath = path.join(LISTING_FORMS_DIR, `${req.params.propertyId}.json`);
-  if (!fs.existsSync(filePath)) return res.json({ success: false, error: 'Not found' });
-  try {
-    const form = JSON.parse(fs.readFileSync(filePath, 'utf8'));
-    form.status = 'closed';
-    form.closedAt = new Date().toISOString();
-    fs.writeFileSync(filePath, JSON.stringify(form, null, 2));
-
-    const syncResults = await listingSync.syncOnClose(form, {
-      fubApiKey: FUB_API_KEY, fubBase: FUB_BASE, fubHeaders, logger: console,
-    });
-
-    console.log(`[ListingForm] Closed: ${form.propertyId} (${form.address}) sync=${JSON.stringify(syncResults)}`);
-    res.json({ success: true, propertyId: form.propertyId, sync: syncResults });
-  } catch (err) {
-    console.error('[ListingForm] Close error:', err.message);
-    res.json({ success: false, error: err.message });
-  }
+// CRUD routes (list / load / save / delete / close) moved to
+// lib/routes/listing-form-crud.js (extracted 2026-04-24)
+listingFormCrudRoutes.register(app, {
+  LISTING_FORMS_DIR, FUB_API_KEY, FUB_BASE, fubHeaders,
 });
 
 // ─────────────────────────────────────────────
