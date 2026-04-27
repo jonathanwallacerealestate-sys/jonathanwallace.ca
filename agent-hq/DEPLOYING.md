@@ -82,3 +82,7 @@ Branches do not auto-deploy. Only `main` does.
 ## In an emergency
 
 If a bad commit is on `main` and Railway has crashed, Railway's UI will let you redeploy a prior build directly. That's still a non-`git`-shaped action; only do it when you can't get a `git revert` push out fast enough.
+
+## Pipeline verification log
+
+- **2026-04-24** — End-to-end tested: `git push` → CI green → Railway gated deploy → live in ~2 minutes. Pipeline confirmed working.
