@@ -19,6 +19,7 @@ import {
 //  which Railway watches and auto-deploys. See agent-hq/DEPLOYING.md.)
 import * as listingSync from './lib/listing-sync/index.js';
 import * as photoVision from './lib/photo-vision/index.js';
+import * as health from './lib/health.js';
 const _require = createRequire(import.meta.url);
 const pdfParse = _require('pdf-parse');
 
@@ -3761,6 +3762,49 @@ app.get('/api/sphere/overdue', async (req, res) => {
 //  spool, and the GitHub PAT-driven custom commit pipeline. There is now
 //  one canonical deploy channel; see agent-hq/DEPLOYING.md.)
 // ────────────────────────────────────────────────────────────────
+
+// ────────────────────────────────────────────────────────────────
+// HEALTH — /api/health
+//
+// Probes every critical dependency in parallel. Returns 200 when all OK,
+// 503 when any are down. External monitor (Make.com / UptimeRobot / etc.)
+// pings every 15 min and treats 503 as the alert trigger.
+//
+// Probes:
+//   anthropic — vision + AI works
+//   fub       — Follow Up Boss key valid
+//   drive     — Google Drive OAuth still good
+//   backup    — last successful backup within 26h (closes the "Drive
+//                 silent for 24+h" gap that bit us 2026-04-22)
+//   volume    — Railway volume mounted, writable, persisting
+//
+// All probes have a 5s hard timeout. One slow dep can't hang the route.
+// ────────────────────────────────────────────────────────────────
+
+app.get('/api/health', async (req, res) => {
+  const checks = await health.runAllProbes({
+    anthropicApiKey: process.env.ANTHROPIC_API_KEY,
+    fubApiKey: FUB_API_KEY,
+    fubBase: FUB_BASE,
+    fubHeaders,
+    getDrive: () => hasFullDriveScope() ? google.drive({ version: 'v3', auth: oauth2Client }) : null,
+    backupState,
+    dataDir: DATA_DIR,
+  });
+
+  const allOk = Object.values(checks).every(c => c.ok);
+  const status = allOk ? 'ok' : 'degraded';
+
+  // Headers help monitors that key off them
+  res.setHeader('Cache-Control', 'no-store');
+  res.status(allOk ? 200 : 503).json({
+    status,
+    checkedAt: new Date().toISOString(),
+    service: 'agent-hq',
+    host: req.headers.host || null,
+    checks,
+  });
+});
 
 // POST /api/sphere/log-touch — log a touch for a contact.
 // Creates a FUB note so lastCommunication updates, which advances
