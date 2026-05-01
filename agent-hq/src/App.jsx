@@ -9,7 +9,7 @@ import {
   UserPlus, RotateCcw, Eye, EyeOff, ChevronUp, MoreHorizontal, Inbox,
   Flag, Trash2, PenLine, Check, ExternalLink, RefreshCw, Copy,
   GripVertical, ClipboardList, Home, Plus, Save, Loader2, Trash, RotateCw,
-  TrendingUp, BarChart3, MessageSquare,
+  TrendingUp, BarChart3, MessageSquare, Heart, UploadCloud,
 } from "lucide-react";
 
 // Listing form option lists (extracted 2026-04-24 — see src/config/)
@@ -32,6 +32,7 @@ import {
 
 // The full Listing Form component (extracted 2026-04-24 — see src/components/)
 import ListingForm from './components/ListingForm.jsx';
+import Jacqui from './components/Jacqui.jsx';
 
 // ─────────────────────────────────────────────
 // DATA: FUB SMART CALL LIST (live from Follow Up Boss)
@@ -353,6 +354,7 @@ const metricCards = [
 
 const sidebarItems = [
   { id: "briefing", label: "Morning Brief", icon: Sun, badge: null },
+  { id: "jacqui", label: "Jacqui", icon: Heart, badge: null },
   { id: "priorities", label: "Top Priorities", icon: Target, badge: 3 },
   { id: "calls", label: "Call List", icon: Phone, badge: 10 },
   { id: "emails", label: "Emails", icon: Mail, badge: 12 },
@@ -8543,6 +8545,182 @@ function CmaField({ label, k, type = 'text', placeholder, required, options, for
   );
 }
 
+// CMA: parsed-field mapper — translates PDF parser output → CMA intake form keys.
+function mergeParsedIntoCmaForm(form, parsed) {
+  const merged = { ...form };
+  const passThrough = ['address', 'city', 'province', 'mlsId', 'bedrooms', 'bathrooms', 'sqft', 'lotSize', 'propertyClass', 'style', 'foundation', 'garage'];
+  for (const k of passThrough) {
+    if (parsed[k] != null && parsed[k] !== '') merged[k] = String(parsed[k]);
+  }
+  if (parsed.listPrice != null) merged.listPrice = String(parsed.listPrice);
+  if (parsed.yearBuilt != null) merged.yearBuilt = String(parsed.yearBuilt);
+  if (parsed.waterfront != null) merged.waterfront = !!parsed.waterfront;
+  return merged;
+}
+
+// CMA: extract comp-relevant subset from parsed PDF fields. Drops the
+// soft narrative fields the comps list doesn't need.
+function compFromParsedFields(fields) {
+  return {
+    address: fields.address || '',
+    city: fields.city || '',
+    mlsId: fields.mlsId || '',
+    listPrice: fields.listPrice || null,
+    soldPrice: fields.soldPrice || null,
+    listedDate: fields.listedDate || '',
+    soldDate: fields.soldDate || '',
+    daysOnMarket: fields.daysOnMarket || null,
+    bedrooms: fields.bedrooms || '',
+    bathrooms: fields.bathrooms || '',
+    sqft: fields.sqft || '',
+    lotSize: fields.lotSize || '',
+    yearBuilt: fields.yearBuilt || null,
+    style: fields.style || '',
+    propertyClass: fields.propertyClass || '',
+    foundation: fields.foundation || '',
+    garage: fields.garage || '',
+    waterfront: !!fields.waterfront,
+    publicRemarks: fields.publicRemarks || '',
+    features: fields.features || '',
+  };
+}
+
+// CMA: drag/drop or click-to-browse drop zone for REALM listing PDFs.
+// Accepts multiple files. Calls onParsed(fields, meta) once per parsed PDF.
+function CmaPdfDropZone({ onParsed, allowMore = true }) {
+  const [busy, setBusy] = useState(false);
+  const [status, setStatus] = useState(null);
+  const [drag, setDrag] = useState(false);
+  const inputRef = useRef(null);
+
+  async function uploadFiles(filesList) {
+    const files = Array.from(filesList || []).filter(f => /\.pdf$/i.test(f.name) || f.type === 'application/pdf');
+    if (!files.length) {
+      setStatus({ ok: false, msg: 'Please drop one or more PDFs (.pdf).' });
+      return;
+    }
+    setBusy(true);
+    setStatus(null);
+    let ok = 0, fail = 0;
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      setStatus({ ok: true, msg: `Parsing ${i + 1} of ${files.length} — ${file.name}...` });
+      try {
+        const fd = new FormData();
+        fd.append('file', file);
+        const r = await fetch('/api/cma/parse-pdf', { method: 'POST', body: fd });
+        const j = await r.json();
+        if (j.ok) {
+          onParsed(j.fields, j.meta);
+          ok++;
+        } else {
+          fail++;
+        }
+      } catch (e) {
+        fail++;
+      }
+    }
+    setBusy(false);
+    setStatus({
+      ok: ok > 0,
+      msg: `Parsed ${ok} of ${files.length} PDF(s)${fail ? ` — ${fail} failed` : ''}. First becomes the subject; rest are pending comps below.`,
+    });
+  }
+
+  return (
+    <div style={{ marginBottom: 12 }}>
+      <div
+        onDragOver={e => { e.preventDefault(); setDrag(true); }}
+        onDragLeave={() => setDrag(false)}
+        onDrop={e => { e.preventDefault(); setDrag(false); uploadFiles(e.dataTransfer.files); }}
+        onClick={() => inputRef.current?.click()}
+        style={{
+          border: '2px dashed ' + (drag ? '#c8a96e' : '#d4b878'),
+          background: drag ? '#fef3c7' : '#fffbeb',
+          borderRadius: 10, padding: 16,
+          textAlign: 'center', cursor: 'pointer', transition: 'all 0.1s',
+        }}
+      >
+        <input ref={inputRef} type="file" multiple accept=".pdf,application/pdf" hidden onChange={e => uploadFiles(e.target.files)} />
+        {busy ? (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, color: '#92400e', fontSize: 12 }}>
+            <Loader2 size={14} className="spin" /> Parsing — regex + AI extraction...
+          </div>
+        ) : (
+          <div>
+            <UploadCloud size={22} color="#c8a96e" style={{ margin: '0 auto 4px', display: 'block' }} />
+            <div style={{ fontSize: 12, fontWeight: 700, color: '#92400e' }}>Drop REALM listing PDFs to autofill</div>
+            <div style={{ fontSize: 11, color: '#a16207', marginTop: 2 }}>
+              {allowMore ? 'First fills subject · rest become pending comps · ' : 'Add more comps · '}
+              click or drop multiple at once · max 25 MB each
+            </div>
+          </div>
+        )}
+      </div>
+      {status && (
+        <div style={{
+          marginTop: 6, padding: '6px 10px', borderRadius: 6, fontSize: 11,
+          background: status.ok ? '#dcfce7' : '#fee2e2',
+          color: status.ok ? '#166534' : '#991b1b',
+        }}>
+          {status.msg}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// CMA: pending-comps tile list shown below the drop zone in the intake modal.
+function CmaPendingCompsList({ comps, onSetRole, onRemove }) {
+  if (!comps.length) return null;
+  return (
+    <div style={{ marginBottom: 16, padding: 10, background: '#fefce8', border: '1px solid #fde68a', borderRadius: 10 }}>
+      <div style={{ fontSize: 11, fontWeight: 700, color: '#854d0e', textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 8 }}>
+        Pending comps ({comps.length}) · will attach on Create
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        {comps.map(c => (
+          <div key={c.id} style={{
+            display: 'flex', alignItems: 'center', gap: 8,
+            padding: '6px 10px', background: '#fff', borderRadius: 8, border: '1px solid #fde68a',
+          }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: '#111827', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {c.fields.address || '(no address)'}{c.fields.city ? `, ${c.fields.city}` : ''}
+              </div>
+              <div style={{ fontSize: 10, color: '#6b7280' }}>
+                {c.fields.mlsId ? `MLS ${c.fields.mlsId} · ` : ''}
+                {c.fields.soldPrice ? `Sold $${Number(c.fields.soldPrice).toLocaleString()}` :
+                 c.fields.listPrice ? `Listed $${Number(c.fields.listPrice).toLocaleString()}` : '—'}
+                {c.fields.bedrooms ? ` · ${c.fields.bedrooms} bed` : ''}
+                {c.fields.bathrooms ? ` · ${c.fields.bathrooms} bath` : ''}
+                {c.fields.sqft ? ` · ${c.fields.sqft} sqft` : ''}
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: 4 }}>
+              <button onClick={() => onSetRole(c.id, 'sold')} style={{
+                fontSize: 10, fontWeight: 700, padding: '4px 8px', borderRadius: 4,
+                border: 'none', cursor: 'pointer',
+                background: c.role === 'sold' ? '#166534' : '#f3f4f6',
+                color: c.role === 'sold' ? '#fff' : '#6b7280',
+              }}>SOLD</button>
+              <button onClick={() => onSetRole(c.id, 'active')} style={{
+                fontSize: 10, fontWeight: 700, padding: '4px 8px', borderRadius: 4,
+                border: 'none', cursor: 'pointer',
+                background: c.role === 'active' ? '#1e40af' : '#f3f4f6',
+                color: c.role === 'active' ? '#fff' : '#6b7280',
+              }}>ACTIVE</button>
+              <button onClick={() => onRemove(c.id)} title="Remove" style={{
+                background: 'transparent', border: 'none', cursor: 'pointer', color: '#6b7280', padding: 4,
+              }}><X size={12} /></button>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function CmaIntakeModal({ onClose, onCreated }) {
   const [form, setForm] = useState({
     address: '', city: 'Midland', province: 'ON',
@@ -8552,17 +8730,43 @@ function CmaIntakeModal({ onClose, onCreated }) {
     listPrice: '',
   });
   const [submitting, setSubmitting] = useState(false);
+  const [pendingComps, setPendingComps] = useState([]); // [{ id, role: 'sold'|'active', fields, meta }]
 
   const set = (k, v) => setForm(prev => ({ ...prev, [k]: v }));
+
+  // Route parsed PDFs: first one (or any while form is empty) fills subject,
+  // rest become pending comps defaulted to "sold."
+  function handleParsed(fields, meta) {
+    setForm(prev => {
+      if (!prev.address && !prev.mlsId) {
+        return mergeParsedIntoCmaForm(prev, fields);
+      }
+      // Form already has a subject — push to pending comps
+      setPendingComps(p => [...p, {
+        id: `pc_${Date.now()}_${Math.random().toString(36).slice(2, 5)}`,
+        role: 'sold',
+        fields, meta,
+      }]);
+      return prev;
+    });
+  }
+  const setCompRole = (id, role) => setPendingComps(prev => prev.map(c => c.id === id ? { ...c, role } : c));
+  const removeComp = (id) => setPendingComps(prev => prev.filter(c => c.id !== id));
 
   const submit = async () => {
     if (!form.address || !form.city) { alert('Address and city required'); return; }
     setSubmitting(true);
     try {
+      const body = {
+        ...form,
+        listPrice: form.listPrice ? Number(form.listPrice.replace(/[^0-9]/g, '')) : null,
+        pendingSolds:   pendingComps.filter(c => c.role === 'sold').map(c => compFromParsedFields(c.fields)),
+        pendingActives: pendingComps.filter(c => c.role === 'active').map(c => compFromParsedFields(c.fields)),
+      };
       const r = await fetch('/api/cma', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...form, listPrice: form.listPrice ? Number(form.listPrice.replace(/[^0-9]/g, '')) : null }),
+        body: JSON.stringify(body),
       });
       const j = await r.json();
       if (j.ok) onCreated(j.cma);
@@ -8585,6 +8789,9 @@ function CmaIntakeModal({ onClose, onCreated }) {
         <div style={{ marginBottom: 12, padding: 10, background: '#eef2ff', borderRadius: 8, fontSize: 11, color: '#3730a3' }}>
           <strong>Shortcut:</strong> paste an MLS # and the skill will fetch all attributes from REALM. Otherwise fill the fields manually.
         </div>
+
+        <CmaPdfDropZone onParsed={handleParsed} allowMore={!!form.address || !!form.mlsId} />
+        <CmaPendingCompsList comps={pendingComps} onSetRole={setCompRole} onRemove={removeComp} />
 
         <h3 style={{ fontSize: 12, fontWeight: 700, color: '#374151', textTransform: 'uppercase', letterSpacing: 0.4, margin: '0 0 8px' }}>Required</h3>
         <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 10, marginBottom: 12 }}>
@@ -9037,6 +9244,7 @@ function SectionContent({ section }) {
         </div>
       </div>
     );
+    case "jacqui": return <Jacqui />;
     case "priorities": return <TopPriorities />;
     case "calls": return <CallListSection />;
     case "emails": return (<div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}><EmailEASection /><GmailActivityPanel /></div>);

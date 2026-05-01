@@ -23,6 +23,8 @@ import { renderPrintHtml } from './lib/listing-print.js';
 import { parseGeoWarehouseText } from './lib/parsers/geowarehouse.js';
 import * as listingPhotosRoutes from './lib/routes/listing-photos.js';
 import * as listingFormCrudRoutes from './lib/routes/listing-form-crud.js';
+import * as jacquiRoutes from './lib/routes/jacqui.js';
+import * as cmaParseRoutes from './lib/routes/cma-parse.js';
 import * as health from './lib/health.js';
 const _require = createRequire(import.meta.url);
 const pdfParse = _require('pdf-parse');
@@ -5749,6 +5751,23 @@ listingPhotosRoutes.register(app, {
 });
 
 // ─────────────────────────────────────────────
+// JACQUI — personal AI assistant, named in honour of mom Jacqueline
+// (Voice calibrated against ~87 real screenshots, 2026-04-30)
+// ─────────────────────────────────────────────
+
+const JACQUI_DIR = path.join(DATA_DIR, '.jacqui');
+if (!fs.existsSync(JACQUI_DIR)) fs.mkdirSync(JACQUI_DIR, { recursive: true });
+
+jacquiRoutes.register(app, { anthropic, JACQUI_DIR });
+
+// ─────────────────────────────────────────────
+// CMA — REALM listing PDF upload + parse (autofill the New CMA form)
+// ─────────────────────────────────────────────
+const cmaPdfUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
+cmaParseRoutes.register(app, { anthropic, pdfParse, pdfUpload: cmaPdfUpload });
+
+
+// ─────────────────────────────────────────────
 // PDF IMPORT — GeoWarehouse & Old MLS Listings
 // ─────────────────────────────────────────────
 
@@ -7255,6 +7274,18 @@ app.post('/api/cma', express.json({ limit: '1mb' }), (req, res) => {
     updatedAt: now,
     ranAt: null,
   };
+  // Optional: pre-seeded comps from PDF upload (Phase 2 multi-PDF feature)
+  if (Array.isArray(body.pendingSolds)) {
+    for (const data of body.pendingSolds) {
+      cma.comps.solds.push({ id: `c_${Date.now()}_${Math.random().toString(36).slice(2, 5)}`, source: 'pdf-upload', ...data });
+    }
+  }
+  if (Array.isArray(body.pendingActives)) {
+    for (const data of body.pendingActives) {
+      cma.comps.actives.push({ id: `c_${Date.now()}_${Math.random().toString(36).slice(2, 5)}`, source: 'pdf-upload', ...data });
+    }
+  }
+
   cmasState.cmas.unshift(cma);
   if (cmasState.cmas.length > 200) cmasState.cmas = cmasState.cmas.slice(0, 200);
   saveCmas();
