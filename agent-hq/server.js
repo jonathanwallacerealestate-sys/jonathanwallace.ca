@@ -25,6 +25,7 @@ import * as listingPhotosRoutes from './lib/routes/listing-photos.js';
 import * as listingFormCrudRoutes from './lib/routes/listing-form-crud.js';
 import * as jacquiRoutes from './lib/routes/jacqui.js';
 import * as cmaParseRoutes from './lib/routes/cma-parse.js';
+import { runCmaAnalysis } from './lib/cma/run.js';
 import * as health from './lib/health.js';
 const _require = createRequire(import.meta.url);
 const pdfParse = _require('pdf-parse');
@@ -7288,8 +7289,66 @@ app.post('/api/cma', express.json({ limit: '1mb' }), (req, res) => {
 
   cmasState.cmas.unshift(cma);
   if (cmasState.cmas.length > 200) cmasState.cmas = cmasState.cmas.slice(0, 200);
+
+  // Auto-fire the analyzer if comps were pre-seeded (≥2). Runs async — we
+  // respond immediately with status='running', and the background task
+  // updates the record when it's done. Frontend polls /api/cma/:id.
+  const compCount = (cma.comps.solds?.length || 0) + (cma.comps.actives?.length || 0);
+  if (compCount >= 2 && anthropic) {
+    cma.status = 'running';
+    cma.runStartedAt = new Date().toISOString();
+    saveCmas();
+    // Don't await — let the request return. Errors are swallowed into cma.error.
+    runCmaAnalysisAsync(cma.id).catch(err => console.error('[CMA] auto-run error:', err.message));
+  } else {
+    saveCmas();
+  }
+
+  res.json({ ok: true, cma });
+});
+
+// Internal helper — runs the analyzer, persists results onto the CMA record.
+async function runCmaAnalysisAsync(cmaId) {
+  const cma = cmasState.cmas.find(c => c.id === cmaId);
+  if (!cma) return;
+  console.log(`[CMA Runner] starting ${cmaId} (${cma.address})`);
+  const result = await runCmaAnalysis(cma, { anthropic });
+  if (result.ok) {
+    if (result.priceRange) cma.priceRange = result.priceRange;
+    if (result.estimatedDom != null) cma.estimatedDom = result.estimatedDom;
+    if (result.pricingNarrative) cma.pricingNarrative = result.pricingNarrative;
+    if (result.pricingBullets) cma.pricingBullets = result.pricingBullets;
+    if (result.sellerUpdate) cma.sellerUpdate = result.sellerUpdate;
+    if (result.adjustmentGrid) cma.adjustmentGrid = result.adjustmentGrid;
+    if (result.warnings) cma.warnings = result.warnings;
+    cma.status = 'ready';
+    cma.runError = null;
+    cma.ranAt = new Date().toISOString();
+    cma.runModel = result.model;
+    cma.runUsage = result.usage;
+    console.log(`[CMA Runner] ✓ ${cmaId} ready`);
+  } else {
+    cma.status = 'error';
+    cma.runError = result.error;
+    console.log(`[CMA Runner] ✗ ${cmaId} error: ${result.error}`);
+  }
+  cma.updatedAt = new Date().toISOString();
+  saveCmas();
+}
+
+// POST /api/cma/:id/run — trigger or re-trigger the analyzer on-demand.
+// Useful when comps were added after creation, or to retry after error.
+app.post('/api/cma/:id/run', async (req, res) => {
+  const cma = cmasState.cmas.find(c => c.id === req.params.id);
+  if (!cma) return res.status(404).json({ ok: false, error: 'CMA not found' });
+  if (cma.status === 'running') return res.json({ ok: false, error: 'Already running' });
+  cma.status = 'running';
+  cma.runStartedAt = new Date().toISOString();
+  cma.runError = null;
   saveCmas();
   res.json({ ok: true, cma });
+  // Fire async — don't block the response
+  runCmaAnalysisAsync(cma.id).catch(err => console.error('[CMA] manual-run error:', err.message));
 });
 
 // GET /api/cma — list all (summary rows)
@@ -7324,7 +7383,7 @@ app.get('/api/cma/:id', (req, res) => {
 app.patch('/api/cma/:id', express.json({ limit: '1mb' }), (req, res) => {
   const cma = cmasState.cmas.find(c => c.id === req.params.id);
   if (!cma) return res.status(404).json({ ok: false, error: 'CMA not found' });
-  const allowed = ['notes', 'priceRange', 'estimatedDom', 'pricingNarrative', 'pricingBullets', 'sellerUpdate', 'status', 'address', 'city', 'bedrooms', 'bathrooms', 'sqft', 'lotSize', 'style', 'yearBuilt', 'foundation', 'garage', 'waterfront', 'propertyClass', 'mlsId', 'listPrice', 'suggestedListPrice'];
+  const allowed = ['notes', 'priceRange', 'estimatedDom', 'pricingNarrative', 'pricingBullets', 'sellerUpdate', 'status', 'address', 'city', 'bedrooms', 'bathrooms', 'sqft', 'lotSize', 'style', 'yearBuilt', 'foundation', 'garage', 'waterfront', 'propertyClass', 'mlsId', 'listPrice', 'suggestedListPrice', 'adjustmentGrid', 'warnings', 'runError'];
   const body = req.body || {};
   for (const k of allowed) if (k in body) cma[k] = body[k];
   // Nested comp edits

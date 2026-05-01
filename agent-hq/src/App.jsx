@@ -8844,11 +8844,47 @@ function CmaDetailModal({ id, onClose }) {
     try {
       const r = await fetch(`/api/cma/${id}`);
       const j = await r.json();
-      if (j.ok) { setCma(j.cma); setDraft({}); }
+      if (j.ok) { setCma(j.cma); }
     } catch (e) { console.error(e); }
     setLoading(false);
   };
-  useEffect(() => { load(); }, [id]);
+
+  // Polls /api/cma/:id every 3s while status is pending or running so the
+  // detail view reflects the autonomous analyzer in real time. Stops on
+  // ready / error.
+  useEffect(() => {
+    let cancelled = false;
+    let timer = null;
+    const tick = async () => {
+      if (cancelled) return;
+      try {
+        const r = await fetch(`/api/cma/${id}`);
+        const j = await r.json();
+        if (cancelled) return;
+        if (j.ok) {
+          setCma(j.cma);
+          setLoading(false);
+          if (j.cma.status === 'pending' || j.cma.status === 'running') {
+            timer = setTimeout(tick, 3000);
+          }
+        }
+      } catch (e) { console.error(e); }
+    };
+    setLoading(true);
+    tick();
+    return () => { cancelled = true; if (timer) clearTimeout(timer); };
+  }, [id]);
+
+  const [runError, setRunError] = useState(null);
+  const runAnalysis = async () => {
+    setRunError(null);
+    try {
+      const r = await fetch(`/api/cma/${id}/run`, { method: 'POST' });
+      const j = await r.json();
+      if (j.ok) setCma(j.cma);
+      else setRunError(j.error || 'Failed to start');
+    } catch (e) { setRunError(e.message); }
+  };
 
   const money = (n) => n ? '$' + Number(n).toLocaleString() : '—';
 
@@ -8884,6 +8920,46 @@ function CmaDetailModal({ id, onClose }) {
               {cma.city}, {cma.province}{cma.mlsId ? ` · MLS ${cma.mlsId}` : ''} · Status: <strong style={{ color: '#374151' }}>{cma.status}</strong>
             </div>
           </div>
+
+        {/* Autonomous-runner status banner */}
+        {(cma.status === 'running' || cma.status === 'pending') && (
+          <div style={{ marginBottom: 16, padding: 12, borderRadius: 10, background: cma.status === 'running' ? '#dbeafe' : '#fef3c7', border: '1px solid ' + (cma.status === 'running' ? '#93c5fd' : '#fde68a'), display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+            {cma.status === 'running' ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13, color: '#1e40af', fontWeight: 600 }}>
+                <Loader2 size={16} className="spin" />
+                <span>Running autonomous analysis — Claude is weighting comps and generating the price range. ~20-40 seconds.</span>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13, color: '#92400e', fontWeight: 600 }}>
+                <span>Pending. {((cma.comps?.solds?.length || 0) + (cma.comps?.actives?.length || 0)) >= 2
+                  ? 'Comps are loaded — click Run Analysis to fire the autonomous analyzer.'
+                  : 'Add at least 2 comp PDFs (or use the realm-cma skill to pull from REALM), then Run Analysis.'}</span>
+              </div>
+            )}
+            {cma.status === 'pending' && ((cma.comps?.solds?.length || 0) + (cma.comps?.actives?.length || 0)) >= 2 && (
+              <button onClick={runAnalysis} style={{ background: 'linear-gradient(135deg,#c8a96e,#d4b878)', color: '#fff', border: 'none', borderRadius: 8, padding: '8px 14px', cursor: 'pointer', fontSize: 12, fontWeight: 700, whiteSpace: 'nowrap' }}>
+                Run Analysis
+              </button>
+            )}
+          </div>
+        )}
+
+        {cma.status === 'error' && (
+          <div style={{ marginBottom: 16, padding: 12, borderRadius: 10, background: '#fee2e2', border: '1px solid #fecaca', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+            <div style={{ fontSize: 12, color: '#991b1b' }}>
+              <strong>Run failed:</strong> {cma.runError || 'unknown error'}
+            </div>
+            <button onClick={runAnalysis} style={{ background: '#dc2626', color: '#fff', border: 'none', borderRadius: 8, padding: '8px 14px', cursor: 'pointer', fontSize: 12, fontWeight: 700 }}>
+              Retry
+            </button>
+          </div>
+        )}
+
+        {runError && (
+          <div style={{ marginBottom: 12, padding: 8, borderRadius: 6, background: '#fee2e2', color: '#991b1b', fontSize: 11 }}>
+            Run trigger error: {runError}
+          </div>
+        )}
           <div style={{ display: 'flex', gap: 6 }}>
             <a href={`/cma/${cma.id}/print`} target="_blank" rel="noopener noreferrer" style={{ display: 'flex', alignItems: 'center', gap: 4, textDecoration: 'none', background: '#c8a96e', color: '#fff', border: 'none', borderRadius: 8, padding: '8px 14px', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
               <FileText size={12} />Print PDF
