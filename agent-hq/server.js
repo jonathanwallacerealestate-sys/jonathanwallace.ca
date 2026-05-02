@@ -5775,7 +5775,7 @@ jacquiRoutes.register(app, { anthropic, JACQUI_DIR });
 // CMA — REALM listing PDF upload + parse (autofill the New CMA form)
 // ─────────────────────────────────────────────
 const cmaPdfUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
-cmaParseRoutes.register(app, { anthropic, pdfParse, pdfUpload: cmaPdfUpload });
+cmaParseRoutes.register(app, { anthropic, pdfParse, pdfUpload: cmaPdfUpload, parseGeoWarehouseText });
 
 
 // ─────────────────────────────────────────────
@@ -7267,6 +7267,9 @@ app.post('/api/cma', express.json({ limit: '1mb' }), (req, res) => {
     mlsId: String(body.mlsId || '').slice(0, 20),
     // Subject listing state
     listPrice: Number(body.listPrice) || null,
+    // Parsed-PDF data sources (Phase 2 three-zone intake)
+    geoData: (body.geoData && typeof body.geoData === 'object') ? body.geoData : null,
+    subjectListingData: (body.subjectListingData && typeof body.subjectListingData === 'object') ? body.subjectListingData : null,
     // Scraped data (filled by skill)
     subjectDetails: null,
     subjectHistory: [],
@@ -7393,7 +7396,7 @@ app.get('/api/cma/:id', (req, res) => {
 app.patch('/api/cma/:id', express.json({ limit: '1mb' }), (req, res) => {
   const cma = cmasState.cmas.find(c => c.id === req.params.id);
   if (!cma) return res.status(404).json({ ok: false, error: 'CMA not found' });
-  const allowed = ['notes', 'priceRange', 'estimatedDom', 'pricingNarrative', 'pricingBullets', 'sellerUpdate', 'status', 'address', 'city', 'bedrooms', 'bathrooms', 'sqft', 'lotSize', 'style', 'yearBuilt', 'foundation', 'garage', 'waterfront', 'propertyClass', 'mlsId', 'listPrice', 'suggestedListPrice', 'adjustmentGrid', 'warnings', 'runError'];
+  const allowed = ['notes', 'priceRange', 'estimatedDom', 'pricingNarrative', 'pricingBullets', 'sellerUpdate', 'status', 'address', 'city', 'bedrooms', 'bathrooms', 'sqft', 'lotSize', 'style', 'yearBuilt', 'foundation', 'garage', 'waterfront', 'propertyClass', 'mlsId', 'listPrice', 'suggestedListPrice', 'adjustmentGrid', 'warnings', 'runError', 'geoData', 'subjectListingData'];
   const body = req.body || {};
   for (const k of allowed) if (k in body) cma[k] = body[k];
   // Nested comp edits

@@ -8546,20 +8546,104 @@ function CmaField({ label, k, type = 'text', placeholder, required, options, for
 }
 
 // CMA: parsed-field mapper — translates PDF parser output → CMA intake form keys.
-function mergeParsedIntoCmaForm(form, parsed) {
+// Skips fields the user has manually edited (lockedFields) so manual overrides
+// stick across subsequent PDF drops.
+function mergeParsedIntoCmaForm(form, parsed, lockedFields = new Set()) {
   const merged = { ...form };
-  const passThrough = ['address', 'city', 'province', 'mlsId', 'bedrooms', 'bathrooms', 'sqft', 'lotSize', 'propertyClass', 'style', 'foundation', 'garage'];
-  for (const k of passThrough) {
-    if (parsed[k] != null && parsed[k] !== '') merged[k] = String(parsed[k]);
-  }
-  if (parsed.listPrice != null) merged.listPrice = String(parsed.listPrice);
-  if (parsed.yearBuilt != null) merged.yearBuilt = String(parsed.yearBuilt);
-  if (parsed.waterfront != null) merged.waterfront = !!parsed.waterfront;
+  const pass = (k, v) => {
+    if (v == null || v === '') return;
+    if (lockedFields.has(k)) return;
+    merged[k] = String(v);
+  };
+  pass('address', parsed.address);
+  pass('city', parsed.city);
+  pass('province', parsed.province);
+  pass('mlsId', parsed.mlsId);
+  pass('bedrooms', parsed.bedrooms);
+  pass('bathrooms', parsed.bathrooms);
+  pass('sqft', parsed.sqft);
+  pass('lotSize', parsed.lotSize);
+  pass('propertyClass', parsed.propertyClass);
+  pass('style', parsed.style);
+  pass('foundation', parsed.foundation);
+  pass('garage', parsed.garage);
+  if (parsed.listPrice != null) pass('listPrice', parsed.listPrice);
+  if (parsed.yearBuilt != null) pass('yearBuilt', parsed.yearBuilt);
+  if (parsed.waterfront != null && !lockedFields.has('waterfront')) merged.waterfront = !!parsed.waterfront;
   return merged;
 }
 
-// CMA: extract comp-relevant subset from parsed PDF fields. Drops the
-// soft narrative fields the comps list doesn't need.
+// CMA: GeoWarehouse merge. Authoritative for property facts (year built, lot,
+// zoning, taxes, sales history, address). NOT used for beds/baths/rooms because
+// MPAC's room counts go stale fast.
+function mergeGeoIntoCmaForm(form, geoFields, lockedFields = new Set()) {
+  const merged = { ...form };
+  const pass = (k, v) => {
+    if (v == null || v === '') return;
+    if (lockedFields.has(k)) return;
+    merged[k] = String(v);
+  };
+  pass('address', geoFields.address);
+  pass('city', geoFields.city);
+  pass('yearBuilt', geoFields.yearBuilt);
+  // Prefer detailed dimensions when available
+  if (geoFields.lotDimensions) pass('lotSize', geoFields.lotDimensions);
+  else if (geoFields.lotSize) pass('lotSize', geoFields.lotSize);
+  // Map ownershipType → propertyClass
+  if (geoFields.ownershipType) {
+    const t = String(geoFields.ownershipType).toLowerCase();
+    if (t.includes('condo')) pass('propertyClass', 'Condo');
+    else if (t.includes('lease')) pass('propertyClass', 'Commercial');
+    else pass('propertyClass', 'Freehold');
+  }
+  if (geoFields.isWaterfront != null && !lockedFields.has('waterfront')) {
+    merged.waterfront = !!geoFields.isWaterfront;
+  }
+  // Note: bedrooms / bathrooms / room counts deliberately skipped — MPAC stale data.
+  return merged;
+}
+
+// Pull the appraisal-grade geo fields that don't belong on the visible form
+// into a sub-object stored on the CMA record for the analyzer to read.
+function extractGeoSubObject(g) {
+  if (!g) return null;
+  return {
+    pin: g.pin || null,
+    arn: g.arn || null,
+    legalDescription: g.legalDescription || null,
+    ownershipType: g.ownershipType || null,
+    zoning: g.zoning || null,
+    lotFrontage: g.lotFrontage || null,
+    lotDepth: g.lotDepth || null,
+    lotDimensions: g.lotDimensions || null,
+    assessedValue: g.assessedValue || null,
+    taxes: g.taxes || null,
+    taxYear: g.taxYear || null,
+    waterSource: g.waterSource || null,
+    sewerType: g.sewerType || null,
+    lastSaleDate: g.lastSaleDate || null,
+    lastSalePrice: g.lastSalePrice || null,
+  };
+}
+
+// Pull prior-listing context from a parsed REALM listing PDF — historical info
+// the analyzer should treat as context, not as current state.
+function extractPriorListingSubObject(p) {
+  if (!p) return null;
+  return {
+    priorMlsId: p.mlsId || null,
+    originalListPrice: p.listPrice || null,
+    priorSoldPrice: p.soldPrice || null,
+    priorListedDate: p.listedDate || null,
+    priorSoldDate: p.soldDate || null,
+    priorDaysOnMarket: p.daysOnMarket != null ? p.daysOnMarket : null,
+    publicRemarks: p.publicRemarks || null,
+    features: p.features || null,
+    inclusions: p.inclusions || null,
+  };
+}
+
+// CMA: extract comp-relevant subset from parsed PDF fields.
 function compFromParsedFields(fields) {
   return {
     address: fields.address || '',
@@ -8585,9 +8669,9 @@ function compFromParsedFields(fields) {
   };
 }
 
-// CMA: drag/drop or click-to-browse drop zone for REALM listing PDFs.
-// Accepts multiple files. Calls onParsed(fields, meta) once per parsed PDF.
-function CmaPdfDropZone({ onParsed, allowMore = true }) {
+// CMA: parameterized drop zone. One component, three uses (subject prior listing,
+// GeoWarehouse report, comparables). Calls onParsed(fields, meta) once per parsed PDF.
+function CmaPdfDropZone({ endpoint, multiple = false, label, helpText, icon, accentBg, accentBorder, accentText, onParsed }) {
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState(null);
   const [drag, setDrag] = useState(false);
@@ -8596,19 +8680,23 @@ function CmaPdfDropZone({ onParsed, allowMore = true }) {
   async function uploadFiles(filesList) {
     const files = Array.from(filesList || []).filter(f => /\.pdf$/i.test(f.name) || f.type === 'application/pdf');
     if (!files.length) {
-      setStatus({ ok: false, msg: 'Please drop one or more PDFs (.pdf).' });
+      setStatus({ ok: false, msg: 'Please drop a PDF (.pdf).' });
       return;
     }
+    if (!multiple && files.length > 1) {
+      setStatus({ ok: false, msg: 'This zone takes one PDF — only the first will be parsed.' });
+    }
+    const toUpload = multiple ? files : files.slice(0, 1);
     setBusy(true);
     setStatus(null);
     let ok = 0, fail = 0;
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
-      setStatus({ ok: true, msg: `Parsing ${i + 1} of ${files.length} — ${file.name}...` });
+    for (let i = 0; i < toUpload.length; i++) {
+      const file = toUpload[i];
+      if (multiple) setStatus({ ok: true, msg: `Parsing ${i + 1} of ${toUpload.length} — ${file.name}...` });
       try {
         const fd = new FormData();
         fd.append('file', file);
-        const r = await fetch('/api/cma/parse-pdf', { method: 'POST', body: fd });
+        const r = await fetch(endpoint, { method: 'POST', body: fd });
         const j = await r.json();
         if (j.ok) {
           onParsed(j.fields, j.meta);
@@ -8621,45 +8709,48 @@ function CmaPdfDropZone({ onParsed, allowMore = true }) {
       }
     }
     setBusy(false);
-    setStatus({
-      ok: ok > 0,
-      msg: `Parsed ${ok} of ${files.length} PDF(s)${fail ? ` — ${fail} failed` : ''}. First becomes the subject; rest are pending comps below.`,
-    });
+    if (multiple) {
+      setStatus({ ok: ok > 0, msg: `Parsed ${ok} of ${toUpload.length} PDF${toUpload.length > 1 ? 's' : ''}${fail ? ` — ${fail} failed` : ''}.` });
+    } else if (ok) {
+      setStatus({ ok: true, msg: `Parsed ${toUpload[0].name}. Form below updated (manually-edited fields preserved).` });
+    } else {
+      setStatus({ ok: false, msg: `Could not parse ${toUpload[0].name}.` });
+    }
   }
 
   return (
-    <div style={{ marginBottom: 12 }}>
+    <div style={{ marginBottom: 10 }}>
       <div
         onDragOver={e => { e.preventDefault(); setDrag(true); }}
         onDragLeave={() => setDrag(false)}
         onDrop={e => { e.preventDefault(); setDrag(false); uploadFiles(e.dataTransfer.files); }}
         onClick={() => inputRef.current?.click()}
         style={{
-          border: '2px dashed ' + (drag ? '#c8a96e' : '#d4b878'),
-          background: drag ? '#fef3c7' : '#fffbeb',
-          borderRadius: 10, padding: 16,
-          textAlign: 'center', cursor: 'pointer', transition: 'all 0.1s',
+          border: '2px dashed ' + (drag ? accentText : accentBorder),
+          background: drag ? accentBg : '#fff',
+          borderRadius: 10, padding: 12,
+          cursor: 'pointer', transition: 'all 0.1s',
+          display: 'flex', alignItems: 'center', gap: 10,
         }}
       >
-        <input ref={inputRef} type="file" multiple accept=".pdf,application/pdf" hidden onChange={e => uploadFiles(e.target.files)} />
-        {busy ? (
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, color: '#92400e', fontSize: 12 }}>
-            <Loader2 size={14} className="spin" /> Parsing — regex + AI extraction...
-          </div>
-        ) : (
-          <div>
-            <UploadCloud size={22} color="#c8a96e" style={{ margin: '0 auto 4px', display: 'block' }} />
-            <div style={{ fontSize: 12, fontWeight: 700, color: '#92400e' }}>Drop REALM listing PDFs to autofill</div>
-            <div style={{ fontSize: 11, color: '#a16207', marginTop: 2 }}>
-              {allowMore ? 'First fills subject · rest become pending comps · ' : 'Add more comps · '}
-              click or drop multiple at once · max 25 MB each
+        <input ref={inputRef} type="file" multiple={multiple} accept=".pdf,application/pdf" hidden onChange={e => uploadFiles(e.target.files)} />
+        <div style={{ fontSize: 20 }}>{icon}</div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          {busy ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: accentText, fontSize: 12, fontWeight: 600 }}>
+              <Loader2 size={12} className="spin" /> Parsing...
             </div>
-          </div>
-        )}
+          ) : (
+            <>
+              <div style={{ fontSize: 12, fontWeight: 700, color: accentText }}>{label}</div>
+              <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>{helpText}</div>
+            </>
+          )}
+        </div>
       </div>
       {status && (
         <div style={{
-          marginTop: 6, padding: '6px 10px', borderRadius: 6, fontSize: 11,
+          marginTop: 4, padding: '4px 8px', borderRadius: 6, fontSize: 10,
           background: status.ok ? '#dcfce7' : '#fee2e2',
           color: status.ok ? '#166534' : '#991b1b',
         }}>
@@ -8674,9 +8765,9 @@ function CmaPdfDropZone({ onParsed, allowMore = true }) {
 function CmaPendingCompsList({ comps, onSetRole, onRemove }) {
   if (!comps.length) return null;
   return (
-    <div style={{ marginBottom: 16, padding: 10, background: '#fefce8', border: '1px solid #fde68a', borderRadius: 10 }}>
+    <div style={{ marginBottom: 12, padding: 10, background: '#fefce8', border: '1px solid #fde68a', borderRadius: 10 }}>
       <div style={{ fontSize: 11, fontWeight: 700, color: '#854d0e', textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 8 }}>
-        Pending comps ({comps.length}) · will attach on Create
+        Pending comps ({comps.length}) · attach on Create
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
         {comps.map(c => (
@@ -8730,26 +8821,47 @@ function CmaIntakeModal({ onClose, onCreated }) {
     listPrice: '',
   });
   const [submitting, setSubmitting] = useState(false);
-  const [pendingComps, setPendingComps] = useState([]); // [{ id, role: 'sold'|'active', fields, meta }]
+  const [pendingComps, setPendingComps] = useState([]);
+  const [geoData, setGeoData] = useState(null);
+  const [subjectListingData, setSubjectListingData] = useState(null);
+  // Manual-override tracking — once Jonathan types into a field, that field is
+  // locked and subsequent PDF drops won't overwrite it.
+  const [lockedFields, setLockedFields] = useState(() => new Set());
 
-  const set = (k, v) => setForm(prev => ({ ...prev, [k]: v }));
-
-  // Route parsed PDFs: first one (or any while form is empty) fills subject,
-  // rest become pending comps defaulted to "sold."
-  function handleParsed(fields, meta) {
-    setForm(prev => {
-      if (!prev.address && !prev.mlsId) {
-        return mergeParsedIntoCmaForm(prev, fields);
-      }
-      // Form already has a subject — push to pending comps
-      setPendingComps(p => [...p, {
-        id: `pc_${Date.now()}_${Math.random().toString(36).slice(2, 5)}`,
-        role: 'sold',
-        fields, meta,
-      }]);
-      return prev;
+  // Setter for any form field that ALSO marks the field as manually edited.
+  const set = (k, v) => {
+    setForm(prev => ({ ...prev, [k]: v }));
+    setLockedFields(prev => {
+      if (prev.has(k)) return prev;
+      const next = new Set(prev);
+      next.add(k);
+      return next;
     });
+  };
+
+  // Three explicit handlers, one per drop zone.
+  function handleSubjectListingParsed(fields, meta) {
+    setForm(prev => mergeParsedIntoCmaForm(prev, fields, lockedFields));
+    setSubjectListingData(prev => ({
+      ...(prev || {}),
+      ...extractPriorListingSubObject(fields),
+    }));
   }
+  function handleGeoParsed(fields, meta) {
+    setForm(prev => mergeGeoIntoCmaForm(prev, fields, lockedFields));
+    setGeoData(prev => ({
+      ...(prev || {}),
+      ...extractGeoSubObject(fields),
+    }));
+  }
+  function handleCompParsed(fields, meta) {
+    setPendingComps(p => [...p, {
+      id: `pc_${Date.now()}_${Math.random().toString(36).slice(2, 5)}`,
+      role: 'sold',
+      fields, meta,
+    }]);
+  }
+
   const setCompRole = (id, role) => setPendingComps(prev => prev.map(c => c.id === id ? { ...c, role } : c));
   const removeComp = (id) => setPendingComps(prev => prev.filter(c => c.id !== id));
 
@@ -8760,6 +8872,8 @@ function CmaIntakeModal({ onClose, onCreated }) {
       const body = {
         ...form,
         listPrice: form.listPrice ? Number(form.listPrice.replace(/[^0-9]/g, '')) : null,
+        geoData,
+        subjectListingData,
         pendingSolds:   pendingComps.filter(c => c.role === 'sold').map(c => compFromParsedFields(c.fields)),
         pendingActives: pendingComps.filter(c => c.role === 'active').map(c => compFromParsedFields(c.fields)),
       };
@@ -8786,12 +8900,57 @@ function CmaIntakeModal({ onClose, onCreated }) {
           <button onClick={onClose} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#6b7280' }}><X size={18} /></button>
         </div>
 
-        <div style={{ marginBottom: 12, padding: 10, background: '#eef2ff', borderRadius: 8, fontSize: 11, color: '#3730a3' }}>
-          <strong>Shortcut:</strong> paste an MLS # and the skill will fetch all attributes from REALM. Otherwise fill the fields manually.
+        <div style={{ marginBottom: 12, padding: 10, background: '#f9fafb', borderRadius: 8, fontSize: 11, color: '#374151', border: '1px solid #e5e7eb' }}>
+          Drop any of the three sources below. The form auto-fills, with GeoWarehouse winning on lot/zoning/taxes/year and the prior listing winning on style/foundation/garage/remarks. <strong>Anything you type below stays put</strong> — manual edits aren't overwritten by later drops.
         </div>
 
-        <CmaPdfDropZone onParsed={handleParsed} allowMore={!!form.address || !!form.mlsId} />
+        <h3 style={{ fontSize: 11, fontWeight: 700, color: '#6b7280', textTransform: 'uppercase', letterSpacing: 0.4, margin: '12px 0 6px' }}>Subject sources</h3>
+
+        <CmaPdfDropZone
+          endpoint="/api/cma/parse-pdf"
+          multiple={false}
+          icon="📄"
+          label="Subject's prior REALM listing (optional)"
+          helpText="Style, foundation, garage, list price, public remarks, prior sold price + DOM"
+          accentBg="#fffbeb"
+          accentBorder="#d4b878"
+          accentText="#92400e"
+          onParsed={handleSubjectListingParsed}
+        />
+
+        <CmaPdfDropZone
+          endpoint="/api/cma/parse-geowarehouse-pdf"
+          multiple={false}
+          icon="🗺️"
+          label="GeoWarehouse property report (optional)"
+          helpText="PIN, zoning, lot dimensions, MPAC assessment, taxes, sales history, year built"
+          accentBg="#ecfeff"
+          accentBorder="#67e8f9"
+          accentText="#0e7490"
+          onParsed={handleGeoParsed}
+        />
+
+        <h3 style={{ fontSize: 11, fontWeight: 700, color: '#6b7280', textTransform: 'uppercase', letterSpacing: 0.4, margin: '14px 0 6px' }}>Comparables</h3>
+
+        <CmaPdfDropZone
+          endpoint="/api/cma/parse-pdf"
+          multiple={true}
+          icon="📊"
+          label="Comparable REALM listings"
+          helpText="Drop multiple sold or active comps · 2+ to fire the autonomous analyzer"
+          accentBg="#f5f3ff"
+          accentBorder="#c4b5fd"
+          accentText="#5b21b6"
+          onParsed={handleCompParsed}
+        />
+
         <CmaPendingCompsList comps={pendingComps} onSetRole={setCompRole} onRemove={removeComp} />
+
+        {(geoData || subjectListingData) && (
+          <div style={{ marginBottom: 12, padding: 8, background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, fontSize: 11, color: '#166534' }}>
+            ✓ Sources captured: {geoData ? 'GeoWarehouse' : ''}{geoData && subjectListingData ? ' + ' : ''}{subjectListingData ? 'prior listing' : ''}. Analyzer will use them for context.
+          </div>
+        )}
 
         <h3 style={{ fontSize: 12, fontWeight: 700, color: '#374151', textTransform: 'uppercase', letterSpacing: 0.4, margin: '0 0 8px' }}>Required</h3>
         <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 10, marginBottom: 12 }}>

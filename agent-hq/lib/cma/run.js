@@ -36,6 +36,44 @@ function formatSubject(cma) {
   if (cma.waterfront) lines.push(`Waterfront: yes`);
   if (cma.listPrice) lines.push(`Current list price: ${fmtMoney(cma.listPrice)}`);
   if (cma.notes) lines.push(`Notes: ${cma.notes}`);
+
+  // GeoWarehouse / MPAC data — authoritative for property facts (lot, zoning,
+  // taxes, sales history, year built). NOT reliable for room counts.
+  if (cma.geoData && typeof cma.geoData === 'object') {
+    const g = cma.geoData;
+    lines.push('');
+    lines.push('GeoWarehouse / MPAC data (authoritative for property facts):');
+    if (g.pin) lines.push(`  PIN: ${g.pin}`);
+    if (g.legalDescription) lines.push(`  Legal: ${String(g.legalDescription).slice(0, 240)}`);
+    if (g.zoning) lines.push(`  Zoning: ${g.zoning}`);
+    if (g.lotDimensions) lines.push(`  Lot dimensions: ${g.lotDimensions}`);
+    if (g.lotFrontage) lines.push(`  Frontage: ${g.lotFrontage} ft`);
+    if (g.lotDepth) lines.push(`  Depth: ${g.lotDepth} ft`);
+    if (g.assessedValue) lines.push(`  MPAC assessed value: ${fmtMoney(g.assessedValue)}`);
+    if (g.taxes) lines.push(`  Taxes: ${fmtMoney(g.taxes)}${g.taxYear ? ' (' + g.taxYear + ')' : ''}`);
+    if (g.waterSource) lines.push(`  Water: ${g.waterSource}`);
+    if (g.sewerType) lines.push(`  Sewer: ${g.sewerType}`);
+    if (g.lastSaleDate || g.lastSalePrice) {
+      lines.push(`  Last registered sale: ${g.lastSaleDate || '—'} for ${g.lastSalePrice ? fmtMoney(g.lastSalePrice) : '—'} (do NOT anchor valuation on this — context only)`);
+    }
+  }
+
+  // Prior listing data — historical context (failed listings, last list/sold price,
+  // remarks describing condition at time of listing). May be 1-5 years old.
+  if (cma.subjectListingData && typeof cma.subjectListingData === 'object') {
+    const s = cma.subjectListingData;
+    lines.push('');
+    lines.push('Subject\'s prior REALM listing (historical context — may be 1-5 years old):');
+    if (s.priorMlsId) lines.push(`  Prior MLS#: ${s.priorMlsId}`);
+    if (s.originalListPrice) lines.push(`  Originally listed at: ${fmtMoney(s.originalListPrice)}`);
+    if (s.priorListedDate) lines.push(`  Prior listed: ${s.priorListedDate}`);
+    if (s.priorSoldPrice) lines.push(`  Prior sold price: ${fmtMoney(s.priorSoldPrice)}`);
+    if (s.priorSoldDate) lines.push(`  Prior sold: ${s.priorSoldDate}`);
+    if (s.priorDaysOnMarket != null) lines.push(`  Prior DOM: ${s.priorDaysOnMarket}`);
+    if (s.publicRemarks) lines.push(`  Prior remarks: ${String(s.publicRemarks).slice(0, 600)}`);
+    if (s.features) lines.push(`  Prior features: ${String(s.features).slice(0, 300)}`);
+  }
+
   return lines.join('\n');
 }
 
