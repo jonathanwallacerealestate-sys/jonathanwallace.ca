@@ -48,6 +48,10 @@ function ListingForm() {
   const [importResult, setImportResult] = useState(null);
   const [sisuExport, setSisuExport] = useState(null);
   const [fubAppointments, setFubAppointments] = useState([]);
+  // Quick-add: small popover triggered by the Plus button next to the selector.
+  // Lets Jonathan land an address in the pick list with one click without filling
+  // the whole deal card up front.
+  const [quickAdd, setQuickAdd] = useState({ open: false, address: '', city: 'Midland', busy: false, error: null });
   const [loadingFub, setLoadingFub] = useState(false);
   const [importingFub, setImportingFub] = useState(null);
   const [appointmentsExpanded, setAppointmentsExpanded] = useState(true);
@@ -129,6 +133,32 @@ function ListingForm() {
       }
     } catch (err) { console.error('Failed to save:', err); }
     setSaving(false);
+  };
+
+  // Quick-add a property to the pick list — minimal payload (address + city),
+  // server slugifies a propertyId, refresh the list, then load the new card.
+  const quickAddProperty = async () => {
+    const address = (quickAdd.address || '').trim();
+    if (!address) { setQuickAdd(q => ({ ...q, error: 'Address required' })); return; }
+    setQuickAdd(q => ({ ...q, busy: true, error: null }));
+    try {
+      const res = await fetch('/api/listing-form/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ address, city: (quickAdd.city || 'Midland').trim() }),
+      });
+      const result = await res.json();
+      if (!result.success) {
+        setQuickAdd(q => ({ ...q, busy: false, error: result.error || 'Failed to add' }));
+        return;
+      }
+      await fetchProperties();
+      // Open the new card so Jonathan can keep typing details if he wants
+      await loadProperty(result.propertyId);
+      setQuickAdd({ open: false, address: '', city: 'Midland', busy: false, error: null });
+    } catch (err) {
+      setQuickAdd(q => ({ ...q, busy: false, error: err.message }));
+    }
   };
 
   const createNew = () => {
@@ -561,7 +591,7 @@ function ListingForm() {
             </option>
           ))}
         </select>
-        <button onClick={createNew} title="New listing" style={{
+        <button onClick={() => setQuickAdd(q => ({ ...q, open: true, error: null }))} title="Quick add a property to the pick list" style={{
           width: 34, height: 34, borderRadius: 8, border: '1px solid #d1d5db', background: '#fff',
           display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
         }}><Plus size={16} color="#6b7280" /></button>
@@ -570,6 +600,74 @@ function ListingForm() {
           display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
         }}><Trash size={14} color="#ef4444" /></button>}
       </div>
+
+      {/* Quick-add property popover — shows under the selector bar.
+          Just address + city, drops the property into the pick list and opens its card. */}
+      {quickAdd.open && (
+        <div style={{
+          background: '#fff', borderRadius: 10, border: '1px solid #c8a96e',
+          padding: 14, marginBottom: 12,
+          boxShadow: '0 4px 12px rgba(0,0,0,0.06)',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+            <Plus size={14} color="#c8a96e" />
+            <span style={{ fontSize: 12, fontWeight: 700, color: '#92730a', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+              Quick add to pick list
+            </span>
+            <div style={{ flex: 1 }} />
+            <button
+              onClick={() => setQuickAdd({ open: false, address: '', city: 'Midland', busy: false, error: null })}
+              style={{ background: 'transparent', border: 'none', color: '#9ca3af', cursor: 'pointer', padding: 4 }}
+              title="Cancel"
+            ><X size={14} /></button>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr auto', gap: 8, alignItems: 'end' }}>
+            <div>
+              <label style={{ display: 'block', fontSize: 10, fontWeight: 700, color: '#6b7280', textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 4 }}>Address *</label>
+              <input
+                autoFocus
+                style={inputStyle}
+                value={quickAdd.address}
+                onChange={e => setQuickAdd(q => ({ ...q, address: e.target.value, error: null }))}
+                onKeyDown={e => { if (e.key === 'Enter' && !quickAdd.busy) quickAddProperty(); }}
+                placeholder="375 Champlain Road"
+              />
+            </div>
+            <div>
+              <label style={{ display: 'block', fontSize: 10, fontWeight: 700, color: '#6b7280', textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 4 }}>City</label>
+              <input
+                style={inputStyle}
+                value={quickAdd.city}
+                onChange={e => setQuickAdd(q => ({ ...q, city: e.target.value }))}
+                onKeyDown={e => { if (e.key === 'Enter' && !quickAdd.busy) quickAddProperty(); }}
+                placeholder="Midland"
+              />
+            </div>
+            <button
+              onClick={quickAddProperty}
+              disabled={quickAdd.busy || !quickAdd.address.trim()}
+              style={{
+                padding: '8px 16px', borderRadius: 8, border: 'none',
+                background: quickAdd.busy || !quickAdd.address.trim() ? '#e5e7eb' : '#c8a96e',
+                color: '#fff', cursor: quickAdd.busy || !quickAdd.address.trim() ? 'not-allowed' : 'pointer',
+                fontSize: 12, fontWeight: 700, height: 36, whiteSpace: 'nowrap',
+              }}
+            >
+              {quickAdd.busy ? 'Adding...' : 'Add'}
+            </button>
+          </div>
+          {quickAdd.error && (
+            <div style={{ marginTop: 8, fontSize: 11, color: '#dc2626' }}>{quickAdd.error}</div>
+          )}
+          <div style={{ marginTop: 10, fontSize: 11, color: '#6b7280' }}>
+            Lands in the dropdown immediately. Card opens so you can keep filling in details — or come back later.
+            <button
+              onClick={() => { setQuickAdd({ open: false, address: '', city: 'Midland', busy: false, error: null }); createNew(); }}
+              style={{ background: 'none', border: 'none', color: '#2563eb', cursor: 'pointer', fontSize: 11, padding: 0, marginLeft: 6, textDecoration: 'underline' }}
+            >Just open a blank form</button>
+          </div>
+        </div>
+      )}
 
       {/* ACTIVE CLIENTS FROM FUB — collapses to a thin bar when a deal card is
           open so the form below stays visible. Click the header to expand/collapse. */}
