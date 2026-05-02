@@ -1921,6 +1921,10 @@ const AUTO_ARCHIVE_PATTERNS = [
   { from: 'noreply@sisu.co', subject: null, action: 'archive_extract', label: 'sisu' },
   { from: 'noreply@realtor.ca', subject: null, action: 'archive', label: null },
   { from: 'sso@ampre.ca', subject: null, action: 'archive', label: null },
+  // PropTx SSO — 2FA verification codes for REALM login. Pure noise, never actionable.
+  // 'proptx' as a broad substring catches noreply@proptx.ca, sso@proptx.ca, and any
+  // subdomain. Also adding a subject-based catch in case the sender domain varies.
+  { from: 'proptx', subject: null, action: 'archive', label: null },
   { from: 'hello@notify.railway.app', subject: null, action: 'archive', label: null },
   { from: 'noreply@github.com', subject: null, action: 'archive', label: null },
   { from: 'notifications@em.realmmlp.ca', subject: null, action: 'archive', label: null },
@@ -1972,6 +1976,12 @@ function shouldAutoArchive(fromEmail, subject) {
       /^feedback submitted/i.test(subject) ||
       /^showing time change/i.test(subject)) {
     return { from: 'brokerbay-subject', action: 'archive', label: null };
+  }
+
+  // Subject-only rules: 2FA / SSO verification codes (any sender)
+  // PropTx SSO + similar — never actionable, just noise.
+  if (/your.*verification.*code|one-?time.*(password|code|pin)|login.*code|^\s*\d{6}\s*-\s*your.*code|verification.*code.*\d{6}/i.test(subject)) {
+    return { from: '2fa-subject', action: 'archive', label: null };
   }
 
   for (const pattern of AUTO_ARCHIVE_PATTERNS) {
