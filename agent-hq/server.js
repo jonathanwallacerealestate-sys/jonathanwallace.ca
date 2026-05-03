@@ -26,6 +26,7 @@ import * as listingFormCrudRoutes from './lib/routes/listing-form-crud.js';
 import * as jacquiRoutes from './lib/routes/jacqui.js';
 import * as cmaParseRoutes from './lib/routes/cma-parse.js';
 import { runCmaAnalysis } from './lib/cma/run.js';
+import * as dailyDriveRoutes from './lib/routes/daily-drive.js';
 import * as health from './lib/health.js';
 const _require = createRequire(import.meta.url);
 const pdfParse = _require('pdf-parse');
@@ -5776,6 +5777,16 @@ jacquiRoutes.register(app, { anthropic, JACQUI_DIR });
 // ─────────────────────────────────────────────
 const cmaPdfUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
 cmaParseRoutes.register(app, { anthropic, pdfParse, pdfUpload: cmaPdfUpload, parseGeoWarehouseText });
+
+// ─────────────────────────────────────────────
+// DAILY DRIVE — gamification layer (streak + daily target + progress)
+// Wraps the existing CallListSection so streaks update when calls are logged.
+// ─────────────────────────────────────────────
+const DAILY_DRIVE_DIR = path.join(DATA_DIR, '.daily-drive');
+if (!fs.existsSync(DAILY_DRIVE_DIR)) fs.mkdirSync(DAILY_DRIVE_DIR, { recursive: true });
+const DAILY_DRIVE_PATH = path.join(DAILY_DRIVE_DIR, 'state.json');
+
+dailyDriveRoutes.register(app, { DAILY_DRIVE_PATH });
 
 
 // ─────────────────────────────────────────────

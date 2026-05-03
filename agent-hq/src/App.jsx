@@ -902,6 +902,153 @@ function MissedEmailsBanner() {
   );
 }
 
+// ─────────────────────────────────────────────
+// DAILY DRIVE BADGE — the gamification layer atop the briefing tab.
+// Shows current streak, today's progress vs target, and a motivational nudge.
+// Re-fetches when CallListSection dispatches the 'daily-drive-updated' event.
+// ─────────────────────────────────────────────
+function DailyDriveBadge() {
+  const [state, setState] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [editingTarget, setEditingTarget] = useState(false);
+  const [draftTarget, setDraftTarget] = useState(5);
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const r = await fetch('/api/daily-drive/state');
+      const j = await r.json();
+      if (j.ok) {
+        setState(j.state);
+        setDraftTarget(j.state.config.dailyTarget);
+      }
+    } catch (e) { console.error(e); }
+    setLoading(false);
+  };
+
+  useEffect(() => {
+    load();
+    const onUpdate = () => load();
+    window.addEventListener('daily-drive-updated', onUpdate);
+    return () => window.removeEventListener('daily-drive-updated', onUpdate);
+  }, []);
+
+  const saveTarget = async () => {
+    try {
+      const r = await fetch('/api/daily-drive/set-target', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ target: draftTarget }),
+      });
+      const j = await r.json();
+      if (j.ok) setState(j.state);
+    } catch (e) { console.error(e); }
+    setEditingTarget(false);
+  };
+
+  if (loading || !state) return null;
+
+  const { today, streak } = state;
+  const pct = today.target > 0 ? Math.min(100, Math.round((today.callsMade / today.target) * 100)) : 0;
+  const metGoal = today.metGoal;
+  const remaining = today.remaining;
+
+  // Motivational message based on time of day + progress
+  const hour = new Date().getHours();
+  let nudge = '';
+  if (metGoal) {
+    nudge = streak.current > 1 ? `🔥 ${streak.current}-day streak! Goal hit. Anything more is bonus.` : `Goal hit. Take the win.`;
+  } else if (hour < 12) {
+    nudge = `${remaining} call${remaining !== 1 ? 's' : ''} to hit goal. Get them done before lunch — you'll thank yourself at 4pm.`;
+  } else if (hour < 16) {
+    nudge = `${remaining} call${remaining !== 1 ? 's' : ''} to hit goal. The hard ones go first.`;
+  } else if (hour < 20) {
+    nudge = streak.current > 0
+      ? `⚠️ ${remaining} more or your ${streak.current}-day streak breaks tonight.`
+      : `${remaining} more to start a new streak.`;
+  } else {
+    nudge = streak.current > 0
+      ? `Last call. ${remaining} away from breaking your ${streak.current}-day streak.`
+      : `${remaining} call${remaining !== 1 ? 's' : ''} to lock in tomorrow's restart.`;
+  }
+
+  const ringColor = metGoal ? '#10b981' : pct > 60 ? '#f59e0b' : '#dc2626';
+
+  return (
+    <div style={{
+      background: metGoal
+        ? 'linear-gradient(135deg, #d1fae5 0%, #a7f3d0 100%)'
+        : 'linear-gradient(135deg, #fef3c7 0%, #fde68a 100%)',
+      border: '1px solid ' + (metGoal ? '#10b981' : '#f59e0b'),
+      borderRadius: 14,
+      padding: 18,
+      display: 'grid',
+      gridTemplateColumns: 'auto 1fr auto',
+      gap: 16,
+      alignItems: 'center',
+    }}>
+      {/* Streak block */}
+      <div style={{ textAlign: 'center', minWidth: 80 }}>
+        <div style={{ fontSize: 32, lineHeight: 1, fontWeight: 800, color: '#92400e' }}>
+          🔥 {streak.current}
+        </div>
+        <div style={{ fontSize: 10, fontWeight: 700, color: '#92400e', textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 2 }}>
+          {streak.current === 1 ? 'Day streak' : 'Day streak'}
+        </div>
+        <div style={{ fontSize: 10, color: '#a16207', marginTop: 2 }}>
+          Best: {streak.longest}
+        </div>
+      </div>
+
+      {/* Progress block */}
+      <div>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 6 }}>
+          <span style={{ fontSize: 28, fontWeight: 800, color: '#111827', lineHeight: 1 }}>
+            {today.callsMade}
+          </span>
+          <span style={{ fontSize: 16, color: '#6b7280' }}>/ {today.target} calls today</span>
+          {metGoal && <span style={{ fontSize: 10, fontWeight: 700, color: '#fff', background: '#10b981', padding: '2px 8px', borderRadius: 10, marginLeft: 4 }}>GOAL HIT</span>}
+        </div>
+        <div style={{ height: 8, background: 'rgba(0,0,0,0.06)', borderRadius: 4, overflow: 'hidden' }}>
+          <div style={{ height: '100%', width: pct + '%', background: ringColor, borderRadius: 4, transition: 'width 0.3s' }} />
+        </div>
+        <div style={{ fontSize: 12, color: '#92400e', marginTop: 8, fontWeight: 500 }}>
+          {nudge}
+        </div>
+      </div>
+
+      {/* Target editor */}
+      <div style={{ textAlign: 'right' }}>
+        {editingTarget ? (
+          <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+            <input
+              type="number"
+              min="1"
+              max="50"
+              value={draftTarget}
+              onChange={e => setDraftTarget(parseInt(e.target.value) || 1)}
+              style={{ width: 50, padding: '4px 6px', borderRadius: 6, border: '1px solid #d1d5db', fontSize: 13 }}
+              autoFocus
+            />
+            <button onClick={saveTarget} style={{ background: '#10b981', color: '#fff', border: 'none', borderRadius: 6, padding: '4px 10px', cursor: 'pointer', fontSize: 11, fontWeight: 700 }}>Save</button>
+            <button onClick={() => setEditingTarget(false)} style={{ background: 'transparent', border: 'none', color: '#6b7280', cursor: 'pointer', padding: 4 }}><X size={12} /></button>
+          </div>
+        ) : (
+          <button
+            onClick={() => setEditingTarget(true)}
+            title="Adjust daily target"
+            style={{
+              background: 'rgba(255,255,255,0.6)', border: '1px solid rgba(146,64,14,0.2)', borderRadius: 8,
+              padding: '6px 10px', fontSize: 11, fontWeight: 700, color: '#92400e', cursor: 'pointer',
+              whiteSpace: 'nowrap',
+            }}
+          >Target: {today.target}</button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function MorningBriefing() {
   const eaData = useContext(EaContext);
   const { showings: briefShowings } = useBrokerBayShowings();
@@ -2048,6 +2195,15 @@ function CallListSection() {
 
   const handleLogged = (cKey, outcome) => {
     persistLogged(prev => ({ ...prev, [cKey]: outcome }));
+    // Daily Drive: ping the gamification layer so streak + progress update
+    // (the cKey is the fubId or local id of the contact)
+    fetch('/api/daily-drive/log-call', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fubId: cKey }),
+    }).then(() => {
+      window.dispatchEvent(new Event('daily-drive-updated'));
+    }).catch(() => {});
   };
 
   const handleRefresh = async () => {
@@ -9463,6 +9619,8 @@ function SectionContent({ section }) {
   switch (section) {
     case "briefing": return (
       <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+        {/* Daily Drive — gamification layer (streak + target + progress) */}
+        <DailyDriveBadge />
         {/* Claude stuck ticker — needs Jonathan's input */}
         <ClaudeStuckTicker />
         {/* Outstanding feedback bar */}
