@@ -55,3 +55,4 @@ temp/
 # Local site deployment files
 .netlify/
 .vercel/
+agent-hq/vite.config.js.timestamp-*.mjs
