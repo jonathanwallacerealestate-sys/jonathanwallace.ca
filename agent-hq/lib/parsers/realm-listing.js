@@ -22,6 +22,7 @@ const SCHEMA_DOC = `{
   "province": string|null,
   "postalCode": string|null,
   "mlsId": string|null,
+  "status": "Sold"|"Active"|"Terminated"|"Suspended"|"Expired"|"Leased"|"Closed"|"Pending"|"Conditional"|null,
   "listPrice": number|null,
   "soldPrice": number|null,
   "listedDate": string|null (ISO date),
@@ -75,7 +76,7 @@ function parseRegexPass(text) {
   const t = text || '';
   const out = {
     address: null, city: null, province: null, postalCode: null,
-    mlsId: null,
+    mlsId: null, status: null,
     listPrice: null, soldPrice: null,
     listedDate: null, soldDate: null, daysOnMarket: null,
     bedrooms: null, bathrooms: null,
@@ -97,11 +98,50 @@ function parseRegexPass(text) {
     /\b([A-Z]\d{8})\b/,
   ));
 
-  // List price / Sold price
-  const lp = regexFirst(t, /List\s*Price\s*[:\-]?\s*\$?([\d,]+)/i, /Asking\s*Price\s*[:\-]?\s*\$?([\d,]+)/i);
+  // Status — REALM puts "Sold" / "Active" / "Terminated" near the top of the
+  // listing block. Capture it explicitly so the frontend can auto-route
+  // comps without relying on price-field presence alone.
+  const statusRaw = regexFirst(
+    t,
+    /\bStatus\s*[:\-]?\s*(Sold|Active|Terminated|Suspended|Expired|Leased|Closed|Pending|Conditional)\b/i,
+    /\b(Sold|Active|Terminated|Suspended|Expired|Leased|Closed|Pending|Conditional)\s+Price\b/i,
+  );
+  if (statusRaw) out.status = trim(statusRaw);
+
+  // List price / Sold price.
+  // REALM's "Print to PDF" puts the sold price in the top-right of each
+  // listing card. pdf-parse may render it without a "Price:" label — just
+  // "Sold $X,XXX,XXX" or "$X,XXX,XXX" right under "Sold". Match all
+  // common shapes.
+  const lp = regexFirst(
+    t,
+    /List\s*Price\s*[:\-]?\s*\$?([\d,]+)/i,
+    /Asking\s*Price\s*[:\-]?\s*\$?([\d,]+)/i,
+    /\bLP\s*[:\-]?\s*\$?([\d,]+)/i,
+    /Original\s*(?:List\s*)?Price\s*[:\-]?\s*\$?([\d,]+)/i,
+  );
   if (lp) out.listPrice = num(lp);
-  const sp = regexFirst(t, /Sold\s*Price\s*[:\-]?\s*\$?([\d,]+)/i, /Sale\s*Price\s*[:\-]?\s*\$?([\d,]+)/i);
+
+  const sp = regexFirst(
+    t,
+    /Sold\s*Price\s*[:\-]?\s*\$?([\d,]+)/i,
+    /Sale\s*Price\s*[:\-]?\s*\$?([\d,]+)/i,
+    /Closed\s*Price\s*[:\-]?\s*\$?([\d,]+)/i,
+    /\bSP\s*[:\-]?\s*\$?([\d,]+)/i,
+    // Bare "Sold" header followed by a price on the next non-empty line
+    // (matches REALM's top-right card layout after pdf-parse linearization).
+    /\bSold\s*\n+\s*\$\s*([\d,]+)/i,
+    /\$\s*([\d,]+)\s*\n\s*Sold\b/i,
+  );
   if (sp) out.soldPrice = num(sp);
+
+  // Bidirectional inference from status — if status is explicitly Sold but
+  // we couldn't catch the soldPrice via regex, the AI pass usually fills it.
+  // If status is Active and we accidentally pulled a "soldPrice" from history,
+  // wipe it so the comp gets correctly classified as active.
+  if (out.status && /^(active|terminated|suspended|expired|pending|conditional)$/i.test(out.status)) {
+    out.soldPrice = null;
+  }
 
   // Days on Market
   const dom = regexFirst(t, /\bDOM\s*[:\-]?\s*(\d+)\b/i, /Days\s*on\s*Market\s*[:\-]?\s*(\d+)/i);

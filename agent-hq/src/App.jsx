@@ -8910,6 +8910,7 @@ function compFromParsedFields(fields) {
     address: fields.address || '',
     city: fields.city || '',
     mlsId: fields.mlsId || '',
+    status: fields.status || '',
     listPrice: fields.listPrice || null,
     soldPrice: fields.soldPrice || null,
     listedDate: fields.listedDate || '',
@@ -9133,9 +9134,14 @@ function CmaIntakeModal({ onClose, onCreated }) {
     }));
   }
   function handleCompParsed(fields, meta) {
+    // Auto-classify: REALM shows sold price top-right when a listing closed.
+    // If the parser extracted soldPrice (or status is explicitly 'Sold'), it's
+    // a sold comp. Otherwise it's an active. Jonathan can still flip the role
+    // manually on the tile if the parser got it wrong.
+    const isSold = !!(fields.soldPrice || /^sold|sld/i.test(String(fields.status || '')));
     setPendingComps(p => [...p, {
       id: `pc_${Date.now()}_${Math.random().toString(36).slice(2, 5)}`,
-      role: 'sold',
+      role: isSold ? 'sold' : 'active',
       fields, meta,
     }]);
   }
