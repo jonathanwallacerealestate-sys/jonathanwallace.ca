@@ -13,11 +13,54 @@
 
 export const CMA_RUNNER_MODEL = process.env.CMA_RUNNER_MODEL || 'claude-haiku-4-5-20251001';
 export const CMA_RUNNER_MIN_COMPS = 2;
-export const CMA_RUNNER_MAX_TOKENS = 3000;
+// 8000 is generous — Haiku 4.5 supports up to 64k output tokens.
+// Previously 3000, which truncated mid-string when the adjustment grid had
+// many comps + full narrative + seller update + bullets + warnings.
+export const CMA_RUNNER_MAX_TOKENS = 8000;
 
 function fmtMoney(n) {
   if (n == null) return '—';
   return '$' + Number(n).toLocaleString();
+}
+
+/**
+ * Best-effort repair of a JSON string that was truncated mid-output (typically
+ * because the model hit max_tokens). Walks the string tracking string state
+ * and bracket depth, then closes whatever's still open.
+ *
+ * Returns the repaired string, or null if the input doesn't look recoverable.
+ */
+function repairTruncatedJson(s) {
+  if (!s || typeof s !== 'string' || s.length < 10) return null;
+  // Trim trailing whitespace and any orphan partial token (like a trailing comma)
+  let str = s.replace(/[\s,]+$/, '');
+
+  let inString = false;
+  let escape = false;
+  const stack = []; // stack of '{' or '['
+  for (let i = 0; i < str.length; i++) {
+    const ch = str[i];
+    if (inString) {
+      if (escape) { escape = false; continue; }
+      if (ch === '\\') { escape = true; continue; }
+      if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') { inString = true; continue; }
+    if (ch === '{' || ch === '[') stack.push(ch);
+    else if (ch === '}' && stack[stack.length - 1] === '{') stack.pop();
+    else if (ch === ']' && stack[stack.length - 1] === '[') stack.pop();
+  }
+  // Close dangling string
+  if (inString) str += '"';
+  // Close dangling structures (innermost first)
+  while (stack.length) {
+    const open = stack.pop();
+    str += open === '{' ? '}' : ']';
+  }
+  // Strip any trailing comma right before the closing brackets we just added
+  str = str.replace(/,(\s*[}\]])/g, '$1');
+  return str;
 }
 
 function formatSubject(cma) {
@@ -129,9 +172,16 @@ Apply Suze Cumming's methodology from "The Nature of Real Estate":
 
 6. DAYS ON MARKET: Based on comp DOM averages + current market velocity in the area.
 
-7. NARRATIVE: Two flavours:
-   - pricingNarrative: agent-facing, 2-3 paragraphs, technical and defensible
-   - sellerUpdate: seller-facing, 1 warm but honest paragraph, no jargon
+7. NARRATIVE: Two flavours, both CONCISE — over-long narratives waste tokens
+   and risk truncating the JSON. Hard caps:
+   - pricingNarrative: agent-facing, 2-3 short paragraphs, ~250 words MAX,
+     technical and defensible
+   - sellerUpdate: seller-facing, 1 warm but honest paragraph, ~120 words MAX,
+     no jargon
+   - pricingBullets: 4-6 punchy bullets, each under 20 words
+   - adjustmentGrid notes: one short sentence per comp, under 30 words each
+   - warnings: only flag genuine issues (stretched comp, missing data) — no
+     boilerplate disclaimers
 
 Return ONLY valid JSON. No prose, no code fences. Schema:
 
@@ -229,8 +279,25 @@ Generate the appraisal-grade analysis as JSON.`;
     try {
       parsed = JSON.parse(cleaned);
     } catch (parseErr) {
-      console.error('[CMA Runner] JSON parse failed. Raw:', raw.slice(0, 500));
-      return { ok: false, error: 'Analyzer returned malformed JSON: ' + parseErr.message };
+      // Truncation recovery — if Claude hit max_tokens mid-string we can
+      // sometimes salvage the partial response by closing dangling strings,
+      // arrays, and objects.
+      const repaired = repairTruncatedJson(cleaned);
+      if (repaired) {
+        try {
+          parsed = JSON.parse(repaired);
+          console.warn('[CMA Runner] recovered from truncated JSON via repair pass');
+        } catch (repairErr) {
+          console.error('[CMA Runner] JSON parse failed even after repair. Raw:', raw.slice(0, 500));
+          return {
+            ok: false,
+            error: `Analyzer returned malformed JSON (likely truncated at ${cleaned.length} chars). Try re-running. ${parseErr.message}`,
+          };
+        }
+      } else {
+        console.error('[CMA Runner] JSON parse failed. Raw:', raw.slice(0, 500));
+        return { ok: false, error: 'Analyzer returned malformed JSON: ' + parseErr.message };
+      }
     }
 
     return {
