@@ -14,7 +14,7 @@
 //
 // Both accept multipart/form-data with field name "file".
 
-import { parseRealmListing } from '../parsers/realm-listing.js';
+import { parseRealmListing, parseRealmListingsMulti, detectMultiListing } from '../parsers/realm-listing.js';
 
 /**
  * deps:
@@ -27,7 +27,14 @@ import { parseRealmListing } from '../parsers/realm-listing.js';
 export function register(app, deps) {
   const { anthropic, pdfParse, pdfUpload, parseGeoWarehouseText, model } = deps;
 
-  // POST /api/cma/parse-pdf — REALM listing PDF (subject prior listing OR a comp)
+  // POST /api/cma/parse-pdf — REALM listing PDF.
+  //
+  // Handles BOTH:
+  //   - single-listing PDF (subject prior listing or one comp) → returns { fields, meta }
+  //   - multi-listing PDF (REALM "Print to PDF" of 2+ selected listings) →
+  //     returns { listings: [{ fields, meta }, ...], meta: { count: N, ... } }
+  //
+  // Frontend (CmaPdfDropZone) handles both shapes: one push per listing.
   app.post('/api/cma/parse-pdf', pdfUpload.single('file'), async (req, res) => {
     if (!req.file) {
       return res.json({ ok: false, error: 'No PDF uploaded (expected multipart field "file")' });
@@ -39,6 +46,43 @@ export function register(app, deps) {
         return res.json({ ok: false, error: 'PDF had no extractable text — is it a scan? OCR not supported.' });
       }
 
+      // Detect how many listings are in this PDF
+      const detected = detectMultiListing(text);
+      const isMulti = detected.count > 1;
+
+      if (isMulti) {
+        // Multi-listing path — slice the text and parse each slice.
+        const results = await parseRealmListingsMulti(text, { anthropic, model });
+        const listings = results.map(({ fields, sources }) => {
+          const filledCount = Object.values(fields).filter(v => v != null && v !== '').length;
+          return {
+            fields,
+            meta: {
+              filledFields: filledCount,
+              totalFields: Object.keys(fields).length,
+              aiUsed: !!sources.ai,
+              mlsId: fields.mlsId || null,
+              source: 'realm-listing',
+            },
+          };
+        });
+        return res.json({
+          ok: true,
+          // Multi-listing response shape
+          listings,
+          meta: {
+            filename: req.file.originalname,
+            bytes: req.file.size,
+            textLength: text.length,
+            numPages: pdfData.numpages,
+            count: listings.length,
+            detectedCount: detected.count,
+            source: 'realm-listing-multi',
+          },
+        });
+      }
+
+      // Single-listing path — original behavior.
       const { fields, sources } = await parseRealmListing(text, { anthropic, model });
       const filledCount = Object.values(fields).filter(v => v != null && v !== '').length;
       const totalCount = Object.keys(fields).length;

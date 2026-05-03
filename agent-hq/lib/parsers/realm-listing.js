@@ -219,6 +219,55 @@ ${trimmed}`;
   }
 }
 
+// ---------- Multi-listing PDF splitting ----------
+//
+// REALM "Print to PDF" lets you select multiple listings and export them as a
+// single combined PDF. Each listing's section is anchored by an MLS# header
+// (TRREB / Itso pattern: letter + 7-8 digits). Detect 2+ MLS#s and slice the
+// text at each MLS# boundary so each slice can be parsed as a single listing.
+//
+// Heuristic: find every MLS# match position, dedupe by MLS value (a listing
+// might mention its MLS# twice on the same page), keep only positions where
+// the MLS# value is unique within the document, then slice the text between
+// successive positions.
+
+const MLS_GLOBAL = /\b([A-Z]\d{7,8})\b/g;
+
+export function detectMultiListing(text) {
+  const t = String(text || '');
+  if (!t) return { count: 0, positions: [] };
+  const seen = new Map(); // mlsId → first position
+  let m;
+  MLS_GLOBAL.lastIndex = 0;
+  while ((m = MLS_GLOBAL.exec(t))) {
+    const mlsId = m[1];
+    if (!seen.has(mlsId)) {
+      seen.set(mlsId, m.index);
+    }
+  }
+  const positions = Array.from(seen.entries())
+    .map(([mlsId, index]) => ({ mlsId, index }))
+    .sort((a, b) => a.index - b.index);
+  return { count: positions.length, positions };
+}
+
+export function splitMultiListingText(text) {
+  const t = String(text || '');
+  const { count, positions } = detectMultiListing(t);
+  if (count <= 1) return [t];
+
+  // Slice text at each MLS# position. The MLS# usually appears AFTER a label
+  // like "MLS#:" so back up a few chars to keep that label with its listing.
+  const slices = [];
+  for (let i = 0; i < positions.length; i++) {
+    const start = i === 0 ? 0 : Math.max(0, positions[i].index - 30);
+    const end = i === positions.length - 1 ? t.length : Math.max(0, positions[i + 1].index - 30);
+    const slice = t.slice(start, end).trim();
+    if (slice.length > 100) slices.push(slice); // skip tiny slivers
+  }
+  return slices;
+}
+
 // ---------- Public API ----------
 
 export async function parseRealmListing(text, opts = {}) {
@@ -247,4 +296,24 @@ export async function parseRealmListing(text, opts = {}) {
       ai: aiResult,
     },
   };
+}
+
+/**
+ * Parse a REALM PDF that may contain ONE or MANY listings. Returns an array
+ * of {fields, sources} — one entry per detected listing. Single-listing PDFs
+ * return a one-element array. Used by the comp drop zone, which can accept
+ * a multi-listing export and create N comp tiles in one shot.
+ */
+export async function parseRealmListingsMulti(text, opts = {}) {
+  const slices = splitMultiListingText(text);
+  const results = [];
+  for (const slice of slices) {
+    const r = await parseRealmListing(slice, opts);
+    // Only keep slices that yielded at least an MLS# OR an address — otherwise
+    // it's noise (header page, table of contents, etc.).
+    if (r.fields && (r.fields.mlsId || r.fields.address || r.fields.listPrice || r.fields.soldPrice)) {
+      results.push(r);
+    }
+  }
+  return results;
 }

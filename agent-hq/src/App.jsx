@@ -8950,7 +8950,7 @@ function CmaPdfDropZone({ endpoint, multiple = false, label, helpText, icon, acc
     const toUpload = multiple ? files : files.slice(0, 1);
     setBusy(true);
     setStatus(null);
-    let ok = 0, fail = 0;
+    let ok = 0, fail = 0, listingsAdded = 0;
     for (let i = 0; i < toUpload.length; i++) {
       const file = toUpload[i];
       if (multiple) setStatus({ ok: true, msg: `Parsing ${i + 1} of ${toUpload.length} — ${file.name}...` });
@@ -8960,8 +8960,21 @@ function CmaPdfDropZone({ endpoint, multiple = false, label, helpText, icon, acc
         const r = await fetch(endpoint, { method: 'POST', body: fd });
         const j = await r.json();
         if (j.ok) {
-          onParsed(j.fields, j.meta);
-          ok++;
+          // Multi-listing PDF response: { listings: [{ fields, meta }, ...] }
+          if (Array.isArray(j.listings) && j.listings.length) {
+            for (const item of j.listings) {
+              onParsed(item.fields, item.meta);
+              listingsAdded++;
+            }
+            ok++;
+          } else if (j.fields) {
+            // Single-listing response: { fields, meta }
+            onParsed(j.fields, j.meta);
+            listingsAdded++;
+            ok++;
+          } else {
+            fail++;
+          }
         } else {
           fail++;
         }
@@ -8971,9 +8984,13 @@ function CmaPdfDropZone({ endpoint, multiple = false, label, helpText, icon, acc
     }
     setBusy(false);
     if (multiple) {
-      setStatus({ ok: ok > 0, msg: `Parsed ${ok} of ${toUpload.length} PDF${toUpload.length > 1 ? 's' : ''}${fail ? ` — ${fail} failed` : ''}.` });
+      // Note: listingsAdded can be > toUpload.length if any PDFs were multi-listing exports
+      const filesPart = `${ok} of ${toUpload.length} PDF${toUpload.length > 1 ? 's' : ''}`;
+      const listingsPart = listingsAdded > toUpload.length ? ` — ${listingsAdded} listings extracted` : '';
+      setStatus({ ok: ok > 0, msg: `Parsed ${filesPart}${listingsPart}${fail ? ` — ${fail} failed` : ''}.` });
     } else if (ok) {
-      setStatus({ ok: true, msg: `Parsed ${toUpload[0].name}. Form below updated (manually-edited fields preserved).` });
+      const multiNote = listingsAdded > 1 ? ` (${listingsAdded} listings detected)` : '';
+      setStatus({ ok: true, msg: `Parsed ${toUpload[0].name}${multiNote}. Form below updated (manually-edited fields preserved).` });
     } else {
       setStatus({ ok: false, msg: `Could not parse ${toUpload[0].name}.` });
     }
