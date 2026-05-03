@@ -2887,7 +2887,7 @@ function CalendarSection() {
 // SHOWINGS SECTION (dedicated BrokerBay view)
 // ─────────────────────────────────────────────
 function ShowingsSection() {
-  const [showTab, setShowTab] = useState("upcoming");
+  const [showTab, setShowTab] = useState("3day");
   const [expandedShowing, setExpandedShowing] = useState(null);
   const { showings: liveShowings, syncStatus: liveSyncStatus, loading } = useBrokerBayShowings();
 
@@ -2906,8 +2906,29 @@ function ShowingsSection() {
   const listingShowings = liveShowings.filter(s => s.role === "listing_agent");
   const buyerShowings = liveShowings.filter(s => s.role === "buyer_agent");
 
+  // 3-day view date math — robust matcher checks rawDate (ISO) first, falls back to formatted string
+  const fmtDay = (d) => d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+  const _now = new Date();
+  const _todayD = new Date(_now.getFullYear(), _now.getMonth(), _now.getDate());
+  const _yesterdayD = new Date(_todayD); _yesterdayD.setDate(_yesterdayD.getDate() - 1);
+  const _tomorrowD = new Date(_todayD); _tomorrowD.setDate(_tomorrowD.getDate() + 1);
+  const matchShowingDay = (s, target) => {
+    if (!s) return false;
+    if (s.rawDate) {
+      const sd = new Date(s.rawDate);
+      if (!isNaN(sd)) {
+        return sd.getFullYear() === target.getFullYear() && sd.getMonth() === target.getMonth() && sd.getDate() === target.getDate();
+      }
+    }
+    return s.date === fmtDay(target);
+  };
+  const yesterdayShowings = liveShowings.filter(s => matchShowingDay(s, _yesterdayD));
+  const todayShowingsDay = liveShowings.filter(s => matchShowingDay(s, _todayD));
+  const tomorrowShowings = liveShowings.filter(s => matchShowingDay(s, _tomorrowD));
+
   const showTabs = [
-    { id: "upcoming", label: "Upcoming" },
+    { id: "3day", label: `3-Day (${yesterdayShowings.length + todayShowingsDay.length + tomorrowShowings.length})` },
+    { id: "upcoming", label: "All Upcoming" },
     { id: "all", label: `All (${liveSyncStatus.totalShowingsThisWeek})` },
     { id: "sync", label: "Sync" },
   ];
@@ -2952,6 +2973,90 @@ function ShowingsSection() {
           }}>{t.label}</button>
         ))}
       </div>
+
+      {/* ── 3-DAY VIEW — Yesterday / Today / Tomorrow ── */}
+      {showTab === "3day" && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+          {[
+            { label: "Yesterday", date: _yesterdayD, list: yesterdayShowings, color: "#6b7280", bg: "#f9fafb", dim: true },
+            { label: "Today",     date: _todayD,     list: todayShowingsDay,  color: "#2563eb", bg: "#eff6ff", dim: false },
+            { label: "Tomorrow",  date: _tomorrowD,  list: tomorrowShowings,  color: "#10b981", bg: "#ecfdf5", dim: false },
+          ].map(day => {
+            const dayList = day.list.filter(s => s.role === "listing_agent");
+            const dayBuyer = day.list.filter(s => s.role === "buyer_agent");
+            return (
+              <div key={day.label} style={{ opacity: day.dim ? 0.75 : 1 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10, paddingBottom: 6, borderBottom: "2px solid " + day.color + "30" }}>
+                  <div style={{ fontSize: 14, fontWeight: 800, color: day.color, textTransform: "uppercase", letterSpacing: 0.5 }}>{day.label}</div>
+                  <div style={{ fontSize: 11, color: "#9ca3af" }}>{fmtDay(day.date)}</div>
+                  <span style={{ fontSize: 10, fontWeight: 700, color: day.color, background: day.bg, padding: "2px 8px", borderRadius: 10 }}>
+                    {day.list.length} {day.list.length === 1 ? "showing" : "showings"}
+                  </span>
+                </div>
+                {day.list.length === 0 ? (
+                  <div style={{ fontSize: 12, color: "#9ca3af", padding: "12px 14px", background: "#f9fafb", borderRadius: 10, textAlign: "center" }}>
+                    No showings {day.label.toLowerCase()}
+                  </div>
+                ) : (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                    {dayList.map(s => {
+                      const st = statusStyles[s.status] || { color: "#6b7280", bg: "#f3f4f6", label: s.status };
+                      const isExp = expandedShowing === s.id;
+                      return (
+                        <div key={s.id}>
+                          <div onClick={() => setExpandedShowing(isExp ? null : s.id)} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", borderRadius: 10, background: "#fff", border: "1px solid #ede9fe", cursor: "pointer" }}>
+                            <div style={{ width: 4, height: 36, borderRadius: 2, background: "#8b5cf6", flexShrink: 0 }} />
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ fontSize: 13, fontWeight: 600, color: "#111827", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.property}</div>
+                              <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 2 }}>{s.time}{s.end ? ` — ${s.end}` : ""} · LISTING · {s.buyerAgent || "—"}</div>
+                            </div>
+                            <span style={{ fontSize: 10, fontWeight: 600, color: st.color, background: st.bg, padding: "3px 8px", borderRadius: 4 }}>{st.label}</span>
+                          </div>
+                          {isExp && (
+                            <div style={{ margin: "4px 0 0 18px", padding: 12, background: "#faf8ff", borderRadius: 10, border: "1px solid #ede9fe", fontSize: 12 }}>
+                              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+                                <div><span style={{ color: "#9ca3af" }}>Buyer agent:</span> <span style={{ fontWeight: 600 }}>{s.buyerAgent}</span></div>
+                                <div><span style={{ color: "#9ca3af" }}>Lockbox:</span> <span style={{ fontWeight: 600 }}>{s.lockboxCode}</span></div>
+                                <div><span style={{ color: "#9ca3af" }}>Requested by:</span> <span style={{ fontWeight: 600 }}>{s.requestedBy}</span></div>
+                              </div>
+                              {s.notes && <div style={{ marginTop: 8, padding: "8px 10px", background: "#fff", borderRadius: 6, color: "#374151" }}>{s.notes}</div>}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                    {dayBuyer.map(s => {
+                      const st = statusStyles[s.status] || { color: "#6b7280", bg: "#f3f4f6", label: s.status };
+                      const isExp = expandedShowing === s.id;
+                      return (
+                        <div key={s.id}>
+                          <div onClick={() => setExpandedShowing(isExp ? null : s.id)} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", borderRadius: 10, background: "#fff", border: "1px solid #d1fae5", cursor: "pointer" }}>
+                            <div style={{ width: 4, height: 36, borderRadius: 2, background: "#059669", flexShrink: 0 }} />
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ fontSize: 13, fontWeight: 600, color: "#111827", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.property}</div>
+                              <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 2 }}>{s.time}{s.end ? ` — ${s.end}` : ""} · BUYER · {s.sellerName || "—"}</div>
+                            </div>
+                            <span style={{ fontSize: 10, fontWeight: 600, color: st.color, background: st.bg, padding: "3px 8px", borderRadius: 4 }}>{st.label}</span>
+                          </div>
+                          {isExp && (
+                            <div style={{ margin: "4px 0 0 18px", padding: 12, background: "#f0fdf4", borderRadius: 10, border: "1px solid #d1fae5", fontSize: 12 }}>
+                              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+                                <div><span style={{ color: "#9ca3af" }}>Listing agent:</span> <span style={{ fontWeight: 600 }}>{s.sellerName}</span></div>
+                                <div><span style={{ color: "#9ca3af" }}>Lockbox:</span> <span style={{ fontWeight: 600 }}>{s.lockboxCode}</span></div>
+                              </div>
+                              {s.notes && <div style={{ marginTop: 8, padding: "8px 10px", background: "#fff", borderRadius: 6, color: "#374151" }}>{s.notes}</div>}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
 
       {/* ── UPCOMING SHOWINGS — split by Listings / Buyers ── */}
       {showTab === "upcoming" && (
