@@ -1926,8 +1926,13 @@ const AUTO_ARCHIVE_PATTERNS = [
   // 'proptx' as a broad substring catches noreply@proptx.ca, sso@proptx.ca, and any
   // subdomain. Also adding a subject-based catch in case the sender domain varies.
   { from: 'proptx', subject: null, action: 'archive', label: null },
-  { from: 'hello@notify.railway.app', subject: null, action: 'archive', label: null },
-  { from: 'noreply@github.com', subject: null, action: 'archive', label: null },
+  // Railway — all deploy/build/billing notifications. Broad domain match
+  // catches notify.railway.app, railway.app, team@railway.com, billing@.
+  { from: 'railway.app', subject: null, action: 'archive', label: null },
+  { from: 'railway.com', subject: null, action: 'archive', label: null },
+  // GitHub — all notifications (PRs, security alerts, billing, etc.).
+  // Broad domain match catches noreply@, notifications@, security@, billing@.
+  { from: 'github.com', subject: null, action: 'archive', label: null },
   { from: 'notifications@em.realmmlp.ca', subject: null, action: 'archive', label: null },
   { from: 'offers@faristeam.ca', subject: null, action: 'archive', label: null },
 ];
