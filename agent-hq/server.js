@@ -2185,6 +2185,39 @@ app.get('/api/ea/triage', async (req, res) => {
       }
     }
 
+    // Cross-reference confirmed showings — if a thread's subject mentions
+    // the address of a CONFIRMED BrokerBay showing, force-close it. This
+    // catches the agent-direct emails about a showing that come BEFORE/around
+    // the BrokerBay confirmation: once Jonathan confirms in BrokerBay, the
+    // matching back-and-forth thread no longer needs to sit in Email AI.
+    let closedByConfirmation = 0;
+    const confirmedShowingKeys = await getConfirmedShowingKeys(gmail, days);
+    if (confirmedShowingKeys.size > 0) {
+      for (const tid of Object.keys(processedThreads)) {
+        const t = processedThreads[tid];
+        if (t.state === 'closed' || t.state === 'snoozed') continue;
+        const subjectLower = (t.subject || '').toLowerCase();
+        // Restrict to showing-related threads to avoid false positives on
+        // unrelated emails that happen to share an address (e.g. an offer
+        // thread for the same property — those should stay visible).
+        const isShowingRelated = t.category === 'showing'
+          || /\b(showing|viewing|preview|tour|see the (?:home|house|property))\b/i.test(t.subject || '');
+        if (!isShowingRelated) continue;
+        for (const key of confirmedShowingKeys) {
+          if (subjectLower.includes(key)) {
+            t.state = 'closed';
+            t.autoArchiveRule = 'showing_confirmed';
+            t.closedAt = Date.now();
+            closedByConfirmation++;
+            break;
+          }
+        }
+      }
+      if (closedByConfirmation > 0) {
+        console.log(`[EA] Auto-closed ${closedByConfirmation} thread(s) matching ${confirmedShowingKeys.size} confirmed showing(s)`);
+      }
+    }
+
     // Also check FUB for sent-email activity (solves Outlook sent-folder visibility gap)
     let fubSentActivity = [];
     if (FUB_API_KEY) {
@@ -2262,6 +2295,7 @@ app.get('/api/ea/triage', async (req, res) => {
       sweepCount: eaThreadCache.sweepCount,
       fubSentTracked: fubSentActivity.length,
       outlookCcForwards: ccForwardCount,
+      confirmedShowingsClosed: closedByConfirmation,
       threads,
       counts,
     });
@@ -2829,6 +2863,47 @@ function extractAddressFromSubject(subject, prefix) {
     if (m) return m[1].trim();
   }
   return subject;
+}
+
+// Build a Set of "confirmed showing" match keys from BrokerBay confirmation
+// emails in the last `days` days. Each key is the first 2 tokens of the
+// address (e.g. "45 brule") so it matches subject variations across
+// agent-direct threads: "45 Brule Street", "45 Brule St", "Re: 45 Brule".
+// Used by /api/ea/triage to auto-close email threads about showings that
+// have already been confirmed in BrokerBay.
+async function getConfirmedShowingKeys(gmail, days) {
+  const keys = new Set();
+  try {
+    const listRes = await gmail.users.messages.list({
+      userId: 'me',
+      q: `from:brokerbay.com subject:"Showing Confirmed" newer_than:${days}d`,
+      maxResults: 100,
+    });
+    const messages = listRes.data.messages || [];
+    if (!messages.length) return keys;
+    const details = await Promise.all(messages.map(m =>
+      gmail.users.messages.get({
+        userId: 'me',
+        id: m.id,
+        format: 'metadata',
+        metadataHeaders: ['Subject'],
+      }).catch(() => null)
+    ));
+    for (const d of details) {
+      if (!d) continue;
+      const subject = (d.data.payload?.headers || []).find(h => h.name === 'Subject')?.value || '';
+      const addr = extractAddressFromSubject(subject, 'Showing Confirmed');
+      if (!addr) continue;
+      const tokens = addr.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter(Boolean);
+      // Need at least number + street name to be a useful key
+      if (tokens.length >= 2 && /^\d/.test(tokens[0])) {
+        keys.add(`${tokens[0]} ${tokens[1]}`);
+      }
+    }
+  } catch (e) {
+    console.log('[EA] Confirmed showings lookup (non-critical):', e.message);
+  }
+  return keys;
 }
 
 function parseBrokerBayShowingEmail(body, subject) {
