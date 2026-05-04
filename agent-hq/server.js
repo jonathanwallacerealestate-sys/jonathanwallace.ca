@@ -7694,19 +7694,24 @@ ${(() => {
 
     <text x="500" y="20" font-size="12" font-weight="700" fill="#374151" text-anchor="middle" letter-spacing="1.5">ESTIMATED SALE RANGE</text>
 
-    <!-- Pyramid: one bold label per tier, recommended tier emphasized -->
+    <!-- Proportional stepped pyramid: bar widths scale to the buyer pool at
+         each price tier. Top of market is narrowest (few premium buyers),
+         quick sale is widest (broadest buyer interest). Recommended Market
+         Value tier is taller with a thicker stroke and a RECOMMENDED label.
+         Y-centers align with the right-callout connection points (15, 55, 120, 180). -->
     <g transform="translate(180, 36)">
-      <polygon points="200,0 240,30 160,30" fill="#fee2e2" stroke="#dc2626" stroke-width="1.5" />
-      <text x="200" y="22" font-size="11" font-weight="700" fill="#991b1b" text-anchor="middle">TOP OF MARKET</text>
+      <rect x="160" y="2" width="80" height="26" fill="#fee2e2" stroke="#dc2626" stroke-width="1" rx="2" />
+      <text x="200" y="20" font-size="11" font-weight="700" fill="#991b1b" text-anchor="middle">TOP OF MARKET</text>
 
-      <polygon points="160,30 240,30 280,80 120,80" fill="#fef3c7" stroke="#ca8a04" stroke-width="1.5" />
-      <text x="200" y="62" font-size="12" font-weight="700" fill="#78350f" text-anchor="middle">PRICE BAND</text>
+      <rect x="125" y="42" width="150" height="26" fill="#fef3c7" stroke="#ca8a04" stroke-width="1" rx="2" />
+      <text x="200" y="60" font-size="12" font-weight="700" fill="#78350f" text-anchor="middle">PRICE BAND</text>
 
-      <polygon points="120,80 280,80 320,160 80,160" fill="#d1fae5" stroke="#059669" stroke-width="2" />
-      <text x="200" y="125" font-size="14" font-weight="700" fill="#065f46" text-anchor="middle">MARKET VALUE</text>
+      <rect x="80" y="95" width="240" height="50" fill="#d1fae5" stroke="#059669" stroke-width="2.5" rx="2" />
+      <text x="200" y="115" font-size="9" font-weight="700" fill="#047857" text-anchor="middle" letter-spacing="1.2">RECOMMENDED</text>
+      <text x="200" y="134" font-size="14" font-weight="700" fill="#065f46" text-anchor="middle">MARKET VALUE</text>
 
-      <polygon points="80,160 320,160 360,200 40,200" fill="#dbeafe" stroke="#1e40af" stroke-width="1.5" />
-      <text x="200" y="185" font-size="12" font-weight="700" fill="#1e3a8a" text-anchor="middle">QUICK SALE</text>
+      <rect x="40" y="162" width="320" height="36" fill="#dbeafe" stroke="#1e40af" stroke-width="1" rx="2" />
+      <text x="200" y="184" font-size="12" font-weight="700" fill="#1e3a8a" text-anchor="middle">QUICK SALE</text>
     </g>
 
     <!-- Right callouts: consistent layout, no competing inline text -->
