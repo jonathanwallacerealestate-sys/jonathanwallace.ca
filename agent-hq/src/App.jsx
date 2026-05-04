@@ -9656,26 +9656,70 @@ function PriceRangeSlider({ cma, onPatch }) {
   const midPct = ((dragMid - sliderMin) / (sliderMax - sliderMin)) * 100;
   const highPct = ((dragHigh - sliderMin) / (sliderMax - sliderMin)) * 100;
 
-  return (
-    <div style={{ background: 'linear-gradient(135deg,#fef3c7,#fefce8)', border: '1px solid #fde68a', borderRadius: 10, padding: 16, marginBottom: 16 }}>
-      <div style={{ fontSize: 10, fontWeight: 700, color: '#78350f', textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 12 }}>Estimated Sale Price Range — drag the handles</div>
+  // Geometry for the SVG triangle. Uses fixed isosceles dimensions so the
+  // shape is always visually symmetric regardless of the spread between low,
+  // mid, and high. The numeric values live OUTSIDE the triangle as labels
+  // anchored to each vertex.
+  const TRI_W = 480;
+  const TRI_H = 220;
+  const APEX_X = TRI_W / 2;
+  const APEX_Y = 32;
+  const BASE_Y = TRI_H - 56;
+  const BASE_INSET = 56;
+  const BASE_LX = BASE_INSET;
+  const BASE_RX = TRI_W - BASE_INSET;
 
-      {/* Labels row showing the 3 current values */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 14, textAlign: 'center' }}>
-        <div><div style={{ fontSize: 10, color: '#92400e', textTransform: 'uppercase' }}>Low</div><div style={{ fontSize: 18, fontWeight: 700, color: '#78350f' }}>{fmt(dragLow)}</div></div>
-        <div><div style={{ fontSize: 10, color: '#92400e', textTransform: 'uppercase' }}>Most Likely</div><div style={{ fontSize: 24, fontWeight: 800, color: '#0f172a' }}>{fmt(dragMid)}</div></div>
-        <div><div style={{ fontSize: 10, color: '#92400e', textTransform: 'uppercase' }}>High</div><div style={{ fontSize: 18, fontWeight: 700, color: '#78350f' }}>{fmt(dragHigh)}</div></div>
+  return (
+    <div style={{ background: 'linear-gradient(135deg,#fffdf5,#fefce8)', border: '1px solid #fde68a', borderRadius: 12, padding: 20, marginBottom: 16 }}>
+      <div style={{ fontSize: 10, fontWeight: 700, color: '#78350f', textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 16, textAlign: 'center' }}>Estimated Sale Price Range</div>
+
+      {/* SVG triangle — perfectly symmetric isosceles. Mid at apex, low and
+          high at base vertices. Triangle GEOMETRY is fixed so it always looks
+          uniform; the actual numeric relationship between low/mid/high is
+          conveyed by the labels and the slider beneath. */}
+      <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 18 }}>
+        <svg viewBox={`0 0 ${TRI_W} ${TRI_H}`} width="100%" style={{ maxWidth: 480, display: 'block' }} xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <linearGradient id="priceTriFill" x1="0%" y1="0%" x2="0%" y2="100%">
+              <stop offset="0%" stopColor="#fef3c7" stopOpacity="0.9" />
+              <stop offset="100%" stopColor="#fde68a" stopOpacity="0.55" />
+            </linearGradient>
+          </defs>
+
+          {/* Triangle outline */}
+          <polygon
+            points={`${APEX_X},${APEX_Y} ${BASE_LX},${BASE_Y} ${BASE_RX},${BASE_Y}`}
+            fill="url(#priceTriFill)"
+            stroke="#c8a96e"
+            strokeWidth="2.5"
+            strokeLinejoin="round"
+          />
+
+          {/* Vertex dots */}
+          <circle cx={APEX_X} cy={APEX_Y} r="6" fill="#0f172a" />
+          <circle cx={BASE_LX} cy={BASE_Y} r="5" fill="#92400e" />
+          <circle cx={BASE_RX} cy={BASE_Y} r="5" fill="#92400e" />
+
+          {/* Apex label — Most Likely */}
+          <text x={APEX_X} y={APEX_Y - 16} textAnchor="middle" fontSize="11" fontWeight="700" fill="#78350f" letterSpacing="0.6" style={{ textTransform: 'uppercase' }}>Most Likely</text>
+          <text x={APEX_X} y={APEX_Y + 1} textAnchor="middle" fontSize="22" fontWeight="800" fill="#0f172a">{fmt(dragMid)}</text>
+
+          {/* Bottom-left — Low */}
+          <text x={BASE_LX} y={BASE_Y + 22} textAnchor="middle" fontSize="10" fontWeight="700" fill="#92400e" letterSpacing="0.6" style={{ textTransform: 'uppercase' }}>Low</text>
+          <text x={BASE_LX} y={BASE_Y + 40} textAnchor="middle" fontSize="15" fontWeight="700" fill="#78350f">{fmt(dragLow)}</text>
+
+          {/* Bottom-right — High */}
+          <text x={BASE_RX} y={BASE_Y + 22} textAnchor="middle" fontSize="10" fontWeight="700" fill="#92400e" letterSpacing="0.6" style={{ textTransform: 'uppercase' }}>High</text>
+          <text x={BASE_RX} y={BASE_Y + 40} textAnchor="middle" fontSize="15" fontWeight="700" fill="#78350f">{fmt(dragHigh)}</text>
+        </svg>
       </div>
 
-      {/* Dual slider track with 3 handles */}
+      {/* Adjustment slider — same 3-handle range below the triangle for tuning */}
+      <div style={{ fontSize: 10, fontWeight: 700, color: '#92400e', textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 6, textAlign: 'center' }}>Drag handles to adjust</div>
       <div style={{ position: 'relative', height: 48, marginBottom: 8 }}>
-        {/* base track */}
         <div style={{ position: 'absolute', left: 0, right: 0, top: 22, height: 4, background: '#fde68a', borderRadius: 2 }} />
-        {/* range band (low to high) */}
         <div style={{ position: 'absolute', left: `${lowPct}%`, width: `${highPct - lowPct}%`, top: 22, height: 4, background: '#c8a96e', borderRadius: 2 }} />
-        {/* Mid indicator line */}
         <div style={{ position: 'absolute', left: `calc(${midPct}% - 2px)`, top: 12, width: 4, height: 24, background: '#0f172a', borderRadius: 2 }} />
-        {/* 3 range inputs stacked and interleaved */}
         <input type="range" min={sliderMin} max={sliderMax} step="1000" value={dragLow} onChange={e => { const v = Math.min(Number(e.target.value), dragMid); setDragLow(v); }} onMouseUp={commit} onTouchEnd={commit}
           style={{ position: 'absolute', left: 0, right: 0, top: 16, width: '100%', appearance: 'none', background: 'transparent', pointerEvents: 'auto', zIndex: 3 }} />
         <input type="range" min={sliderMin} max={sliderMax} step="1000" value={dragMid} onChange={e => { const v = Math.max(dragLow, Math.min(Number(e.target.value), dragHigh)); setDragMid(v); }} onMouseUp={commit} onTouchEnd={commit}

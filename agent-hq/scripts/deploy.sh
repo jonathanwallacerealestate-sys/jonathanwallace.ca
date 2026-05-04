@@ -12,6 +12,11 @@
 
 set -e
 
+# Make sure common node install paths are visible to this script.
+# When invoked via the aghq alias from bash, PATH may not include
+# Homebrew's bin dirs, where node usually lives on macOS.
+export PATH="/opt/homebrew/bin:/usr/local/bin:/opt/homebrew/opt/node/bin:$HOME/.nvm/versions/node/$(ls $HOME/.nvm/versions/node 2>/dev/null | tail -1)/bin:$PATH"
+
 # Find repo root (this script lives at <repo>/agent-hq/scripts/deploy.sh)
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
@@ -26,28 +31,33 @@ echo "==> Repo: $REPO_ROOT"
 echo "==> Changes in agent-hq/:"
 git status --short agent-hq/ || true
 
-# Syntax-check any modified .js files in agent-hq/
+# Syntax-check any modified .js files in agent-hq/. If node isn't on PATH
+# we skip the check rather than block the deploy — CI will catch any error.
 echo ""
 echo "==> Syntax check on changed .js files..."
-CHANGED_JS=$( { git diff --name-only -- 'agent-hq/*.js' 'agent-hq/**/*.js'; \
-                 git diff --cached --name-only -- 'agent-hq/*.js' 'agent-hq/**/*.js'; \
-                 git ls-files --others --exclude-standard -- 'agent-hq/*.js' 'agent-hq/**/*.js'; } | sort -u )
-if [ -z "$CHANGED_JS" ]; then
-  echo "  (no .js changes)"
+if ! command -v node >/dev/null 2>&1; then
+  echo "  (node not on PATH for this script; skipping syntax check — CI will validate)"
 else
-  for f in $CHANGED_JS; do
-    if [ -f "$f" ]; then
-      if node --check "$f" 2>/dev/null; then
-        echo "  ok  $f"
-      else
-        echo "  ERR $f"
-        node --check "$f"
-        echo ""
-        echo "==> Aborting deploy: syntax error in $f"
-        exit 1
+  CHANGED_JS=$( { git diff --name-only -- 'agent-hq/*.js' 'agent-hq/**/*.js'; \
+                   git diff --cached --name-only -- 'agent-hq/*.js' 'agent-hq/**/*.js'; \
+                   git ls-files --others --exclude-standard -- 'agent-hq/*.js' 'agent-hq/**/*.js'; } | sort -u )
+  if [ -z "$CHANGED_JS" ]; then
+    echo "  (no .js changes)"
+  else
+    for f in $CHANGED_JS; do
+      if [ -f "$f" ]; then
+        if node --check "$f" 2>/dev/null; then
+          echo "  ok  $f"
+        else
+          echo "  ERR $f"
+          node --check "$f" || true
+          echo ""
+          echo "==> Aborting deploy: syntax error in $f"
+          exit 1
+        fi
       fi
-    fi
-  done
+    done
+  fi
 fi
 
 # Stage everything in agent-hq/

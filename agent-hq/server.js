@@ -7667,116 +7667,103 @@ ${(() => {
   const tierUpperMid = cma.priceRange?.high || midListingPrice * 1.05;
   const tierLowerMid = cma.priceRange?.low || midListingPrice * 0.95;
   const tierBottom = cma.priceRange?.low ? cma.priceRange.low * 0.96 : midListingPrice * 0.90;
+  // ===== Option A pricing strategy layout =====
+  // Pyramid: each tier holds ONE bold label only.
+  // Right callouts: $price + DOM range, consistent format.
+  // Bottom: horizontal bar chart, sorted high-to-low by price,
+  //         recommended range as vertical gold band, subject mid as
+  //         dashed marker line.
+  const sortedComps = [...compPrices].sort((a, b) => b.price - a.price).slice(0, 6);
+  const ROW_H = 26;
+  const CHART_TOP = 290;
+  const CHART_HDR = 44;
+  const BAR_X = 220;
+  const BAR_X_END = 800;
+  const BAR_RANGE = BAR_X_END - BAR_X;
+  const xForBar = (p) => BAR_X + ((p - minP) / range) * BAR_RANGE;
+  const SVG_H = sortedComps.length
+    ? CHART_TOP + CHART_HDR + sortedComps.length * ROW_H + 36
+    : 280;
+
   return `
 <div class="page">
   <h2 style="margin-top:0;">Pricing Strategy — Sale Price vs. Days on Market</h2>
   <div class="sub">${esc(cma.address)}, ${esc(cma.city)}</div>
 
-  <svg viewBox="0 0 1000 560" style="width:100%; height:auto; margin-top: 14px;">
-    <!-- PYRAMID -->
-    <g transform="translate(20, 20)">
-      <text x="220" y="18" font-size="12" font-weight="700" fill="#374151" text-anchor="middle" style="letter-spacing:1px">ESTIMATED SALE RANGE</text>
-      <!-- Pyramid tiers as trapezoids -->
-      <polygon points="220,40 280,80 160,80" fill="#fee2e2" stroke="#dc2626" stroke-width="1.5" />
-      <text x="220" y="68" font-size="11" font-weight="700" fill="#991b1b" text-anchor="middle">TOP OF MARKET</text>
+  <svg viewBox="0 0 1000 ${SVG_H}" style="width:100%; height:auto; margin-top: 14px;">
 
-      <polygon points="160,80 280,80 340,160 100,160" fill="#fef3c7" stroke="#ca8a04" stroke-width="1.5" />
-      <text x="220" y="110" font-size="13" font-weight="700" fill="#78350f" text-anchor="middle">PRICE BAND</text>
-      <text x="220" y="128" font-size="11" fill="#78350f" text-anchor="middle">(above market)</text>
-      <text x="220" y="146" font-size="10" fill="#78350f" text-anchor="middle" font-style="italic">30–90 DOM</text>
+    <text x="500" y="20" font-size="12" font-weight="700" fill="#374151" text-anchor="middle" letter-spacing="1.5">ESTIMATED SALE RANGE</text>
 
-      <polygon points="100,160 340,160 400,240 40,240" fill="#d1fae5" stroke="#059669" stroke-width="1.5" />
-      <text x="220" y="190" font-size="14" font-weight="700" fill="#065f46" text-anchor="middle">MARKET VALUE</text>
-      <text x="220" y="208" font-size="11" fill="#065f46" text-anchor="middle">(fair price)</text>
-      <text x="220" y="226" font-size="10" fill="#065f46" text-anchor="middle" font-style="italic">15–30 DOM</text>
+    <!-- Pyramid: one bold label per tier, recommended tier emphasized -->
+    <g transform="translate(180, 36)">
+      <polygon points="200,0 240,30 160,30" fill="#fee2e2" stroke="#dc2626" stroke-width="1.5" />
+      <text x="200" y="22" font-size="11" font-weight="700" fill="#991b1b" text-anchor="middle">TOP OF MARKET</text>
 
-      <polygon points="40,240 400,240 440,280 0,280" fill="#dbeafe" stroke="#1e40af" stroke-width="1.5" />
-      <text x="220" y="262" font-size="12" font-weight="700" fill="#1e3a8a" text-anchor="middle">QUICK SALE · CREATES NEXT COMP</text>
-      <text x="220" y="276" font-size="10" fill="#1e3a8a" text-anchor="middle" font-style="italic">&lt; 7 DOM</text>
+      <polygon points="160,30 240,30 280,80 120,80" fill="#fef3c7" stroke="#ca8a04" stroke-width="1.5" />
+      <text x="200" y="62" font-size="12" font-weight="700" fill="#78350f" text-anchor="middle">PRICE BAND</text>
 
-      <!-- Right-side price labels with arrows -->
-      <text x="470" y="68" font-size="11" font-weight="600" fill="#991b1b">${fmtPrice(tierTop)}</text>
-      <text x="470" y="82" font-size="9" fill="#991b1b">DOM &gt; 120</text>
-      <line x1="280" y1="60" x2="460" y2="62" stroke="#dc2626" stroke-width="1" stroke-dasharray="3,3" />
+      <polygon points="120,80 280,80 320,160 80,160" fill="#d1fae5" stroke="#059669" stroke-width="2" />
+      <text x="200" y="125" font-size="14" font-weight="700" fill="#065f46" text-anchor="middle">MARKET VALUE</text>
 
-      <text x="470" y="120" font-size="11" font-weight="600" fill="#78350f">${fmtPrice(tierUpperMid)}</text>
-      <text x="470" y="134" font-size="9" fill="#78350f">DOM 30–90</text>
-      <line x1="340" y1="120" x2="460" y2="120" stroke="#ca8a04" stroke-width="1" stroke-dasharray="3,3" />
-
-      <text x="470" y="200" font-size="12" font-weight="700" fill="#065f46">${fmtPrice(midListingPrice)}</text>
-      <text x="470" y="214" font-size="9" fill="#065f46">DOM 15–30</text>
-      <line x1="400" y1="200" x2="460" y2="200" stroke="#059669" stroke-width="1" stroke-dasharray="3,3" />
-
-      <text x="470" y="262" font-size="11" font-weight="600" fill="#1e3a8a">${fmtPrice(tierBottom)}</text>
-      <text x="470" y="276" font-size="9" fill="#1e3a8a">DOM &lt; 7</text>
-      <line x1="440" y1="262" x2="460" y2="262" stroke="#1e40af" stroke-width="1" stroke-dasharray="3,3" />
+      <polygon points="80,160 320,160 360,200 40,200" fill="#dbeafe" stroke="#1e40af" stroke-width="1.5" />
+      <text x="200" y="185" font-size="12" font-weight="700" fill="#1e3a8a" text-anchor="middle">QUICK SALE</text>
     </g>
 
-    <!-- DOM/Price relationship explanation -->
-    <g transform="translate(720, 40)">
-      <text x="0" y="0" font-size="11" font-weight="700" fill="#374151">THE RELATIONSHIP</text>
-      <text x="0" y="22" font-size="10" fill="#4b5563">The higher above market value you list,</text>
-      <text x="0" y="36" font-size="10" fill="#4b5563">the longer it takes to sell — and the more</text>
-      <text x="0" y="50" font-size="10" fill="#4b5563">you end up discounting.</text>
-      <text x="0" y="78" font-size="10" fill="#4b5563">A sharp below-market price attracts</text>
-      <text x="0" y="92" font-size="10" fill="#4b5563">multiple offers fast, creates energy, and</text>
-      <text x="0" y="106" font-size="10" fill="#4b5563">often sells AT or ABOVE list.</text>
-      <text x="0" y="134" font-size="10" fill="#4b5563" font-style="italic">Your home must be priced with intent.</text>
+    <!-- Right callouts: consistent layout, no competing inline text -->
+    <g transform="translate(560, 36)">
+      <line x1="-160" y1="15" x2="0" y2="15" stroke="#dc2626" stroke-width="1" stroke-dasharray="3,3" />
+      <text x="10" y="13" font-size="14" font-weight="700" fill="#991b1b">${fmtPrice(tierTop)}</text>
+      <text x="10" y="28" font-size="10" fill="#991b1b">over 120 days</text>
+
+      <line x1="-160" y1="55" x2="0" y2="55" stroke="#ca8a04" stroke-width="1" stroke-dasharray="3,3" />
+      <text x="10" y="53" font-size="14" font-weight="700" fill="#78350f">${fmtPrice(tierUpperMid)}</text>
+      <text x="10" y="68" font-size="10" fill="#78350f">30 – 90 days</text>
+
+      <line x1="-160" y1="120" x2="0" y2="120" stroke="#059669" stroke-width="1.5" stroke-dasharray="3,3" />
+      <text x="10" y="118" font-size="16" font-weight="800" fill="#065f46">${fmtPrice(midListingPrice)}</text>
+      <text x="10" y="134" font-size="10" font-weight="700" fill="#065f46">15 – 30 days · recommended</text>
+
+      <line x1="-160" y1="180" x2="0" y2="180" stroke="#1e40af" stroke-width="1" stroke-dasharray="3,3" />
+      <text x="10" y="178" font-size="14" font-weight="700" fill="#1e3a8a">${fmtPrice(tierBottom)}</text>
+      <text x="10" y="193" font-size="10" fill="#1e3a8a">under 7 days</text>
     </g>
 
-    <!-- SOLD TIMELINE — clean version: only the recommended band + subject marker + comp dots, no inline labels -->
-    <g transform="translate(20, 360)">
-      <text x="0" y="0" font-size="12" font-weight="700" fill="#374151" style="letter-spacing:1px">RECENT SOLD DATA — WHERE YOUR HOME FITS</text>
-      <text x="0" y="18" font-size="10" fill="#6b7280">Each green dot is a comparable sale. Numbered to the legend below. Recommended range in gold; subject mid price in dark circle.</text>
-
-      <!-- Axis line -->
-      <line x1="60" y1="90" x2="860" y2="90" stroke="#9ca3af" stroke-width="1.5" />
-      <text x="60" y="110" font-size="10" fill="#6b7280" text-anchor="middle">${fmtPrice(minP)}</text>
-      <text x="860" y="110" font-size="10" fill="#6b7280" text-anchor="middle">${fmtPrice(maxP)}</text>
-      <text x="460" y="110" font-size="10" fill="#6b7280" text-anchor="middle">${fmtPrice((minP + maxP) / 2)}</text>
-      <line x1="60" y1="86" x2="60" y2="94" stroke="#9ca3af" stroke-width="1" />
-      <line x1="860" y1="86" x2="860" y2="94" stroke="#9ca3af" stroke-width="1" />
-      <line x1="460" y1="86" x2="460" y2="94" stroke="#9ca3af" stroke-width="1" />
+    ${sortedComps.length ? `
+      <!-- Bar chart of recent sold comparables -->
+      <line x1="20" y1="${CHART_TOP - 10}" x2="980" y2="${CHART_TOP - 10}" stroke="#e5e7eb" stroke-width="1" />
+      <text x="20" y="${CHART_TOP + 12}" font-size="13" font-weight="700" fill="#0f172a">Recent sold comparables</text>
+      <text x="20" y="${CHART_TOP + 28}" font-size="10" fill="#6b7280">Bars sorted by price. Gold band shows your recommended range; arrow marks the recommended price.</text>
 
       ${cma.priceRange?.low && cma.priceRange?.high ? `
-        <rect x="${xFor(cma.priceRange.low)}" y="72" width="${Math.max(4, xFor(cma.priceRange.high) - xFor(cma.priceRange.low))}" height="36" fill="#fef3c7" stroke="#ca8a04" stroke-width="1.5" opacity="0.9" />
-        <text x="${(xFor(cma.priceRange.low) + xFor(cma.priceRange.high)) / 2}" y="55" font-size="10" font-weight="700" fill="#78350f" text-anchor="middle">YOUR RECOMMENDED RANGE</text>
-        <text x="${(xFor(cma.priceRange.low) + xFor(cma.priceRange.high)) / 2}" y="68" font-size="10" font-weight="700" fill="#78350f" text-anchor="middle">${fmtPrice(cma.priceRange.low)} – ${fmtPrice(cma.priceRange.high)}</text>
+        <rect x="${xForBar(cma.priceRange.low)}" y="${CHART_TOP + CHART_HDR - 4}" width="${Math.max(4, xForBar(cma.priceRange.high) - xForBar(cma.priceRange.low))}" height="${sortedComps.length * ROW_H + 8}" fill="#fef3c7" stroke="#ca8a04" stroke-width="0.8" stroke-dasharray="3,3" opacity="0.55" />
+        <text x="${(xForBar(cma.priceRange.low) + xForBar(cma.priceRange.high)) / 2}" y="${CHART_TOP + CHART_HDR - 10}" font-size="10" font-weight="700" fill="#78350f" text-anchor="middle">${fmtPrice(cma.priceRange.low)} – ${fmtPrice(cma.priceRange.high)} recommended range</text>
       ` : ''}
 
-      ${cma.priceRange?.mid ? `
-        <circle cx="${xFor(cma.priceRange.mid)}" cy="90" r="10" fill="#c8a96e" stroke="#78350f" stroke-width="2.5" />
-        <text x="${xFor(cma.priceRange.mid)}" y="140" font-size="11" font-weight="700" fill="#78350f" text-anchor="middle">${fmtPrice(cma.priceRange.mid)} (recommended)</text>
-      ` : ''}
-
-      ${cma.listPrice && cma.priceRange?.mid !== cma.listPrice ? `
-        <circle cx="${xFor(cma.listPrice)}" cy="90" r="7" fill="#111827" stroke="#fff" stroke-width="2" />
-      ` : ''}
-
-      ${compPrices.map((c, i) => {
-        const cx = xFor(c.price);
+      ${sortedComps.map((c, i) => {
+        const y = CHART_TOP + CHART_HDR + i * ROW_H;
+        const bx = xForBar(c.price);
+        const barLen = Math.max(4, bx - BAR_X);
+        const addr = esc(c.address || `Comp ${i + 1}`);
+        const truncated = addr.length > 26 ? addr.slice(0, 24) + '…' : addr;
         return `
-          <circle cx="${cx}" cy="90" r="7" fill="#059669" stroke="#fff" stroke-width="1.5" />
-          <text x="${cx}" y="94" font-size="9" font-weight="700" fill="#fff" text-anchor="middle">${i + 1}</text>
+          <text x="20" y="${y + 13}" font-size="11" fill="#0f172a" font-weight="500">${truncated}</text>
+          <rect x="${BAR_X}" y="${y + 2}" width="${barLen}" height="16" fill="#86efac" rx="2" />
+          <text x="${bx + 8}" y="${y + 13}" font-size="11" font-weight="700" fill="#065f46">${fmtPrice(c.price)}</text>
+          ${c.dom ? `<text x="${bx + 60}" y="${y + 13}" font-size="10" fill="#6b7280">${c.dom} DOM</text>` : ''}
         `;
       }).join('')}
-    </g>
+
+      ${cma.priceRange?.mid ? `
+        <line x1="${xForBar(cma.priceRange.mid)}" y1="${CHART_TOP + CHART_HDR - 4}" x2="${xForBar(cma.priceRange.mid)}" y2="${CHART_TOP + CHART_HDR + sortedComps.length * ROW_H + 4}" stroke="#78350f" stroke-width="2" stroke-dasharray="4,3" />
+        <polygon points="${xForBar(cma.priceRange.mid) - 6},${CHART_TOP + CHART_HDR - 12} ${xForBar(cma.priceRange.mid) + 6},${CHART_TOP + CHART_HDR - 12} ${xForBar(cma.priceRange.mid)},${CHART_TOP + CHART_HDR - 4}" fill="#78350f" />
+        <text x="${xForBar(cma.priceRange.mid)}" y="${CHART_TOP + CHART_HDR + sortedComps.length * ROW_H + 24}" font-size="11" font-weight="700" fill="#78350f" text-anchor="middle">Recommended ${fmtPrice(cma.priceRange.mid)}</text>
+      ` : ''}
+    ` : ''}
   </svg>
 
-  <!-- Legend — clean numbered list of comps below the chart, no overlap -->
-  ${compPrices.length ? `
-    <div style="margin-top: 8px; display: grid; grid-template-columns: 1fr 1fr; gap: 6px 18px; font-size: 11px;">
-      ${compPrices.map((c, i) => `
-        <div style="display: flex; align-items: center; gap: 8px; padding: 4px 0;">
-          <div style="flex: 0 0 18px; height: 18px; border-radius: 50%; background: #059669; color: #fff; font-size: 10px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center;">${i + 1}</div>
-          <div style="flex: 1; min-width: 0; overflow: hidden;">
-            <div style="font-weight: 600; color: #065f46; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${esc(c.address || '—')}</div>
-            <div style="font-size: 10px; color: #6b7280;">${fmtPrice(c.price)}${c.dom ? ` · ${c.dom} DOM` : ''}</div>
-          </div>
-        </div>
-      `).join('')}
-    </div>
-  ` : ''}
+  <div style="margin-top: 14px; padding: 10px 14px; background: #fffbeb; border-left: 3px solid #c8a96e; border-radius: 4px; font-size: 11px; color: #78350f; font-style: italic;">
+    Higher list prices take longer to sell and end up discounted. A sharp below-market price attracts multiple offers and often sells at or above list. Your home must be priced with intent.
+  </div>
 
   <!-- PRICING DISCIPLINE CASE STUDY — proves the pyramid using their own data.
        Uses cumulative price chase + cumulative DOM when comp.priceHistory is present
