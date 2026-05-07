@@ -12,12 +12,10 @@
 // ./form-helpers.jsx. The shared styles live in ./form-styles.js.
 
 import { useState, useEffect, useRef } from 'react';
-import {
-  ArrowUpRight, Bell, CheckCircle2, ChevronDown, ChevronRight,
+import { FileSignature, ArrowUpRight, Bell, CheckCircle2, ChevronDown, ChevronRight,
   ClipboardList, ExternalLink, FileText, Flag, Flame, Home, Loader2,
   MapPin, PenLine, Phone, Play, Plus, RotateCcw, Save, Search, Send,
-  Snowflake, Sparkles, Star, Trash, Users, X, Zap,
-} from 'lucide-react';
+  Snowflake, Sparkles, Star, Trash, Users, X, Zap, } from 'lucide-react';
 
 import {
   AC_OPTIONS, APPLIANCE_OPTIONS, BASEMENT_TYPES, ELECTRICAL_AMP_OPTIONS,
@@ -271,6 +269,46 @@ function ListingForm() {
   };
 
   // ─── SEND PRE-LISTING FORM TO SELLER VIA FUB ───
+  const startInPersonSigning = async () => {
+    if (!form.propertyId) {
+      alert('Save the listing first before starting an in-person signing session.');
+      return;
+    }
+    if (!form.sellerEmail) {
+      alert('Add seller email to the listing before starting the signing session.');
+      return;
+    }
+    if (!confirm(`Start in-person signing for ${form.address || 'this listing'}?\n\nThis will create a DocuSign envelope with the RECO Information Guide and MLS Listing Agreement, pre-filled with the seller info, and open it on this device for in-person signing.`)) {
+      return;
+    }
+    try {
+      const res = await fetch(
+        `/api/listing-form/${encodeURIComponent(form.propertyId)}/start-signing`,
+        { method: 'POST' }
+      );
+      const data = await res.json();
+      if (data.success) {
+        if (data.envelopeUrl) {
+          // Open the DocuSign envelope on this device for in-person signing
+          window.open(data.envelopeUrl, '_blank', 'noopener,noreferrer');
+        }
+        alert(
+          `Signing envelope created.\n\n` +
+          (data.envelopeId ? `Envelope ID: ${data.envelopeId}\n` : '') +
+          `Sign on this iPad with the seller. Once both signatures are done, ` +
+          `the signed PDFs will be filed to the property's Drive folder and ` +
+          `made ready for upload to Sisu when you push to Sisu.`
+        );
+        // Force a reload of this listing so the in_progress state shows
+        if (activePropertyId) await loadProperty(activePropertyId);
+      } else {
+        alert(`Could not start signing: ${data.error || 'unknown'}${data.detail ? `\n${data.detail}` : ''}`);
+      }
+    } catch (err) {
+      alert(`Could not start signing: ${err.message}`);
+    }
+  };
+
   const sendToSellerViaFUB = async () => {
     // Queue a persistent draft on the backend. The draft-seller-emails skill
     // (running on Jonathan's Mac) picks the queue up and creates an actual
@@ -809,6 +847,48 @@ function ListingForm() {
         )}
 
         <div style={{ flex: 1 }} />
+
+        {/* In-person signing — RECO + MLS Listing Agreement via DocuSign on iPad */}
+        {activePropertyId && form.propertyId && (
+          (() => {
+            const status = form.signingStatus || 'not_started';
+            if (status === 'complete') {
+              return (
+                <div style={{
+                  display: 'flex', alignItems: 'center', gap: 5, padding: '6px 12px', borderRadius: 8,
+                  border: '1px solid #059669', background: '#ecfdf5', color: '#065f46',
+                  fontSize: 11, fontWeight: 700,
+                }}>
+                  <CheckCircle2 size={13} /> RECO + MLS signed{form.signedAt ? ` ${new Date(form.signedAt).toLocaleDateString()}` : ''}
+                </div>
+              );
+            }
+            if (status === 'in_progress') {
+              return (
+                <button
+                  onClick={() => form.docusignEnvelopeUrl && window.open(form.docusignEnvelopeUrl, '_blank', 'noopener,noreferrer')}
+                  title="Click to reopen the DocuSign envelope. After signing, refresh this listing to see the green signed pill."
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 5, padding: '6px 12px', borderRadius: 8,
+                    border: '1px solid #d97706', background: '#fff7ed', color: '#92400e',
+                    fontSize: 11, fontWeight: 700, cursor: 'pointer',
+                  }}
+                ><Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> Signing in progress…</button>
+              );
+            }
+            return (
+              <button
+                onClick={startInPersonSigning}
+                title="Create a DocuSign envelope with RECO + MLS Listing Agreement. Sign on this iPad with the seller."
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 5, padding: '6px 14px', borderRadius: 8,
+                  border: '1px solid #2563eb', background: '#eff6ff', color: '#1e40af',
+                  fontSize: 11, fontWeight: 600, cursor: 'pointer',
+                }}
+              ><FileSignature size={13} /> Start In-Person Signing</button>
+            );
+          })()
+        )}
 
         {/* Send pre-listing form to seller */}
         <button onClick={sendToSellerViaFUB} title="Draft email to seller with pre-listing form link" style={{

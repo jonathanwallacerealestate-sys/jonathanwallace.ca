@@ -27,6 +27,7 @@ import * as sellerFormPublicRoutes from './lib/routes/seller-form-public.js';
 import * as fubIntakeRoutes from './lib/routes/fub-intake.js';
 import * as sellerDraftsRoutes from './lib/routes/seller-drafts.js';
 import * as listingFormIntakeRoutes from './lib/routes/listing-form-intake.js';
+import * as inPersonSigningRoutes from './lib/routes/in-person-signing.js';
 import * as jacquiRoutes from './lib/routes/jacqui.js';
 import * as cmaParseRoutes from './lib/routes/cma-parse.js';
 import { runCmaAnalysis } from './lib/cma/run.js';
@@ -5845,6 +5846,11 @@ sellerDraftsRoutes.register(app, { LISTING_FORMS_DIR });
 // Listing-form intake — Make.com Seller Appointment fan-out scenario posts
 // here when a Seller Appointment fires in Realty Group FUB.
 listingFormIntakeRoutes.register(app, { LOG_DIR: DATA_DIR, LISTING_FORMS_DIR });
+
+// In-person signing — RECO + MLS Listing Agreement DocuSign envelope
+// triggered from Agent HQ "Start In-Person Signing" button. Make.com
+// orchestrates DocuSign + Drive; this module is the Agent HQ entry/exit.
+inPersonSigningRoutes.register(app, { LOG_DIR: DATA_DIR, LISTING_FORMS_DIR });
 
 // ─────────────────────────────────────────────
 // LISTING FORM PHOTOS — upload, list, serve, delete, extract-via-vision
