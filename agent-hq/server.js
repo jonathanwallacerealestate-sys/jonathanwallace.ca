@@ -25,6 +25,8 @@ import * as listingPhotosRoutes from './lib/routes/listing-photos.js';
 import * as listingFormCrudRoutes from './lib/routes/listing-form-crud.js';
 import * as sellerFormPublicRoutes from './lib/routes/seller-form-public.js';
 import * as fubIntakeRoutes from './lib/routes/fub-intake.js';
+import * as sellerDraftsRoutes from './lib/routes/seller-drafts.js';
+import * as listingFormIntakeRoutes from './lib/routes/listing-form-intake.js';
 import * as jacquiRoutes from './lib/routes/jacqui.js';
 import * as cmaParseRoutes from './lib/routes/cma-parse.js';
 import { runCmaAnalysis } from './lib/cma/run.js';
@@ -5835,6 +5837,14 @@ fubIntakeRoutes.register(app, {
   FUB_API_KEY,
   fubHeaders,
 });
+
+// Seller-form draft queue — Send Form to Seller button posts here, the
+// draft-seller-emails skill drains it and creates Mac Mail drafts.
+sellerDraftsRoutes.register(app, { LISTING_FORMS_DIR });
+
+// Listing-form intake — Make.com Seller Appointment fan-out scenario posts
+// here when a Seller Appointment fires in Realty Group FUB.
+listingFormIntakeRoutes.register(app, { LOG_DIR: DATA_DIR, LISTING_FORMS_DIR });
 
 // ─────────────────────────────────────────────
 // LISTING FORM PHOTOS — upload, list, serve, delete, extract-via-vision

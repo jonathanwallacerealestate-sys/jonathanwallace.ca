@@ -271,31 +271,39 @@ function ListingForm() {
   };
 
   // ─── SEND PRE-LISTING FORM TO SELLER VIA FUB ───
-  const sendToSellerViaFUB = () => {
-    // Build the pre-listing form URL — propertyId is the access token.
-    // The Agent HQ SPA detects ?seller=PROPERTY_ID at the top of App.jsx
-    // and renders the public SellerForm instead of the dashboard.
+  const sendToSellerViaFUB = async () => {
+    // Queue a persistent draft on the backend. The draft-seller-emails skill
+    // (running on Jonathan's Mac) picks the queue up and creates an actual
+    // draft message in Mac Mail's Drafts folder via AppleScript. Open Mail,
+    // review the draft, send.
     if (!form.propertyId) {
-      alert('Save the listing first (an address is required) before sending the seller form.');
+      alert('Save the listing first (an address is required) before queuing the seller draft.');
       return;
     }
-    const formLink = `https://hq.jonathanwallace.ca/?seller=${encodeURIComponent(form.propertyId)}`;
-
-    // Search FUB for the seller by name or email
-    const sellerName = form.sellerName || 'the seller';
-    const firstName = sellerName.split(' ')[0] || 'there';
-
-    const emailBody = `Hi ${firstName},\n\nThank you for choosing to work with me on the sale of ${form.address || 'your home'}${form.city ? `, ${form.city}` : ''}.\n\nTo make sure I have everything I need to market your home properly, I've put together a quick pre-listing questionnaire that covers the things only you would know — utilities, upgrades, what's included in the sale, and a few details about the systems in the home.\n\nIt takes about 10 minutes. Skip any field that doesn't apply (e.g. septic if you're on municipal sewer):\n${formLink}\n\nYour answers come straight back to me and help me build an accurate, compelling listing. Any questions, just reply to this email.\n\nLooking forward to getting your home sold!\n\nJonathan Wallace\nFaris Team Real Estate Brokerage\n705-433-2525`;
-
-    const emailSubject = `Pre-Listing Questionnaire — ${form.address || 'Your Home'}${form.city ? `, ${form.city}` : ''}`;
-
-    // Open the user's default mail client (Mac Mail) with a draft pre-filled.
-    // We dropped the old FUB compose deeplink — FUB removed that URL pattern
-    // and it now 404s. mailto opens in Mac Mail / Gmail / whatever the user
-    // has configured, drops a draft in Drafts, and the user reviews + sends.
-    const to = form.sellerEmail || '';
-    const mailtoUrl = `mailto:${encodeURIComponent(to)}?subject=${encodeURIComponent(emailSubject)}&body=${encodeURIComponent(emailBody)}`;
-    window.location.href = mailtoUrl;
+    if (!form.sellerEmail) {
+      alert('Add a seller email to the listing before queuing a draft (Mac Mail needs a recipient).');
+      return;
+    }
+    try {
+      const res = await fetch(
+        `/api/listing-form/${encodeURIComponent(form.propertyId)}/queue-seller-draft`,
+        { method: 'POST' }
+      );
+      const data = await res.json();
+      if (data.success) {
+        alert(
+          `Draft queued for Mac Mail.\n\n` +
+          `To: ${data.to}\n` +
+          `Subject: ${data.subject}\n\n` +
+          `It will appear in your Mac Mail Drafts folder within a couple of minutes ` +
+          `(or run the "draft seller emails" skill to load it now).`
+        );
+      } else {
+        alert(`Could not queue draft: ${data.error || 'unknown error'}${data.detail ? `\n${data.detail}` : ''}`);
+      }
+    } catch (err) {
+      alert(`Could not queue draft: ${err.message}`);
+    }
   };
 
   // ─── FETCH FUB LISTING APPOINTMENTS ───
