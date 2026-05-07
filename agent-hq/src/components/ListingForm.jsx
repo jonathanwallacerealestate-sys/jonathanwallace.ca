@@ -289,14 +289,13 @@ function ListingForm() {
 
     const emailSubject = `Pre-Listing Questionnaire — ${form.address || 'Your Home'}${form.city ? `, ${form.city}` : ''}`;
 
-    // If we have a seller email, open FUB compose directly
-    if (form.sellerEmail) {
-      window.open(`https://app.followupboss.com/app/inbox/compose?to=${encodeURIComponent(form.sellerEmail)}&subject=${encodeURIComponent(emailSubject)}&body=${encodeURIComponent(emailBody)}`, '_blank');
-    } else {
-      // Fallback: open FUB with search for seller name
-      const mailto = `mailto:?subject=${encodeURIComponent(emailSubject)}&body=${encodeURIComponent(emailBody)}`;
-      window.open(mailto, '_blank');
-    }
+    // Open the user's default mail client (Mac Mail) with a draft pre-filled.
+    // We dropped the old FUB compose deeplink — FUB removed that URL pattern
+    // and it now 404s. mailto opens in Mac Mail / Gmail / whatever the user
+    // has configured, drops a draft in Drafts, and the user reviews + sends.
+    const to = form.sellerEmail || '';
+    const mailtoUrl = `mailto:${encodeURIComponent(to)}?subject=${encodeURIComponent(emailSubject)}&body=${encodeURIComponent(emailBody)}`;
+    window.location.href = mailtoUrl;
   };
 
   // ─── FETCH FUB LISTING APPOINTMENTS ───
