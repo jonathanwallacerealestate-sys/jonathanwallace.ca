@@ -50,6 +50,8 @@ export function register(app, deps) {
             closedAt: data.closedAt || '',
             updatedAt: data.updatedAt || data.createdAt || '',
             createdAt: data.createdAt || '',
+            // Set when the seller submits their portion via the public form
+            sellerSubmittedAt: data.sellerSubmittedAt || '',
           };
         } catch { return null; }
       }).filter(Boolean)

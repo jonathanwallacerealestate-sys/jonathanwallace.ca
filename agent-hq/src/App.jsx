@@ -32,6 +32,7 @@ import {
 
 // The full Listing Form component (extracted 2026-04-24 — see src/components/)
 import ListingForm from './components/ListingForm.jsx';
+import SellerForm from './components/SellerForm.jsx';
 import Jacqui from './components/Jacqui.jsx';
 
 // ─────────────────────────────────────────────
@@ -9853,6 +9854,25 @@ function SectionContent({ section }) {
 // MAIN DASHBOARD
 // ─────────────────────────────────────────────
 export default function Dashboard() {
+  // ──────────────────────────────────────────────────────────────
+  // PUBLIC SELLER FORM SHORT-CIRCUIT
+  // When the URL has ?seller=PROPERTY_ID, render the public-facing
+  // SellerForm INSTEAD of the dashboard. This is what the seller sees
+  // when they click the link Jonathan emails them. No auth, no sidebar,
+  // no admin chrome. The backend's /api/seller-form endpoints whitelist
+  // writes to the SELLER_FIELDS subset so a malicious client can't
+  // overwrite Jonathan's master fields.
+  // ──────────────────────────────────────────────────────────────
+  const sellerPropertyId = (() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      return params.get('seller') || '';
+    } catch { return ''; }
+  })();
+  if (sellerPropertyId) {
+    return <SellerForm propertyId={sellerPropertyId} />;
+  }
+
   const [section, setSection] = useState("briefing");
   const [collapsed, setCollapsed] = useState(() => {
     try { return localStorage.getItem('agenthq-sidebar-collapsed') === 'true'; } catch { return false; }

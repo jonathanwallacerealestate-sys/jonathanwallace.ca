@@ -20,10 +20,10 @@ import {
 } from 'lucide-react';
 
 import {
-  AC_OPTIONS, APPLIANCE_OPTIONS, BASEMENT_TYPES, FLOORING_TYPES,
-  FOUNDATION_TYPES, GARAGE_TYPES, HEATING_OPTIONS, INCLUSION_OPTIONS,
-  PROPERTY_TYPES, ROOF_TYPES, SEWER_TYPES, STYLE_OPTIONS,
-  WATER_SOURCES, getRoomDetailOptions,
+  AC_OPTIONS, APPLIANCE_OPTIONS, BASEMENT_TYPES, ELECTRICAL_AMP_OPTIONS,
+  ELECTRICAL_TYPE_OPTIONS, FLOORING_TYPES, FOUNDATION_TYPES, GARAGE_TYPES,
+  HEATING_OPTIONS, INCLUSION_OPTIONS, PROPERTY_TYPES, ROOF_TYPES, SEWER_TYPES,
+  STYLE_OPTIONS, WATER_SOURCES, getRoomDetailOptions,
 } from '../config/listing-form-options.js';
 
 import {
@@ -272,20 +272,20 @@ function ListingForm() {
 
   // ─── SEND PRE-LISTING FORM TO SELLER VIA FUB ───
   const sendToSellerViaFUB = () => {
-    // Build the pre-listing form URL with property details
-    const params = new URLSearchParams();
-    if (form.propertyId) params.set('id', form.propertyId);
-    if (form.address) params.set('address', form.address);
-    if (form.city) params.set('city', form.city);
-    if (form.postalCode) params.set('postal', form.postalCode);
-    if (form.sellerName) params.set('seller', form.sellerName);
-    const formLink = `https://jonathanwallace.ca/listing-form?${params.toString()}`;
+    // Build the pre-listing form URL — propertyId is the access token.
+    // The Agent HQ SPA detects ?seller=PROPERTY_ID at the top of App.jsx
+    // and renders the public SellerForm instead of the dashboard.
+    if (!form.propertyId) {
+      alert('Save the listing first (an address is required) before sending the seller form.');
+      return;
+    }
+    const formLink = `https://hq.jonathanwallace.ca/?seller=${encodeURIComponent(form.propertyId)}`;
 
     // Search FUB for the seller by name or email
     const sellerName = form.sellerName || 'the seller';
     const firstName = sellerName.split(' ')[0] || 'there';
 
-    const emailBody = `Hi ${firstName},\n\nThank you for choosing to work with me on the sale of ${form.address || 'your home'}${form.city ? `, ${form.city}` : ''}.\n\nTo make sure I have all the details I need to effectively market your property, I've put together a quick pre-listing questionnaire for you. It covers the basics — things like heating, utilities, upgrades, and what's included in the sale.\n\nYou can fill it out at your convenience here:\n${formLink}\n\nYour answers help me build the most accurate and compelling listing possible. If you have any questions while filling it out, don't hesitate to reach out.\n\nLooking forward to getting started!\n\nJonathan Wallace\nFaris Team Real Estate Brokerage\n705-433-2525`;
+    const emailBody = `Hi ${firstName},\n\nThank you for choosing to work with me on the sale of ${form.address || 'your home'}${form.city ? `, ${form.city}` : ''}.\n\nTo make sure I have everything I need to market your home properly, I've put together a quick pre-listing questionnaire that covers the things only you would know — utilities, upgrades, what's included in the sale, and a few details about the systems in the home.\n\nIt takes about 10 minutes. Skip any field that doesn't apply (e.g. septic if you're on municipal sewer):\n${formLink}\n\nYour answers come straight back to me and help me build an accurate, compelling listing. Any questions, just reply to this email.\n\nLooking forward to getting your home sold!\n\nJonathan Wallace\nFaris Team Real Estate Brokerage\n705-433-2525`;
 
     const emailSubject = `Pre-Listing Questionnaire — ${form.address || 'Your Home'}${form.city ? `, ${form.city}` : ''}`;
 
@@ -587,7 +587,7 @@ function ListingForm() {
           <option value="">+ New Listing</option>
           {properties.map(p => (
             <option key={p.propertyId} value={p.propertyId}>
-              {p.address || p.propertyId}{p.city ? `, ${p.city}` : ''}{p.listPrice ? ` — $${Number(p.listPrice).toLocaleString()}` : ''}{p.status === 'active' ? ' ✓' : ''}
+              {p.address || p.propertyId}{p.city ? `, ${p.city}` : ''}{p.listPrice ? ` — $${Number(p.listPrice).toLocaleString()}` : ''}{p.status === 'active' ? ' ✓' : ''}{p.sellerSubmittedAt ? ' · seller ✓' : ''}
             </option>
           ))}
         </select>
@@ -809,6 +809,21 @@ function ListingForm() {
           border: '1px solid #c8a96e', background: '#fffbf0', color: '#92730a',
           fontSize: 11, fontWeight: 600, cursor: 'pointer',
         }}><Send size={13} /> Send Form to Seller</button>
+
+        {/* Seller-submitted pill — shows green when the seller has filled
+            their half of the form via the public link. Click → reload the
+            current listing so any new fields the seller wrote come down. */}
+        {form.sellerSubmittedAt && (
+          <button
+            onClick={() => activePropertyId && loadProperty(activePropertyId)}
+            title="Click to reload — pulls down the latest fields the seller submitted"
+            style={{
+              display: 'flex', alignItems: 'center', gap: 5, padding: '6px 12px', borderRadius: 8,
+              border: '1px solid #059669', background: '#ecfdf5', color: '#065f46',
+              fontSize: 11, fontWeight: 700, cursor: 'pointer',
+            }}
+          ><CheckCircle2 size={12} /> Seller submitted {new Date(form.sellerSubmittedAt).toLocaleDateString()}</button>
+        )}
       </div>
 
       {/* DEPLOY TARGETS — where this listing's data is pushed. Today: Sisu.
@@ -1199,8 +1214,8 @@ function ListingForm() {
           <FormSection title="Plumbing & Electrical" icon={Zap} expanded={expanded.electrical} onToggle={() => toggle('electrical')}>
             <div style={gridStyle(3)}>
               <FormField label="Plumbing">{sel('plumbing', ['Standard', 'Copper', 'PEX', 'Galvanized', 'Mixed', 'Other'], 'Select...')}</FormField>
-              <FormField label="Panel Amps">{sel('electricalAmps', ['60', '100', '200', '400'], 'Select...')}</FormField>
-              <FormField label="Breakers or Fuses">{sel('electricalType', ['Breakers', 'Fuses', 'Mixed'], 'Select...')}</FormField>
+              <FormField label="Panel Amps">{sel('electricalAmps', ELECTRICAL_AMP_OPTIONS, 'Select...')}</FormField>
+              <FormField label="Breakers or Fuses">{sel('electricalType', ELECTRICAL_TYPE_OPTIONS, 'Select...')}</FormField>
             </div>
           </FormSection>
 
@@ -1212,11 +1227,20 @@ function ListingForm() {
             <div style={{ ...gridStyle(3), marginTop: 14 }}>
               <FormField label="Furnace Age (years)">{inp('furnaceAge', '')}</FormField>
               <FormField label="Furnace Owned / Rented">{sel('furnaceOwnedRented', ['Owned', 'Rented'], 'Select...')}</FormField>
+              {form.furnaceOwnedRented === 'Rented' && (
+                <FormField label="Furnace Monthly Cost ($)">{inp('furnaceMonthlyCost', 'e.g. 65')}</FormField>
+              )}
             </div>
             <div style={{ marginTop: 14 }}>
               <FormField label="Air Conditioning">
                 <ChipSelect options={AC_OPTIONS} selected={form.acTypes || []} onChange={v => updateField('acTypes', v)} />
               </FormField>
+            </div>
+            <div style={{ ...gridStyle(3), marginTop: 14 }}>
+              <FormField label="AC Owned / Rented">{sel('acOwnedRented', ['Owned', 'Rented', 'N/A'], 'Select...')}</FormField>
+              {form.acOwnedRented === 'Rented' && (
+                <FormField label="AC Monthly Cost ($)">{inp('acMonthlyCost', 'e.g. 45')}</FormField>
+              )}
             </div>
             <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px solid #e5e7eb' }}>
               <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', marginBottom: 10 }}>
@@ -1238,6 +1262,9 @@ function ListingForm() {
               <FormField label="Type">{sel('hotWaterType', ['Tank — Gas', 'Tank — Electric', 'Tank — Propane', 'Tankless — Gas', 'Tankless — Electric', 'On-Demand'], 'Select...')}</FormField>
               <FormField label="Age (years)">{inp('hotWaterAge', '')}</FormField>
               <FormField label="Owned / Rented">{sel('hotWaterOwnedRented', ['Owned', 'Rented'], 'Select...')}</FormField>
+              {form.hotWaterOwnedRented === 'Rented' && (
+                <FormField label="HWT Monthly Cost ($)">{inp('hotWaterMonthlyCost', 'e.g. 35')}</FormField>
+              )}
               <FormField label="Other Rental Items" span={3}>{inp('rentalItems', 'e.g. Water softener, HVAC, propane tank')}</FormField>
             </div>
           </FormSection>
@@ -1259,7 +1286,9 @@ function ListingForm() {
               <FormField label="Water Source">{sel('waterSource', WATER_SOURCES, 'Select...')}</FormField>
               <FormField label="Sewer Type">{sel('sewerType', SEWER_TYPES, 'Select...')}</FormField>
               <FormField label="Well Details">{inp('wellDetails', 'Depth, GPM, last test')}</FormField>
-              <FormField label="Septic Details" span={2}>{inp('septicDetails', 'Age, last pump, size')}</FormField>
+              <FormField label="Septic Details" span={2}>{inp('septicDetails', 'Age, size, anything notable')}</FormField>
+              <FormField label="Septic Last Pumped">{inp('septicLastPumped', 'e.g. May 2024')}</FormField>
+              <FormField label="Septic Last Inspected">{inp('septicLastInspected', 'e.g. Apr 2023')}</FormField>
             </div>
           </FormSection>
 

@@ -15,6 +15,12 @@ export const HEATING_OPTIONS = [
 
 export const AC_OPTIONS = ['Central Air', 'Ductless Mini-Split', 'Window Units', 'None'];
 
+// Panel amp options — 60/100/200 are the standard residential ratings. Fuses
+// covers older homes that haven't been upgraded to a breaker panel.
+export const ELECTRICAL_AMP_OPTIONS = ['60', '100', '200', 'Fuses'];
+
+export const ELECTRICAL_TYPE_OPTIONS = ['Breakers', 'Fuses', 'Mixed'];
+
 export const APPLIANCE_OPTIONS = [
   'Fridge', 'Stove', 'Dishwasher', 'Microwave', 'Washer', 'Dryer', 'Range Hood',
   'Built-in Oven', 'Wine Fridge', 'Chest Freezer', 'Garburator', 'Water Softener',
@@ -75,3 +81,109 @@ export function getRoomDetailOptions(roomName) {
   }
   return opts;
 }
+
+// ─────────────────────────────────────────────────────────────────
+// SELLER FORM — public-facing form filled by the seller via emailed link
+// ─────────────────────────────────────────────────────────────────
+//
+// The seller fills a curated subset of the master listing form. This list is
+// the SINGLE SOURCE OF TRUTH used by both the SellerForm component AND the
+// public POST endpoint to whitelist writes. A field NOT in this list cannot
+// be written through the public seller endpoint, so a malicious payload
+// can't overwrite Jonathan's master fields.
+//
+// Section labels here also drive the SellerForm UI grouping.
+export const SELLER_FIELDS = [
+  // Verify property facts
+  'taxes',
+  // Confirm contact details
+  'sellerName', 'sellerPhone', 'sellerEmail',
+  'sellerName2', 'sellerPhone2', 'sellerEmail2',
+  // Electrical
+  'electricalAmps', 'electricalType',
+  // Roof
+  'roofAge',
+  // Septic (only if on septic)
+  'septicLastPumped', 'septicLastInspected', 'septicDetails',
+  // Furnace
+  'furnaceAge', 'furnaceOwnedRented', 'furnaceMonthlyCost',
+  // AC
+  'acOwnedRented', 'acMonthlyCost',
+  // Hot water tank
+  'hotWaterType', 'hotWaterAge', 'hotWaterOwnedRented', 'hotWaterMonthlyCost',
+  'rentalItems',
+  // Utility & service providers
+  'hydroProvider', 'propaneProvider', 'gasProvider', 'internetProvider', 'internetType',
+  // Inclusions
+  'appliancesIncluded', 'otherInclusions', 'inclusionsNotes',
+  // Exclusions
+  'exclusions',
+  // Recent renovations
+  'visibleUpgrades', 'hiddenUpgrades', 'floorPlanChanges',
+];
+
+// Section grouping for the SellerForm UI. Each entry: { title, fields }.
+// Fields here MUST appear in SELLER_FIELDS above (the whitelist). Order is
+// the order the seller sees them.
+export const SELLER_FORM_SECTIONS = [
+  {
+    title: 'Confirm your contact details',
+    description: 'Make sure we have the best way to reach you.',
+    fields: ['sellerName', 'sellerPhone', 'sellerEmail', 'sellerName2', 'sellerPhone2', 'sellerEmail2'],
+  },
+  {
+    title: 'Verify property taxes',
+    description: 'What were the property taxes for the most recent year?',
+    fields: ['taxes'],
+  },
+  {
+    title: 'Electrical panel',
+    description: '100A or 200A is most common. Older homes may have fuses.',
+    fields: ['electricalAmps', 'electricalType'],
+  },
+  {
+    title: 'Roof',
+    description: 'Roughly how old is the current roof?',
+    fields: ['roofAge'],
+  },
+  {
+    title: 'Septic system (skip if on municipal sewer)',
+    description: 'When was the septic last pumped and inspected?',
+    fields: ['septicLastPumped', 'septicLastInspected', 'septicDetails'],
+  },
+  {
+    title: 'Furnace',
+    description: 'Age, and whether it’s owned or rented.',
+    fields: ['furnaceAge', 'furnaceOwnedRented', 'furnaceMonthlyCost'],
+  },
+  {
+    title: 'Air conditioning',
+    description: 'Owned or rented? Skip if you don’t have AC.',
+    fields: ['acOwnedRented', 'acMonthlyCost'],
+  },
+  {
+    title: 'Hot water tank',
+    description: 'Gas or electric, owned or rented, and any other rental items.',
+    fields: ['hotWaterType', 'hotWaterAge', 'hotWaterOwnedRented', 'hotWaterMonthlyCost', 'rentalItems'],
+  },
+  {
+    title: 'Utility & service providers',
+    description: 'Who do you pay for hydro, gas/propane, and internet?',
+    fields: ['hydroProvider', 'propaneProvider', 'gasProvider', 'internetProvider', 'internetType'],
+  },
+  {
+    title: 'What’s included in the sale?',
+    description: 'Appliances and other items staying with the home.',
+    fields: ['appliancesIncluded', 'otherInclusions', 'inclusionsNotes'],
+  },
+  {
+    title: 'What’s NOT included?',
+    description: 'Anything you’re taking with you (chandelier, mirror, beer fridge, etc.).',
+    fields: ['exclusions'],
+  },
+  {
+    title: 'Recent renovations',
+    description: 'What’s been updated and roughly when?',
+    fields: ['visibleUpgrades', 'hiddenUpgrades', 'floorPlanChanges'],
+  },
+];

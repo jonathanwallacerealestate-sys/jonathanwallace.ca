@@ -23,6 +23,7 @@ import { renderPrintHtml } from './lib/listing-print.js';
 import { parseGeoWarehouseText } from './lib/parsers/geowarehouse.js';
 import * as listingPhotosRoutes from './lib/routes/listing-photos.js';
 import * as listingFormCrudRoutes from './lib/routes/listing-form-crud.js';
+import * as sellerFormPublicRoutes from './lib/routes/seller-form-public.js';
 import * as jacquiRoutes from './lib/routes/jacqui.js';
 import * as cmaParseRoutes from './lib/routes/cma-parse.js';
 import { runCmaAnalysis } from './lib/cma/run.js';
@@ -5822,6 +5823,10 @@ if (!fs.existsSync(LISTING_FORMS_DIR)) fs.mkdirSync(LISTING_FORMS_DIR, { recursi
 listingFormCrudRoutes.register(app, {
   LISTING_FORMS_DIR, FUB_API_KEY, FUB_BASE, fubHeaders,
 });
+
+// PUBLIC seller-form routes (no auth) — sellers fill the curated subset
+// via an emailed link. Server-side whitelist drops any non-seller field.
+sellerFormPublicRoutes.register(app, { LISTING_FORMS_DIR });
 
 // ─────────────────────────────────────────────
 // LISTING FORM PHOTOS — upload, list, serve, delete, extract-via-vision

@@ -24,12 +24,14 @@ export function defaultFormData() {
     style: '', foundationType: '', roofType: '', roofAge: '', exteriorMaterial: '',
     sqftAboveGrade: '', sqftBelowGrade: '', totalFinishedSqFt: '',
     plumbing: 'Standard', electricalAmps: '', electricalType: '',
-    heatingTypes: [], furnaceAge: '', furnaceOwnedRented: '', acTypes: [],
+    heatingTypes: [], furnaceAge: '', furnaceOwnedRented: '', furnaceMonthlyCost: '',
+    acTypes: [], acOwnedRented: '', acMonthlyCost: '',
     hasFireplace: false, fireplaceType: '', numberOfFireplaces: '',
-    hotWaterType: '', hotWaterAge: '', hotWaterOwnedRented: '', rentalItems: '',
+    hotWaterType: '', hotWaterAge: '', hotWaterOwnedRented: '', hotWaterMonthlyCost: '', rentalItems: '',
     hydroProvider: '', propaneProvider: '', gasProvider: '', internetProvider: '', internetType: '',
     basementType: '', basementFinish: '', basementWalkout: '', basementCeilingHeight: '', basementNotes: '',
     waterSource: '', sewerType: '', wellDetails: '', septicDetails: '',
+    septicLastPumped: '', septicLastInspected: '',
     garageType: '', garageSpaces: '', drivewaySize: '', drivewayMaterial: '', drivewaySpaces: '',
     appliancesIncluded: [],
     otherInclusions: [], inclusionsNotes: '', exclusions: '',
@@ -48,6 +50,8 @@ export function defaultFormData() {
     fintracEmployer: '', fintracOccupation: '',
     sisuTransactionUrl: '',
     status: 'draft', createdAt: '', updatedAt: '',
+    // Set when the seller submits their portion via the public seller form
+    sellerSubmittedAt: '',
   };
 }
 
