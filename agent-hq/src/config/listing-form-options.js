@@ -187,3 +187,21 @@ export const SELLER_FORM_SECTIONS = [
     fields: ['visibleUpgrades', 'hiddenUpgrades', 'floorPlanChanges'],
   },
 ];
+
+// ─── Sisu Draft 100a calibrated options (probed live 2026-05-07) ───
+// Use these so Agent HQ's room dropdowns produce values that match Sisu's
+// option text exactly — avoids the "option_not_found" failures we saw in
+// the autofill skill's first run.
+export const SISU_ROOM_TYPE_OPTIONS = [
+  'Attic', 'Bath 2pc', 'Bath 3pc', 'Bath 4pc', 'Bath 5+pc', 'Bedroom',
+  'Breakfast Area', 'Cold Room', 'Den', 'Dinette', 'Dining Room',
+  'Eat-in Kitchen', 'Ensuite', 'Family Room', 'Foyer', 'Games Room',
+  'Great Room', 'Home Theatre/Media Room', 'Kitchen', 'Kitchen/Dining',
+  'Laundry', 'Library', 'Living Room', 'Loft', 'Mudroom', 'Office',
+  'Other', 'Primary Bedroom', 'Recreation Room', 'Storage Room'
+];
+
+export const SISU_ROOM_LEVEL_OPTIONS = [
+  'Main Level', 'Second Level', 'Third Level', 'Fourth Level', 'Lower Level', 'Basement'
+];
+

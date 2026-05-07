@@ -22,7 +22,7 @@ import {
   ELECTRICAL_TYPE_OPTIONS, FLOORING_TYPES, FOUNDATION_TYPES, GARAGE_TYPES,
   HEATING_OPTIONS, INCLUSION_OPTIONS, PROPERTY_TYPES, ROOF_TYPES, SEWER_TYPES,
   STYLE_OPTIONS, WATER_SOURCES, getRoomDetailOptions,
-} from '../config/listing-form-options.js';
+, SISU_ROOM_TYPE_OPTIONS, SISU_ROOM_LEVEL_OPTIONS} from '../config/listing-form-options.js';
 
 import {
   ChipSelect, FormField, FormSection, defaultFormData,
@@ -1482,12 +1482,16 @@ function ListingForm() {
                   </button>
                 </div>
                 <div style={gridStyle(3)}>
-                  <FormField label="Room Name">
-                    <input style={inputStyle} value={room.name} onChange={e => updateRoom(idx, 'name', e.target.value)} placeholder="e.g. Primary Bedroom" />
+                  <FormField label="Room Type (matches Sisu)">
+                    <select style={selectStyle} value={room.name} onChange={e => updateRoom(idx, 'name', e.target.value)}>
+                      <option value="">Select type...</option>
+                      {SISU_ROOM_TYPE_OPTIONS.map(t => <option key={t}>{t}</option>)}
+                    </select>
                   </FormField>
-                  <FormField label="Level">
+                  <FormField label="Level (matches Sisu)">
                     <select style={selectStyle} value={room.level} onChange={e => updateRoom(idx, 'level', e.target.value)}>
-                      {['Main', 'Upper', 'Lower', 'Basement'].map(l => <option key={l}>{l}</option>)}
+                      <option value="">Select level...</option>
+                      {SISU_ROOM_LEVEL_OPTIONS.map(l => <option key={l}>{l}</option>)}
                     </select>
                   </FormField>
                   <FormField label="Flooring">
@@ -1515,8 +1519,31 @@ function ListingForm() {
                   </FormField>
                 </div>
                 <div style={{ marginTop: 8 }}>
-                  <FormField label="Additional Notes">
-                    <input style={inputStyle} value={room.features} onChange={e => updateRoom(idx, 'features', e.target.value)} placeholder="Ensuite, bay window, built-in shelving..." />
+                  <FormField label="Additional Notes — extra details Sisu's checkboxes don't cover">
+                    <div style={{ display: 'flex', gap: 6, alignItems: 'flex-start' }}>
+                      <textarea style={{ ...inputStyle, minHeight: 50, resize: 'vertical', flex: 1 }} value={room.features || ''} onChange={e => updateRoom(idx, 'features', e.target.value)} placeholder="High ceilings, walk-in closet, built-in shelving — anything that doesn't fit a chip above" />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const parts = [];
+                          if (room.name) parts.push(room.name);
+                          if (room.level) parts.push(room.level.toLowerCase());
+                          if (room.flooring) parts.push(room.flooring.toLowerCase());
+                          if (room.details && room.details.length > 0) parts.push(...room.details.map(d => d.toLowerCase()));
+                          if (parts.length > 0) {
+                            const generated = parts.join(', ');
+                            const existing = (room.features || '').trim();
+                            updateRoom(idx, 'features', existing ? `${generated}, ${existing}` : generated);
+                          }
+                        }}
+                        title="Auto-fill notes from this room's Type + Level + Flooring + selected chips. Edit afterward to add anything Sisu's checkboxes don't cover."
+                        style={{
+                          padding: '6px 10px', borderRadius: 6, border: '1px solid #c8a96e',
+                          background: '#fffbf0', color: '#92730a', fontSize: 11, fontWeight: 600,
+                          cursor: 'pointer', whiteSpace: 'nowrap',
+                        }}
+                      >+ from chips</button>
+                    </div>
                   </FormField>
                 </div>
               </div>

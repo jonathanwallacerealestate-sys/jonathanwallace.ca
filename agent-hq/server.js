@@ -6549,11 +6549,10 @@ app.get('/api/listing-form/:id/sisu-export', async (req, res) => {
       const roomData = {};
       roomData[`Room ${num} Type`] = room.name || '';
 
-      // Map level
-      let level = room.level || 'Main';
-      if (level === 'Upper') level = '2nd';
-      else if (level === 'Basement') level = 'Bsmt';
-      roomData[`Room ${num} Level`] = level;
+      // Pass Sisu's exact level value through (Main Level, Second Level, etc.)
+      // Agent HQ now uses SISU_ROOM_LEVEL_OPTIONS so the value matches Sisu's
+      // dropdown options exactly. No translation needed.
+      roomData[`Room ${num} Level`] = room.level || '';
 
       // Build details string from chips + flooring + notes
       const detailParts = [];
