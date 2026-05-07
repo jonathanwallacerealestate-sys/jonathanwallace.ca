@@ -6391,6 +6391,24 @@ app.get('/api/listing-form/:id/sisu-export', async (req, res) => {
     set('Tax Year', form.taxYear);
     set('MPAC Assessment', form.assessedValue);
 
+    // ─── Tier 1 — Seller identity (split + transaction defaults) ───
+    {
+      const parts = String(form.sellerName || '').split(/\s+/).filter(Boolean);
+      set('First Name', parts[0] || '');
+      set('Last Name', parts.slice(1).join(' '));
+    }
+    set('Transaction Type', 'Seller');
+    set('Listing Amount', form.listPrice);
+
+    // ─── Tier 1 — Listing setup ───
+    set('Status Type', form.statusType);
+    set('Possession Type', form.possessionType);
+    set('HST Applicable To Sale Price', form.hstApplicable);
+    set('Property Being Sold As-is', form.propertyAsIs);
+    set('Exclusive Agreement Signed', form.exclusiveAgreementSigned);
+    set('Exclusive Agreement Expiry Date', form.exclusiveAgreementExpiry);
+    set('Brokerage Remarks', form.brokerageRemarks);
+
     // ─── Lot ───
     set('Lot Front in Feet', form.lotFrontage);
     set('Lot Depth in Feet', form.lotDepth);
@@ -6401,7 +6419,14 @@ app.get('/api/listing-form/:id/sisu-export', async (req, res) => {
     // ─── Beds & Baths ───
     set('Number of Total Bedrooms', form.bedrooms);
     set('Number of Full Bathrooms', form.bathrooms);
+    set('Number of Half Bathrooms', form.halfBathrooms);
     set('Number of Above Grade Bedrooms', form.bedrooms);
+    set('Number of Above Grade Rooms', form.aboveGradeRooms);
+    set('Number of Above Grade Kitchens', form.aboveGradeKitchens);
+    set('Number of Below Grade Rooms', form.belowGradeRooms);
+    set('Number of Below Grade Bedrooms', form.belowGradeBedrooms);
+    set('Number of Below Grade Kitchens', form.belowGradeKitchens);
+    set('Family Room/Bonus Room (Yes or No)', form.familyRoom);
 
     // ─── Structure ───
     set('Style', form.style);

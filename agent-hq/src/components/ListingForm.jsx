@@ -1006,6 +1006,26 @@ function ListingForm() {
               <FormField label="Tax Year">{inp('taxYear', '2025')}</FormField>
               <FormField label="Assessed Value">{inp('assessedValue', '')}</FormField>
             </div>
+            {/* Tier 1: Listing setup fields — feed Sisu Draft 100a */}
+            <div style={{ ...gridStyle(3), marginTop: 14 }}>
+              <FormField label="Status Type">{sel('statusType', ['Active', 'Sold Cond.', 'Sold', 'Pending', 'Expired', 'Suspended', 'Terminated'], 'Select...')}</FormField>
+              <FormField label="Possession Type">{sel('possessionType', ['Immediate', '30 Days', '60 Days', '90 Days', 'Flexible', 'TBD', 'Other'], 'Select...')}</FormField>
+              <FormField label="HST Applicable To Sale Price">{sel('hstApplicable', ['No', 'Yes', 'Included In', 'Plus'], 'Select...')}</FormField>
+              <FormField label="Property Being Sold As-is">{sel('propertyAsIs', ['No', 'Yes'], 'Select...')}</FormField>
+              <FormField label="Family Room / Bonus Room">{sel('familyRoom', ['No', 'Yes'], 'Select...')}</FormField>
+              <FormField label="Exclusive Agreement Signed">{sel('exclusiveAgreementSigned', ['No', 'Yes'], 'Select...')}</FormField>
+              <FormField label="Exclusive Agreement Expiry Date">{inp('exclusiveAgreementExpiry', 'YYYY-MM-DD')}</FormField>
+            </div>
+            <div style={{ marginTop: 14 }}>
+              <FormField label="Brokerage Remarks (MLS — internal notes for other agents)">
+                <textarea
+                  value={form.brokerageRemarks || ''}
+                  onChange={e => updateField('brokerageRemarks', e.target.value)}
+                  placeholder="Notes visible only to agents on MLS — showing instructions, lockbox notes, agent-only context"
+                  style={{ width: '100%', minHeight: 70, padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, fontFamily: 'inherit', resize: 'vertical' }}
+                />
+              </FormField>
+            </div>
           </FormSection>
 
           {/* SECTION 2: SELLER INFORMATION */}
@@ -1278,8 +1298,17 @@ function ListingForm() {
           {/* SECTION 3: BEDROOMS & BATHROOMS */}
           <FormSection title="Bedrooms & Bathrooms" icon={Home} expanded={expanded.beds} onToggle={() => toggle('beds')}>
             <div style={gridStyle(4)}>
-              <FormField label="Bedrooms">{sel('bedrooms', ['1','2','3','4','5','6+'], 'Select...')}</FormField>
-              <FormField label="Bathrooms">{sel('bathrooms', ['1','1.5','2','2.5','3','3.5','4','4.5','5+'], 'Select...')}</FormField>
+              <FormField label="Total Bedrooms (above grade)">{sel('bedrooms', ['1','2','3','4','5','6+'], 'Select...')}</FormField>
+              <FormField label="Full Bathrooms">{sel('bathrooms', ['1','1.5','2','2.5','3','3.5','4','4.5','5+'], 'Select...')}</FormField>
+              <FormField label="Half Bathrooms">{sel('halfBathrooms', ['0','1','2','3','4'], 'Select...')}</FormField>
+            </div>
+            {/* Tier 1: Above/Below Grade room counts — feed Sisu Draft 100a */}
+            <div style={{ ...gridStyle(3), marginTop: 14 }}>
+              <FormField label="# Above Grade Rooms (total)">{inp('aboveGradeRooms', 'e.g. 8')}</FormField>
+              <FormField label="# Above Grade Kitchens">{sel('aboveGradeKitchens', ['1','2','3'], 'Select...')}</FormField>
+              <FormField label="# Below Grade Rooms (total)">{inp('belowGradeRooms', 'e.g. 4')}</FormField>
+              <FormField label="# Below Grade Bedrooms">{sel('belowGradeBedrooms', ['0','1','2','3','4'], 'Select...')}</FormField>
+              <FormField label="# Below Grade Kitchens">{sel('belowGradeKitchens', ['0','1','2'], 'Select...')}</FormField>
             </div>
           </FormSection>
 
