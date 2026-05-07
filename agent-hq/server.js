@@ -24,6 +24,7 @@ import { parseGeoWarehouseText } from './lib/parsers/geowarehouse.js';
 import * as listingPhotosRoutes from './lib/routes/listing-photos.js';
 import * as listingFormCrudRoutes from './lib/routes/listing-form-crud.js';
 import * as sellerFormPublicRoutes from './lib/routes/seller-form-public.js';
+import * as fubIntakeRoutes from './lib/routes/fub-intake.js';
 import * as jacquiRoutes from './lib/routes/jacqui.js';
 import * as cmaParseRoutes from './lib/routes/cma-parse.js';
 import { runCmaAnalysis } from './lib/cma/run.js';
@@ -5827,6 +5828,13 @@ listingFormCrudRoutes.register(app, {
 // PUBLIC seller-form routes (no auth) — sellers fill the curated subset
 // via an emailed link. Server-side whitelist drops any non-seller field.
 sellerFormPublicRoutes.register(app, { LISTING_FORMS_DIR });
+
+// Faris-team Apple Mail intake skill posts here. Auth via FARIS_INTAKE_SECRET.
+fubIntakeRoutes.register(app, {
+  LOG_DIR: DATA_DIR,
+  FUB_API_KEY,
+  fubHeaders,
+});
 
 // ─────────────────────────────────────────────
 // LISTING FORM PHOTOS — upload, list, serve, delete, extract-via-vision
