@@ -329,13 +329,23 @@ function ListingForm() {
       );
       const data = await res.json();
       if (data.success) {
-        alert(
-          `Draft queued for Mac Mail.\n\n` +
-          `To: ${data.to}\n` +
-          `Subject: ${data.subject}\n\n` +
-          `It will appear in your Mac Mail Drafts folder within a couple of minutes ` +
-          `(or run the "draft seller emails" skill to load it now).`
-        );
+        if (data.outlookDraftCreated) {
+          alert(
+            `✓ Draft created in Outlook Drafts folder.\n\n` +
+            `To: ${data.to}\n` +
+            `Subject: ${data.subject}\n\n` +
+            `Open Outlook (or Mac Mail if it reads your Outlook account) — ` +
+            `the draft is ready to review and send.`
+          );
+        } else {
+          alert(
+            `Draft queued (Outlook webhook not configured).\n\n` +
+            `To: ${data.to}\n` +
+            `Subject: ${data.subject}\n\n` +
+            `Set MAKE_OUTLOOK_DRAFT_WEBHOOK in Railway env to enable instant Outlook drafts. ` +
+            `Until then, run the "draft seller emails" skill in Cowork to create a Mac Mail draft.`
+          );
+        }
       } else {
         alert(`Could not queue draft: ${data.error || 'unknown error'}${data.detail ? `\n${data.detail}` : ''}`);
       }

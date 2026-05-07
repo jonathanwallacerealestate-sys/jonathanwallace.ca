@@ -59,7 +59,7 @@ export function register(app, deps) {
   // ─────────── POST queue-seller-draft ───────────
   // Sets the queue flag on a listing. Returns the {to, subject, body} that
   // the skill will use, so the frontend can show a confirmation toast.
-  app.post('/api/listing-form/:propertyId/queue-seller-draft', (req, res) => {
+  app.post('/api/listing-form/:propertyId/queue-seller-draft', async (req, res) => {
     const form = loadForm(req.params.propertyId);
     if (!form) return res.status(404).json({ success: false, error: 'listing_not_found' });
 
@@ -78,7 +78,50 @@ export function register(app, deps) {
     saveForm(req.params.propertyId, form);
 
     console.log(`[SellerDrafts] Queued draft: ${form.propertyId} → ${email.to}`);
-    res.json({ success: true, propertyId: form.propertyId, to: email.to, subject: email.subject });
+
+    // Fire-and-confirm: if MAKE_OUTLOOK_DRAFT_WEBHOOK is set, POST the email
+    // payload to Make.com which creates an Outlook draft via the
+    // microsoft-email:createAMessage module. This eliminates the AppleScript
+    // skill drain step — the draft appears in Outlook within a couple seconds.
+    const outlookWebhook = process.env.MAKE_OUTLOOK_DRAFT_WEBHOOK;
+    let outlookResult = null;
+    if (outlookWebhook) {
+      try {
+        const fwdRes = await fetch(outlookWebhook, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            propertyId: form.propertyId,
+            to: email.to,
+            subject: email.subject,
+            body: email.body,
+          }),
+        });
+        const fwdText = await fwdRes.text();
+        try { outlookResult = JSON.parse(fwdText); } catch { outlookResult = { raw: fwdText.slice(0, 200) }; }
+        if (outlookResult && outlookResult.success && outlookResult.draftId) {
+          form.outlookDraftId = outlookResult.draftId;
+          form.outlookDraftCreatedAt = new Date().toISOString();
+          // Clear the queue flag — the draft is now live in Outlook
+          form.sellerEmailDraftQueued = false;
+          saveForm(req.params.propertyId, form);
+          console.log(`[SellerDrafts] Outlook draft created: ${form.propertyId} draftId=${outlookResult.draftId}`);
+        } else {
+          console.warn(`[SellerDrafts] Outlook webhook did not return draftId:`, outlookResult);
+        }
+      } catch (err) {
+        console.error('[SellerDrafts] Outlook webhook call failed:', err);
+      }
+    }
+
+    res.json({
+      success: true,
+      propertyId: form.propertyId,
+      to: email.to,
+      subject: email.subject,
+      outlookDraftCreated: !!(outlookResult && outlookResult.success),
+      outlookDraftId: outlookResult && outlookResult.draftId,
+    });
   });
 
   // ─────────── GET seller-drafts/queue ───────────
