@@ -22,7 +22,7 @@ import {
   ELECTRICAL_TYPE_OPTIONS, FLOORING_TYPES, FOUNDATION_TYPES, GARAGE_TYPES,
   HEATING_OPTIONS, INCLUSION_OPTIONS, PROPERTY_TYPES, ROOF_TYPES, SEWER_TYPES,
   STYLE_OPTIONS, WATER_SOURCES, getRoomDetailOptions,
-, SISU_ROOM_TYPE_OPTIONS, SISU_ROOM_LEVEL_OPTIONS} from '../config/listing-form-options.js';
+  SISU_ROOM_TYPE_OPTIONS, SISU_ROOM_LEVEL_OPTIONS } from '../config/listing-form-options.js';
 
 import {
   ChipSelect, FormField, FormSection, defaultFormData,
