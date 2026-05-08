@@ -1020,8 +1020,8 @@ function ListingForm() {
             {/* Tier 1: Listing setup fields — feed Sisu Draft 100a */}
             <div style={{ ...gridStyle(3), marginTop: 14 }}>
               <FormField label="Status Type">{sel('statusType', ['Active', 'Sold Cond.', 'Sold', 'Pending', 'Expired', 'Suspended', 'Terminated'], 'Select...')}</FormField>
-              <FormField label="Possession Type">{sel('possessionType', ['Immediate', '30 Days', '60 Days', '90 Days', 'Flexible', 'TBD', 'Other'], 'Select...')}</FormField>
-              <FormField label="HST Applicable To Sale Price">{sel('hstApplicable', ['No', 'Yes', 'Included In', 'Plus'], 'Select...')}</FormField>
+              <FormField label="Possession Type">{sel('possessionType', ['Immediate', '1-29 Days', '30-59 Days', '60-89 Days', '90+ Days', 'Flexible', 'Long Close', 'Other'], 'Select...')}</FormField>
+              <FormField label="HST Applicable To Sale Price">{sel('hstApplicable', ['In Additon To', 'Included In', 'Not Subject to HST'], 'Select...')}</FormField>
               <FormField label="Property Being Sold As-is">{sel('propertyAsIs', ['No', 'Yes'], 'Select...')}</FormField>
               <FormField label="Family Room / Bonus Room">{sel('familyRoom', ['No', 'Yes'], 'Select...')}</FormField>
               <FormField label="Exclusive Agreement Signed">{sel('exclusiveAgreementSigned', ['No', 'Yes'], 'Select...')}</FormField>
@@ -1048,7 +1048,7 @@ function ListingForm() {
               <FormField label="Seller 2 — Full Name">{inp('sellerName2', '')}</FormField>
               <FormField label="Phone">{inp('sellerPhone2', '')}</FormField>
               <FormField label="Email">{inp('sellerEmail2', '')}</FormField>
-              <FormField label="Occupancy Status">{sel('occupancy', ['Owner Occupied', 'Tenant Occupied', 'Vacant', 'Seasonal'], 'Select...')}</FormField>
+              <FormField label="Occupancy Status">{sel('occupancy', ['Owner', 'Owner + Tenant', 'Partial', 'Tenant', 'Vacant'], 'Select...')}</FormField>
             </div>
           </FormSection>
 
