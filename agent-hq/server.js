@@ -6109,10 +6109,13 @@ function parseMLSListingText(text) {
     const driveway = atOffset(23);
     if (driveway) {
       // Extract size from driveway description (e.g. "Private Double" → "Double")
-      if (/single/i.test(driveway)) fields.drivewaySize = 'Single';
-      else if (/double/i.test(driveway)) fields.drivewaySize = 'Double';
-      else if (/triple/i.test(driveway)) fields.drivewaySize = 'Triple';
-      else fields.drivewaySize = driveway;
+      // drivewaySize is now an array of Sisu Driveway/Parking values
+      if (/single/i.test(driveway)) fields.drivewaySize = ['Private Single'];
+      else if (/double/i.test(driveway)) fields.drivewaySize = ['Private Double'];
+      else if (/triple/i.test(driveway)) fields.drivewaySize = ['Private Triple'];
+      else if (/mutual/i.test(driveway)) fields.drivewaySize = ['Mutual'];
+      else if (/none/i.test(driveway)) fields.drivewaySize = ['None'];
+      else fields.drivewaySize = [];
     }
 
     // Driveway parking spaces (offset +24 = PARKING DRIVE SPACES)
@@ -6447,9 +6450,13 @@ app.get('/api/listing-form/:id/sisu-export', async (req, res) => {
       set('Garage (Yes or No)', 'No');
     }
     set('Number of Garage Parking Spaces', form.garageSpaces);
-    set('Driveway/Parking', form.drivewaySize);
-    set('Driveway Type', form.drivewayMaterial);
+    // Driveway fields are multiselect arrays — join with ", " for autofill to split
+    const drivewayParking = Array.isArray(form.drivewaySize) ? form.drivewaySize.filter(Boolean).join(', ') : (form.drivewaySize || '');
+    const drivewayMaterial = Array.isArray(form.drivewayMaterial) ? form.drivewayMaterial.filter(Boolean).join(', ') : (form.drivewayMaterial || '');
+    set('Driveway/Parking', drivewayParking);
+    set('Driveway Type', drivewayMaterial);
     set('Number of Driveway Parking Spaces', form.drivewaySpaces);
+    set('Sign Install?', form.signInstall);
 
     // ─── Water & Sewer ───
     set('Water Type', form.waterSource);

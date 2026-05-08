@@ -22,7 +22,8 @@ import {
   ELECTRICAL_TYPE_OPTIONS, FLOORING_TYPES, FOUNDATION_TYPES, GARAGE_TYPES,
   HEATING_OPTIONS, INCLUSION_OPTIONS, PROPERTY_TYPES, ROOF_TYPES, SEWER_TYPES,
   STYLE_OPTIONS, WATER_SOURCES, getRoomDetailOptions,
-  SISU_ROOM_TYPE_OPTIONS, SISU_ROOM_LEVEL_OPTIONS } from '../config/listing-form-options.js';
+  SISU_ROOM_TYPE_OPTIONS, SISU_ROOM_LEVEL_OPTIONS,
+  SISU_DRIVEWAY_PARKING_OPTIONS, SISU_DRIVEWAY_MATERIAL_OPTIONS, SIGN_INSTALL_OPTIONS } from '../config/listing-form-options.js';
 
 import {
   ChipSelect, FormField, FormSection, defaultFormData,
@@ -1434,9 +1435,16 @@ function ListingForm() {
             <div style={gridStyle(3)}>
               <FormField label="Garage Type">{sel('garageType', GARAGE_TYPES, 'Select...')}</FormField>
               <FormField label="Garage Spaces">{sel('garageSpaces', ['1','2','3','4','5'], 'Select...')}</FormField>
-              <FormField label="Driveway Size">{inp('drivewaySize', 'e.g. Single, Double, Triple')}</FormField>
-              <FormField label="Driveway Material">{inp('drivewayMaterial', 'e.g. Paved, Gravel, Interlocking')}</FormField>
               <FormField label="Driveway Parking Spaces">{sel('drivewaySpaces', ['1','2','3','4','5','6','7','8','9','10+'], 'Select...')}</FormField>
+              <FormField label="Sign Install">{sel('signInstall', SIGN_INSTALL_OPTIONS, 'Select...')}</FormField>
+            </div>
+            <div style={{ marginTop: 14 }}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: '#374151', marginBottom: 6 }}>Driveway Size <span style={{ fontWeight: 400, color: '#6b7280' }}>(matches Sisu Driveway/Parking — pick one or more)</span></div>
+              <ChipSelect options={SISU_DRIVEWAY_PARKING_OPTIONS} selected={form.drivewaySize || []} onChange={v => updateField('drivewaySize', v)} />
+            </div>
+            <div style={{ marginTop: 14 }}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: '#374151', marginBottom: 6 }}>Driveway Material <span style={{ fontWeight: 400, color: '#6b7280' }}>(matches Sisu Driveway Type — pick one or more)</span></div>
+              <ChipSelect options={SISU_DRIVEWAY_MATERIAL_OPTIONS} selected={form.drivewayMaterial || []} onChange={v => updateField('drivewayMaterial', v)} />
             </div>
           </FormSection>
 

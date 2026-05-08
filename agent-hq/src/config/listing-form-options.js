@@ -205,3 +205,18 @@ export const SISU_ROOM_LEVEL_OPTIONS = [
   'Main Level', 'Second Level', 'Third Level', 'Fourth Level', 'Lower Level', 'Basement'
 ];
 
+// ─── Sisu Driveway dropdown options (probed live 2026-05-08) ───
+// Driveway Size in Agent HQ → Sisu's "Driveway/Parking" multiselect (11 options)
+export const SISU_DRIVEWAY_PARKING_OPTIONS = [
+  'Available', 'Circular', 'Front Yard (Legal)', 'Lane', 'Mutual',
+  'None', 'Other', 'Private Double', 'Private Single', 'Private Triple', 'Right-Of-Way'
+];
+
+// Driveway Material in Agent HQ → Sisu's "Driveway Type" multiselect (6 options)
+export const SISU_DRIVEWAY_MATERIAL_OPTIONS = [
+  'Asphalt', 'Concrete', 'Gravel', 'Interlock', 'None', 'Other'
+];
+
+// Sign Install — Sisu uses Yes/No (per Jonathan's spec)
+export const SIGN_INSTALL_OPTIONS = ['No', 'Yes'];
+
