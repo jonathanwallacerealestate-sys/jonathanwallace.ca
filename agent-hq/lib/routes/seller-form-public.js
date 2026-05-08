@@ -47,7 +47,9 @@ const SELLER_FIELDS = new Set([
 export function register(app, deps) {
   const {
     LISTING_FORMS_DIR,
-    makeSaveWebhook = 'https://hook.us2.make.com/95nk30o9mrpff5rfrz31l1tnxgf3ydf7',
+    // Fired when seller submits — Make.com scenario 'Seller Form Submitted — Notify Jonathan' (5007342)
+    // sends Jonathan an Outlook email so he knows the seller filled their portion.
+    makeSaveWebhook = 'https://hook.us2.make.com/8pvqs18m22obrtln0vrm2szpe7n6cqvs',
   } = deps;
 
   // GET /api/seller-form/:propertyId — what the seller sees when they open the link
