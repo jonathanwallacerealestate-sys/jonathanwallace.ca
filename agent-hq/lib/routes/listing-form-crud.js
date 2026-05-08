@@ -45,18 +45,13 @@ export function register(app, deps) {
             address: data.address || '',
             city: data.city || '',
             sellerName: data.sellerName || '',
-            sellerEmail: data.sellerEmail || '',
             listPrice: data.listPrice || '',
             status: data.status || 'draft',
             closedAt: data.closedAt || '',
             updatedAt: data.updatedAt || data.createdAt || '',
             createdAt: data.createdAt || '',
+            // Set when the seller submits their portion via the public form
             sellerSubmittedAt: data.sellerSubmittedAt || '',
-            // Signing pipeline state — used by the dashboard Signings section
-            signingStatus: data.signingStatus || '',
-            signingStartedAt: data.signingStartedAt || '',
-            signedAt: data.signedAt || '',
-            docusignEnvelopeUrl: data.docusignEnvelopeUrl || '',
           };
         } catch { return null; }
       }).filter(Boolean)
