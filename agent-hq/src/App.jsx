@@ -9,7 +9,7 @@ import {
   UserPlus, RotateCcw, Eye, EyeOff, ChevronUp, MoreHorizontal, Inbox,
   Flag, Trash2, PenLine, Check, ExternalLink, RefreshCw, Copy,
   GripVertical, ClipboardList, Home, Plus, Save, Loader2, Trash, RotateCw,
-  TrendingUp, BarChart3, MessageSquare, Heart, UploadCloud, FileSignature,
+  TrendingUp, BarChart3, MessageSquare, Heart, UploadCloud,
 } from "lucide-react";
 
 // Listing form option lists (extracted 2026-04-24 — see src/config/)
