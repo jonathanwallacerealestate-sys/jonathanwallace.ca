@@ -119,7 +119,7 @@ export function register(app, deps) {
       // Notify Make.com so Jonathan can wire a Slack/SMS push if he wants
       fetch(makeSaveWebhook, {
         method: 'POST',
-        headers: { 'Content-Type': 'text/plain' },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           event: 'seller_form_submitted',
           propertyId: form.propertyId,

@@ -6456,7 +6456,7 @@ app.get('/api/listing-form/:id/sisu-export', async (req, res) => {
     set('Driveway/Parking', drivewayParking);
     set('Driveway Type', drivewayMaterial);
     set('Number of Driveway Parking Spaces', form.drivewaySpaces);
-    set('Sign Install?', form.signInstall);
+    set('Sign Install?', form.signType);
 
     // ─── Water & Sewer ───
     set('Water Type', form.waterSource);

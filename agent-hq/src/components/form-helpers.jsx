@@ -40,7 +40,6 @@ export function defaultFormData() {
     waterSource: '', sewerType: '', wellDetails: '', septicDetails: '',
     septicLastPumped: '', septicLastInspected: '',
     garageType: '', garageSpaces: '', drivewaySize: [], drivewayMaterial: [], drivewaySpaces: '',
-    signInstall: '',
     appliancesIncluded: [],
     otherInclusions: [], inclusionsNotes: '', exclusions: '',
     hasPool: false, poolType: '', hasHotTub: false,

@@ -1436,7 +1436,6 @@ function ListingForm() {
               <FormField label="Garage Type">{sel('garageType', GARAGE_TYPES, 'Select...')}</FormField>
               <FormField label="Garage Spaces">{sel('garageSpaces', ['1','2','3','4','5'], 'Select...')}</FormField>
               <FormField label="Driveway Parking Spaces">{sel('drivewaySpaces', ['1','2','3','4','5','6','7','8','9','10+'], 'Select...')}</FormField>
-              <FormField label="Sign Install">{sel('signInstall', SIGN_INSTALL_OPTIONS, 'Select...')}</FormField>
             </div>
             <div style={{ marginTop: 14 }}>
               <div style={{ fontSize: 12, fontWeight: 600, color: '#374151', marginBottom: 6 }}>Driveway Size <span style={{ fontWeight: 400, color: '#6b7280' }}>(matches Sisu Driveway/Parking — pick one or more)</span></div>
@@ -1640,7 +1639,7 @@ function ListingForm() {
           {/* SECTION 20: SIGNAGE */}
           <FormSection title="Signage" icon={Flag} expanded={expanded.signage} onToggle={() => toggle('signage')}>
             <div style={gridStyle(3)}>
-              <FormField label="Sign Type">{sel('signType', ['Post Sign', 'A-Frame', 'Both', 'None'], 'Select...')}</FormField>
+              <FormField label="Sign Install">{sel('signType', SIGN_INSTALL_OPTIONS, 'Select...')}</FormField>
               <FormField label="Sign Location">{inp('signLocation', 'e.g. Front lawn, corner lot')}</FormField>
               <FormField label="Rider Info">{inp('riderInfo', 'e.g. SOLD, OPEN HOUSE, NEW PRICE')}</FormField>
             </div>
