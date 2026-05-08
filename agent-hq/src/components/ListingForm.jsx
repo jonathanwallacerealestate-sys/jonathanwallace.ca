@@ -310,6 +310,25 @@ function ListingForm() {
     }
   };
 
+  const cancelInPersonSigning = async () => {
+    if (!form.propertyId) return;
+    if (!confirm('Cancel the in-person signing session for this listing? This clears the in-progress state. The DocuSign envelope (if one was created) will remain in DocuSign.')) return;
+    try {
+      const res = await fetch(
+        `/api/listing-form/${encodeURIComponent(form.propertyId)}/cancel-signing`,
+        { method: 'POST' }
+      );
+      const data = await res.json();
+      if (data.success) {
+        if (activePropertyId) await loadProperty(activePropertyId);
+      } else {
+        alert(`Could not cancel: ${data.error || 'unknown'}`);
+      }
+    } catch (err) {
+      alert(`Could not cancel: ${err.message}`);
+    }
+  };
+
   const sendToSellerViaFUB = async () => {
     // Queue a persistent draft on the backend. The draft-seller-emails skill
     // (running on Jonathan's Mac) picks the queue up and creates an actual
@@ -876,15 +895,25 @@ function ListingForm() {
             }
             if (status === 'in_progress') {
               return (
-                <button
-                  onClick={() => form.docusignEnvelopeUrl && window.open(form.docusignEnvelopeUrl, '_blank', 'noopener,noreferrer')}
-                  title="Click to reopen the DocuSign envelope. After signing, refresh this listing to see the green signed pill."
-                  style={{
-                    display: 'flex', alignItems: 'center', gap: 5, padding: '6px 12px', borderRadius: 8,
-                    border: '1px solid #d97706', background: '#fff7ed', color: '#92400e',
-                    fontSize: 11, fontWeight: 700, cursor: 'pointer',
-                  }}
-                ><Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> Signing in progress…</button>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <button
+                    onClick={() => form.docusignEnvelopeUrl && window.open(form.docusignEnvelopeUrl, '_blank', 'noopener,noreferrer')}
+                    title={form.docusignEnvelopeUrl ? 'Reopen the DocuSign envelope' : 'Waiting for DocuSign envelope'}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 5, padding: '6px 12px', borderRadius: 8,
+                      border: '1px solid #d97706', background: '#fff7ed', color: '#92400e',
+                      fontSize: 11, fontWeight: 700, cursor: form.docusignEnvelopeUrl ? 'pointer' : 'default',
+                    }}
+                  ><Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> Signing in progress…</button>
+                  <button
+                    onClick={cancelInPersonSigning}
+                    title="Cancel — clears the in-progress state without affecting DocuSign"
+                    style={{
+                      padding: '4px 8px', borderRadius: 6, border: '1px solid #d1d5db',
+                      background: '#fff', color: '#6b7280', fontSize: 11, fontWeight: 600, cursor: 'pointer',
+                    }}
+                  >Cancel</button>
+                </div>
               );
             }
             return (

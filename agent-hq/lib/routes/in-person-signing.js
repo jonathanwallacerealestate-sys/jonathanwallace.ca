@@ -165,6 +165,22 @@ export function register(app, deps) {
     return res.json({ success: true, propertyId: form.propertyId });
   });
 
+  // ─────── POST /api/listing-form/:propertyId/cancel-signing ───────
+  // Resets the signing state — used when an in-person signing session was
+  // started accidentally or is otherwise stuck.
+  app.post('/api/listing-form/:propertyId/cancel-signing', (req, res) => {
+    const form = loadForm(req.params.propertyId);
+    if (!form) return res.status(404).json({ success: false, error: 'listing_not_found' });
+    form.signingStatus = '';
+    form.signingStartedAt = '';
+    form.docusignEnvelopeId = '';
+    form.docusignEnvelopeUrl = '';
+    form.updatedAt = new Date().toISOString();
+    saveForm(req.params.propertyId, form);
+    console.log(`[InPersonSigning] cancel-signing: ${form.propertyId}`);
+    return res.json({ success: true, propertyId: form.propertyId });
+  });
+
   // ─────── GET /api/listing-form/:propertyId/signing-status ───────
   // Polled by the frontend to know when signing completes (so the UI can
   // flip from "in progress" to "complete").
