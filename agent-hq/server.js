@@ -6443,11 +6443,12 @@ app.get('/api/listing-form/:id/sisu-export', async (req, res) => {
     set('AMP Service', form.electricalAmps);
 
     // ─── Garage & Parking ───
-    if (form.garageType && form.garageType !== 'None') {
-      set('Garage (Yes or No)', 'Yes');
+    // Prefer explicit form.garage; fall back to inferring from garageType
+    let garageYesNo = form.garage;
+    if (!garageYesNo) garageYesNo = (form.garageType && form.garageType !== 'None') ? 'Yes' : 'No';
+    set('Garage (Yes or No)', garageYesNo);
+    if (garageYesNo === 'Yes' && form.garageType && form.garageType !== 'None') {
       set('Garage Type', form.garageType);
-    } else {
-      set('Garage (Yes or No)', 'No');
     }
     set('Number of Garage Parking Spaces', form.garageSpaces);
     // Driveway fields are multiselect arrays — join with ", " for autofill to split

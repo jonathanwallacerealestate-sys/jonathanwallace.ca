@@ -39,7 +39,7 @@ export function defaultFormData() {
     basementType: '', basementFinish: '', basementWalkout: '', basementCeilingHeight: '', basementNotes: '',
     waterSource: '', sewerType: '', wellDetails: '', septicDetails: '',
     septicLastPumped: '', septicLastInspected: '',
-    garageType: '', garageSpaces: '', drivewaySize: [], drivewayMaterial: [], drivewaySpaces: '',
+    garage: '', garageType: '', garageSpaces: '', drivewaySize: [], drivewayMaterial: [], drivewaySpaces: '',
     appliancesIncluded: [],
     otherInclusions: [], inclusionsNotes: '', exclusions: '',
     hasPool: false, poolType: '', hasHotTub: false,

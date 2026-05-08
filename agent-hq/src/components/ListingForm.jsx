@@ -1430,20 +1430,23 @@ function ListingForm() {
             </div>
           </FormSection>
 
-          {/* SECTION 11: PARKING & GARAGE */}
+          {/* SECTION 11: PARKING & GARAGE — mirrors Sisu Draft 100a structure */}
           <FormSection title="Parking & Garage" icon={Home} expanded={expanded.parking} onToggle={() => toggle('parking')}>
             <div style={gridStyle(3)}>
+              <FormField label="Garage (Yes or No)">{sel('garage', ['No', 'Yes'], 'Select...')}</FormField>
               <FormField label="Garage Type">{sel('garageType', GARAGE_TYPES, 'Select...')}</FormField>
-              <FormField label="Garage Spaces">{sel('garageSpaces', ['1','2','3','4','5'], 'Select...')}</FormField>
-              <FormField label="Driveway Parking Spaces">{sel('drivewaySpaces', ['1','2','3','4','5','6','7','8','9','10+'], 'Select...')}</FormField>
+              <FormField label="Number of Garage Parking Spaces">{sel('garageSpaces', ['1','2','3','4','5','6','7','8','9','10+'], 'Select...')}</FormField>
             </div>
             <div style={{ marginTop: 14 }}>
-              <div style={{ fontSize: 12, fontWeight: 600, color: '#374151', marginBottom: 6 }}>Driveway Size <span style={{ fontWeight: 400, color: '#6b7280' }}>(matches Sisu Driveway/Parking — pick one or more)</span></div>
+              <div style={{ fontSize: 12, fontWeight: 600, color: '#374151', marginBottom: 6 }}>Driveway/Parking <span style={{ fontWeight: 400, color: '#6b7280' }}>(pick one or more — matches Sisu)</span></div>
               <ChipSelect options={SISU_DRIVEWAY_PARKING_OPTIONS} selected={form.drivewaySize || []} onChange={v => updateField('drivewaySize', v)} />
             </div>
             <div style={{ marginTop: 14 }}>
-              <div style={{ fontSize: 12, fontWeight: 600, color: '#374151', marginBottom: 6 }}>Driveway Material <span style={{ fontWeight: 400, color: '#6b7280' }}>(matches Sisu Driveway Type — pick one or more)</span></div>
+              <div style={{ fontSize: 12, fontWeight: 600, color: '#374151', marginBottom: 6 }}>Driveway Type <span style={{ fontWeight: 400, color: '#6b7280' }}>(pick one or more — matches Sisu)</span></div>
               <ChipSelect options={SISU_DRIVEWAY_MATERIAL_OPTIONS} selected={form.drivewayMaterial || []} onChange={v => updateField('drivewayMaterial', v)} />
+            </div>
+            <div style={{ ...gridStyle(3), marginTop: 14 }}>
+              <FormField label="Number of Driveway Parking Spaces">{sel('drivewaySpaces', ['1','2','3','4','5','6','7','8','9','10+'], 'Select...')}</FormField>
             </div>
           </FormSection>
 
