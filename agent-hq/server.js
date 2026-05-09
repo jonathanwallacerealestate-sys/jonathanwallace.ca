@@ -6419,40 +6419,59 @@ Your writing is professional, clear, and persuasive. You avoid generic real esta
 
     let userPrompt;
     if (kind === 'top5') {
-      userPrompt = `You are a real estate copywriter for The Faris Team, a top Ontario real estate brokerage known for clear, buyer-focused property descriptions. Your task is to write a "Top 5 Reasons You'll Love This Home" section for a new listing.
+      userPrompt = `You are a real estate copywriter for The Faris Team, a top Ontario real estate brokerage. Your task is to write the "Top 5 Reasons You'll Love This Home" section for a new listing.
 
 GOAL
-Paint a picture. Each bullet should make the reader feel what living in this home would be like — the moments, the routines, the freedom, the pride of ownership. Lead with what would make a buyer fall in love with THIS specific home, not homes in general.
+Each bullet must paint a scene of life in this specific home. Open the sentence with the lifestyle moment, then weave in the feature that makes it possible. The reader should feel something. Do not write a feature checklist.
 
-FORMAT
-Number each reason 1-5. Each reason is ONE complete, full sentence (20-40 words) about ONE specific, tangible benefit. No bold headings, no inline labels (do not write "**Lakeside living:**" or any bold/italic prefix). No em-dashes (—). Use periods, commas, and "and" instead of dashes. Plain readable English.
+HARD STYLE RULES
+1. NO em-dashes. The character — is forbidden. Use periods, commas, or "and" instead. Even if the model thinks an em-dash flows, replace it.
+2. NO inline labels or colons used as headings. Do NOT write "First-time buyers and investors:" or "Lakeside living:" or any sentence-starting label followed by a colon.
+3. NO bold or italic markers (no ** ** or _ _).
+4. Full, natural sentences only. No fragments.
+5. NO clichés: "amazing", "stunning", "beautiful", "must-see", "won't last", "don't miss", "dream home", "spacious", "charming".
 
-NO REPETITION (critical)
-Each of the 5 bullets must cover a DIFFERENT angle. Do not restate the same point in different words. If you've already mentioned the finished basement, don't bring it up again. If you've already named the location, don't reuse the same neighbourhood detail. Five distinct stories, not one story told five ways.
+NO REPETITION
+The 5 bullets must each cover a DIFFERENT angle. Do not restate the same point in different words. Five distinct stories, not one story told five ways. Cross-check each bullet before finalizing.
 
-CATEGORIES
-Across the 5 bullets, include at least one reason from EACH of these categories:
-1. Location & lifestyle — proximity to downtown, waterfront, trails, parks, schools, or community amenities specific to the area (Midland, Penetanguishene, Tay, Tiny, Wasaga Beach, Barrie, Collingwood)
-2. Investment or income potential — rental suite, in-law suite, multi-generational living, first-time buyer value
-3. Move-in readiness or recent updates — specific mechanical, structural, or cosmetic upgrades with years if known (e.g. roof 2022, furnace 2021)
-4. Target buyer appeal — explicitly name the ideal buyer (first-time buyer, downsizer, investor, blended family, retiree)
-5. Space, layout, or outdoor living — finished basement, functional floor plan, yard, patio, parking, storage
+CATEGORIES (every bullet should be tied to ONE distinct angle, with all 5 of these covered across the set)
+A. Location & lifestyle (downtown, waterfront, trails, parks, schools, community amenities specific to Midland, Penetanguishene, Tay, Tiny, Wasaga Beach, Barrie, Collingwood)
+B. Investment, income, or buyer-value angle (rental suite, in-law potential, multi-generational, first-time buyer affordability, project / sweat-equity upside)
+C. Move-in readiness or recent updates (specific mechanicals or structural upgrades, with year if known)
+D. Target buyer (named explicitly: first-time buyer, downsizer, investor, blended family, retiree, project buyer, couple)
+E. Space, layout, or outdoor living (finished basement, functional layout, yard, patio, parking, storage, views, sunsets)
 
-TONE
-Confident, warm, evocative, and specific. Avoid filler ("amazing", "stunning", "beautiful", "must-see", "won't last", "don't miss"). Let concrete details and sensory cues do the work.
+LENGTH AND FORMAT
+Five numbered lines. Each line is one full sentence, 25 to 45 words. No preamble, no closing line, no headings, nothing before "1." or after the fifth bullet.
+
+EXAMPLES of the style you should match (paint a scene, then ground in fact, no em-dashes, no labels):
+
+GOOD: "1. End your day on the water-facing patio watching the sun drop behind Georgian Bay, with direct sightlines from your living room and back yard that turn every evening into something memorable."
+GOOD: "2. The recently rewired electrical panel, spray-foam insulated foundation, and 2024 multi-split heating and cooling system mean you can settle in without chasing surprise repair bills in your first year."
+GOOD: "3. A walkable five minutes from downtown Penetanguishene's coffee shops, lakefront promenade, and Saturday farmers market makes weekend life simple and the car often optional."
+BAD (do NOT do this): "1. Walking distance to downtown shops, restaurants, and Georgian Bay waterfront access—ideal for buyers seeking small-town charm with lake-country lifestyle."  (uses em-dash, opens with feature, vague)
+BAD (do NOT do this): "2. First-time buyers and investors: low property taxes, updated electrical panel..."  (uses colon as inline label)
 
 OUTPUT
-Five numbered lines and nothing else. No preamble, no closing line, no headers. Just:
-1. ...
-2. ...
-3. ...
-4. ...
-5. ...
+Just the 5 numbered sentences. Nothing else.
 
 LISTING:
 ${brief}${highlightsBlock}`;
     } else if (kind === 'mlsDescription') {
-      userPrompt = `${persona}\n\nWrite a polished MLS description for the listing below. 120-160 words.\n\nPaint a picture — make the reader feel what daily life in this home looks and feels like. Lead with the single most compelling feature, then move through the home's character, the spaces that matter, and the lifestyle the location enables. Each sentence must add NEW information — never restate the same point in different words. End with a one-line invitation to view (no clichés like 'don't miss', 'must-see', 'won't last'). Plain prose. No bullets. No headers. No bold text. No em-dashes (—); use commas, periods, and 'and' instead. Full readable sentences only.\n\nLISTING:\n${brief}${highlightsBlock}`;
+      userPrompt = `You are a real estate copywriter for The Faris Team. Write a polished MLS description for the listing below.
+
+GOAL
+120 to 160 words of plain prose. Paint a picture of daily life in this specific home. Open with a single scene-setting sentence that captures the strongest emotional pull, then move through the home's character, the spaces that matter, and the lifestyle the location enables. Close with one short, warm invitation to view that does NOT use the word "don't" or any cliché.
+
+HARD STYLE RULES
+1. NO em-dashes. The character — is forbidden everywhere. Use periods, commas, or "and" instead.
+2. NO bold or italic markers, no headers, no bullets.
+3. Each sentence must add NEW information. Never restate the same point in different words.
+4. NO clichés: "don't miss", "won't last", "must-see", "dream home", "stunning", "amazing", "beautiful", "spacious", "charming".
+5. Full, natural sentences only.
+
+LISTING:
+${brief}${highlightsBlock}`;
     } else {
       return res.json({ success: false, error: 'unknown_kind', detail: 'kind must be top5 or mlsDescription' });
     }
@@ -6462,7 +6481,9 @@ ${brief}${highlightsBlock}`;
       max_tokens: 600,
       messages: [{ role: 'user', content: userPrompt }],
     });
-    const text = (msg.content || []).filter(b => b.type === 'text').map(b => b.text).join('').trim();
+    let text = (msg.content || []).filter(b => b.type === 'text').map(b => b.text).join('').trim();
+    // Belt-and-suspenders: strip em-dashes and en-dashes the model leaked anyway, normalize to commas
+    text = text.replace(/\s*[—–]\s*/g, ', ');
     return res.json({ success: true, kind, text, model: msg.model });
   } catch (err) {
     console.error('[ListingForm] generate error:', err.message);
