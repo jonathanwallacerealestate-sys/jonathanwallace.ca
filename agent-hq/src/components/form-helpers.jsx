@@ -43,7 +43,7 @@ export function defaultFormData() {
     appliancesIncluded: [],
     otherInclusions: [], inclusionsNotes: '', exclusions: '',
     hasPool: false, poolType: '', hasHotTub: false,
-    visibleUpgrades: '', hiddenUpgrades: '', floorPlanChanges: '',
+    visibleUpgrades: '', hiddenUpgrades: '', floorPlanChanges: '', keyHighlights: '',
     rooms: [],
     isWaterfront: false, waterfrontType: '', waterBody: '', waterBodyType: '', waterfrontFootage: '',
     shoreline: '', shorelineExposure: '', dock: '', waterDepth: '',

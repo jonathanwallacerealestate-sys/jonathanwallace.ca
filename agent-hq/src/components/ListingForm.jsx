@@ -311,15 +311,21 @@ function ListingForm() {
     }
     setGenerating(kind);
     try {
-      const res = await fetch('/api/listing-form/' + encodeURIComponent(form.propertyId) + '/generate?kind=' + kind, { method: 'POST' });
+      const res = await fetch('/api/listing-form/' + encodeURIComponent(form.propertyId) + '/generate?kind=' + kind, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ keyHighlights: form.keyHighlights || '' }),
+      });
       const data = await res.json();
+      console.log('[generateMarketing]', kind, data);
       if (data && data.success && data.text) {
         if (kind === 'top5') updateField('top5Reasons', data.text);
         else if (kind === 'mlsDescription') updateField('mlsDescription', data.text);
       } else {
-        alert('Could not generate: ' + ((data && data.error) || 'unknown'));
+        alert('Could not generate: ' + ((data && data.error) || 'unknown') + ((data && data.detail) ? ('\n' + data.detail) : ''));
       }
     } catch (err) {
+      console.error('[generateMarketing]', err);
       alert('Could not generate: ' + err.message);
     }
     setGenerating(null);
@@ -1679,6 +1685,7 @@ function ListingForm() {
           {/* SECTION 22: AI-GENERATED CONTENT */}
           <FormSection title="AI-Generated Marketing" icon={Sparkles} expanded={expanded.ai} onToggle={() => toggle('ai')}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <FormField label="Key Highlights to Emphasize (optional)">{ta('keyHighlights', 'Tell the AI what to lead with — e.g. \'sunset views, walk to Little Lake, brand new kitchen, no rear neighbours\'. Used by both Generate buttons below.')}</FormField>
               <FormField label="Top 5 Reasons to Love This Home">{ta('top5Reasons', 'Click "Generate" to auto-create from property details...')}</FormField>
               <FormField label="MLS Description">{ta('mlsDescription', 'Click "Generate" to auto-create from property details...')}</FormField>
               <div style={{ display: 'flex', gap: 8 }}>

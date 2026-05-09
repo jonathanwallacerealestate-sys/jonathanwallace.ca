@@ -6409,6 +6409,10 @@ app.post('/api/listing-form/:id/generate', async (req, res) => {
       ['Lifestyle / location notes', form.additionalNotes],
     ].filter(([_, v]) => v && v.toString().trim()).map(([k, v]) => `- ${k}: ${v}`).join('\n');
 
+    // Optional key highlights — Jonathan's manual nudges for what to emphasize
+    const keyHighlights = (req.body?.keyHighlights || '').toString().trim();
+    const highlightsBlock = keyHighlights ? `\n\nKEY HIGHLIGHTS to lead with (Jonathan's manual emphasis — weight these heavily):\n${keyHighlights}` : '';
+
     const persona = `You are the marketing director for Jonathan Wallace, a high-producing real estate agent at Faris Team Real Estate Brokerage serving Georgian Bay communities in Ontario, Canada (primarily Midland, Penetanguishene, Tay, Tiny, and Wasaga Beach).
 
 Your writing is professional, clear, and persuasive. You avoid generic real estate clichés ("don't miss", "won't last", "must-see", "dream home", "spacious", "charming"). You don't exaggerate. You write specifics — actual features, dimensions, and lifestyle benefits — not adjectives. You assume the reader is intelligent.`;
