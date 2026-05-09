@@ -375,7 +375,6 @@ const sidebarItems = [
   { id: "run-comps", label: "CMA", icon: BarChart3, badge: null },
   { id: "aps-parser", label: "APS Parser", icon: FileText, badge: null },
   { id: "listing-form", label: "Listing Form", icon: ClipboardList, badge: null },
-  { id: "signings", label: "Signings", icon: FileText, badge: null },
   { id: "sellers", label: "Sellers", icon: Briefcase, badge: 3 },
   { id: "loo", label: "LOO", icon: FileText, badge: null },
   { id: "syncs", label: "Syncs & Routines", icon: RotateCw, badge: null },
@@ -5521,160 +5520,6 @@ function PnlSection() {
 
 // SELLERS: LISTING SHOWINGS TRACKER
 // ─────────────────────────────────────────────
-// ─────────────────────────────────────────────
-// SIGNINGS SECTION — DocuSign signing control
-// Lists every Agent HQ listing with its signing state. Start a session,
-// reopen the envelope, or cancel a stuck one — all from one place.
-// ─────────────────────────────────────────────
-function SigningsSection() {
-  const [listings, setListings] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [busyId, setBusyId] = useState(null);
-  const [errMsg, setErrMsg] = useState(null);
-
-  const load = async () => {
-    setLoading(true);
-    try {
-      const r = await fetch('/api/listing-form/list');
-      const j = await r.json();
-      if (j && j.success) setListings(j.listings || []);
-      else setErrMsg((j && j.error) || 'Could not load listings');
-    } catch (e) { setErrMsg(e.message); }
-    setLoading(false);
-  };
-  useEffect(() => { load(); }, []);
-
-  const startSigning = async (listing) => {
-    if (!listing.sellerEmail) {
-      alert('Add a seller email to this listing before starting the signing session.');
-      return;
-    }
-    if (!confirm('Start in-person signing for ' + (listing.address || 'this listing') + '?')) return;
-    setBusyId(listing.propertyId);
-    try {
-      const r = await fetch('/api/listing-form/' + encodeURIComponent(listing.propertyId) + '/start-signing', { method: 'POST' });
-      const j = await r.json();
-      if (j && j.success) {
-        if (j.envelopeUrl) window.open(j.envelopeUrl, '_blank', 'noopener,noreferrer');
-        await load();
-      } else {
-        alert('Could not start signing: ' + ((j && j.error) || 'unknown') + ((j && j.detail) ? ('\n' + j.detail) : ''));
-      }
-    } catch (e) { alert('Could not start signing: ' + e.message); }
-    setBusyId(null);
-  };
-
-  const cancelSigning = async (listing) => {
-    if (!confirm('Cancel the signing session for ' + (listing.address || 'this listing') + '?')) return;
-    setBusyId(listing.propertyId);
-    try {
-      const r = await fetch('/api/listing-form/' + encodeURIComponent(listing.propertyId) + '/cancel-signing', { method: 'POST' });
-      const j = await r.json();
-      if (j && j.success) await load();
-      else alert('Could not cancel: ' + ((j && j.error) || 'unknown'));
-    } catch (e) { alert('Could not cancel: ' + e.message); }
-    setBusyId(null);
-  };
-
-  if (loading) {
-    return (
-      <Card>
-        <div style={{ padding: 40, textAlign: 'center', color: '#6b7280' }}>Loading...</div>
-      </Card>
-    );
-  }
-  if (errMsg) {
-    return (
-      <Card>
-        <div style={{ padding: 20, color: '#b91c1c' }}>Error: {errMsg}</div>
-      </Card>
-    );
-  }
-
-  const open = listings.filter(function (l) { return l.status !== 'closed'; });
-  const stats = {
-    notStarted: open.filter(function (l) { return !l.signingStatus || l.signingStatus === 'not_started'; }).length,
-    inProgress: open.filter(function (l) { return l.signingStatus === 'in_progress'; }).length,
-    complete:   open.filter(function (l) { return l.signingStatus === 'complete'; }).length,
-  };
-
-  return (
-    <Card>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
-        <div>
-          <h3 style={{ fontSize: 16, fontWeight: 800, color: '#111827', margin: 0 }}>Signings</h3>
-          <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>
-            Start or cancel a DocuSign signing session for any listing.
-          </div>
-        </div>
-        <button onClick={load} style={{ padding: '4px 10px', fontSize: 11, fontWeight: 600, color: '#6b7280', border: '1px solid #d1d5db', borderRadius: 6, background: '#fff', cursor: 'pointer' }}>Refresh</button>
-      </div>
-
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 16 }}>
-        <div style={{ padding: '12px 10px', borderRadius: 10, background: '#eff6ff', textAlign: 'center' }}>
-          <div style={{ fontSize: 22, fontWeight: 800, color: '#2563eb' }}>{stats.notStarted}</div>
-          <div style={{ fontSize: 10, color: '#2563eb', fontWeight: 600 }}>Awaiting</div>
-        </div>
-        <div style={{ padding: '12px 10px', borderRadius: 10, background: '#fff7ed', textAlign: 'center' }}>
-          <div style={{ fontSize: 22, fontWeight: 800, color: '#d97706' }}>{stats.inProgress}</div>
-          <div style={{ fontSize: 10, color: '#d97706', fontWeight: 600 }}>In Progress</div>
-        </div>
-        <div style={{ padding: '12px 10px', borderRadius: 10, background: '#ecfdf5', textAlign: 'center' }}>
-          <div style={{ fontSize: 22, fontWeight: 800, color: '#059669' }}>{stats.complete}</div>
-          <div style={{ fontSize: 10, color: '#059669', fontWeight: 600 }}>Signed</div>
-        </div>
-      </div>
-
-      {open.length === 0 ? (
-        <div style={{ padding: 40, textAlign: 'center', color: '#6b7280' }}>
-          No active listings yet. Create one in the Listing Form section first.
-        </div>
-      ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {open.map(function (l) {
-            const status = l.signingStatus || 'not_started';
-            const isBusy = busyId === l.propertyId;
-            return (
-              <div key={l.propertyId} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px', background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10 }}>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: '#111827', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{l.address || '(no address)'}{l.city ? ', ' + l.city : ''}</div>
-                  <div style={{ fontSize: 11, color: '#6b7280' }}>{l.sellerName || '(no seller)'}{l.sellerEmail ? ' - ' + l.sellerEmail : ''}</div>
-                </div>
-                {status === 'complete' ? (
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 10px', borderRadius: 6, border: '1px solid #059669', background: '#ecfdf5', color: '#065f46', fontSize: 11, fontWeight: 700 }}>
-                    <CheckCircle2 size={12} /> Signed{l.signedAt ? ' ' + new Date(l.signedAt).toLocaleDateString() : ''}
-                  </span>
-                ) : null}
-                {status === 'in_progress' ? (
-                  <>
-                    {l.docusignEnvelopeUrl ? (
-                      <button onClick={function () { window.open(l.docusignEnvelopeUrl, '_blank', 'noopener,noreferrer'); }} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 12px', borderRadius: 8, border: '1px solid #d97706', background: '#fff7ed', color: '#92400e', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>
-                        <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> Reopen
-                      </button>
-                    ) : (
-                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 10px', borderRadius: 6, border: '1px solid #d97706', background: '#fff7ed', color: '#92400e', fontSize: 11, fontWeight: 700 }}>
-                        <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> In Progress
-                      </span>
-                    )}
-                    <button onClick={function () { cancelSigning(l); }} disabled={isBusy} style={{ padding: '6px 12px', borderRadius: 8, border: '1px solid #d1d5db', background: '#fff', color: '#6b7280', fontSize: 11, fontWeight: 600, cursor: isBusy ? 'not-allowed' : 'pointer' }}>
-                      {isBusy ? 'Cancelling...' : 'Cancel'}
-                    </button>
-                  </>
-                ) : null}
-                {(status === 'not_started' || status === '') ? (
-                  <button onClick={function () { startSigning(l); }} disabled={isBusy} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 14px', borderRadius: 8, border: '1px solid #2563eb', background: '#eff6ff', color: '#1e40af', fontSize: 11, fontWeight: 600, cursor: isBusy ? 'not-allowed' : 'pointer' }}>
-                    <PenLine size={12} /> {isBusy ? 'Starting...' : 'Start Signing'}
-                  </button>
-                ) : null}
-              </div>
-            );
-          })}
-        </div>
-      )}
-    </Card>
-  );
-}
-
 function SellersSection() {
   const [sellerTab, setSellerTab] = useState("overview");
   const [expandedListing, setExpandedListing] = useState(null);
@@ -9997,7 +9842,6 @@ function SectionContent({ section }) {
     case "run-comps": return <RunCompsSection />;
     case "aps-parser": return <ApsParser />;
     case "listing-form": return <ListingForm />;
-    case "signings": return <SigningsSection />;
     case "sellers": return <SellersSection />;
     case "loo": return <PlaceholderSection title="LOO" icon={FileText} />;
     case "syncs": return <SyncsSection />;

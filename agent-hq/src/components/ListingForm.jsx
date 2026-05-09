@@ -270,6 +270,39 @@ function ListingForm() {
   };
 
   // ─── SEND PRE-LISTING FORM TO SELLER VIA FUB ───
+  const startInPersonSigning = async () => {
+    if (!form.propertyId) {
+      alert('Save the listing first before starting an in-person signing session.');
+      return;
+    }
+    if (!form.sellerEmail) {
+      alert('Add seller email to the listing before starting the signing session.');
+      return;
+    }
+    if (!confirm('Start in-person signing for ' + (form.address || 'this listing') + '?')) return;
+    try {
+      const res = await fetch('/api/listing-form/' + encodeURIComponent(form.propertyId) + '/start-signing', { method: 'POST' });
+      const data = await res.json();
+      if (data && data.success) {
+        if (data.envelopeUrl) window.open(data.envelopeUrl, '_blank', 'noopener,noreferrer');
+        if (activePropertyId) await loadProperty(activePropertyId);
+      } else {
+        alert('Could not start signing: ' + ((data && data.error) || 'unknown') + ((data && data.detail) ? ('\n' + data.detail) : ''));
+      }
+    } catch (err) { alert('Could not start signing: ' + err.message); }
+  };
+
+  const cancelInPersonSigning = async () => {
+    if (!form.propertyId) return;
+    if (!confirm('Cancel the in-person signing session for this listing? Clears the in-progress state. The DocuSign envelope (if one was created) will remain in DocuSign.')) return;
+    try {
+      const res = await fetch('/api/listing-form/' + encodeURIComponent(form.propertyId) + '/cancel-signing', { method: 'POST' });
+      const data = await res.json();
+      if (data && data.success) { if (activePropertyId) await loadProperty(activePropertyId); }
+      else alert('Could not cancel: ' + ((data && data.error) || 'unknown'));
+    } catch (err) { alert('Could not cancel: ' + err.message); }
+  };
+
   const sendToSellerViaFUB = async () => {
     // Queue a persistent draft on the backend. The draft-seller-emails skill
     // (running on Jonathan's Mac) picks the queue up and creates an actual
@@ -818,6 +851,56 @@ function ListingForm() {
         )}
 
         <div style={{ flex: 1 }} />
+
+        {/* In-person signing — RECO + MLS Listing Agreement via DocuSign */}
+        {activePropertyId && form.propertyId && (() => {
+          const status = form.signingStatus || 'not_started';
+          if (status === 'complete') {
+            return (
+              <div style={{
+                display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 12px', borderRadius: 8,
+                border: '1px solid #059669', background: '#ecfdf5', color: '#065f46',
+                fontSize: 11, fontWeight: 700,
+              }}>
+                <CheckCircle2 size={13} /> RECO + MLS signed{form.signedAt ? ' ' + new Date(form.signedAt).toLocaleDateString() : ''}
+              </div>
+            );
+          }
+          if (status === 'in_progress') {
+            return (
+              <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                <button
+                  onClick={() => form.docusignEnvelopeUrl && window.open(form.docusignEnvelopeUrl, '_blank', 'noopener,noreferrer')}
+                  title={form.docusignEnvelopeUrl ? 'Reopen DocuSign envelope' : 'Waiting for envelope'}
+                  style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 12px', borderRadius: 8,
+                    border: '1px solid #d97706', background: '#fff7ed', color: '#92400e',
+                    fontSize: 11, fontWeight: 700, cursor: form.docusignEnvelopeUrl ? 'pointer' : 'default',
+                  }}
+                ><Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> Signing in progress…</button>
+                <button
+                  onClick={cancelInPersonSigning}
+                  title="Cancel — clears the in-progress state without affecting DocuSign"
+                  style={{
+                    padding: '4px 10px', borderRadius: 6, border: '1px solid #d1d5db',
+                    background: '#fff', color: '#6b7280', fontSize: 11, fontWeight: 600, cursor: 'pointer',
+                  }}
+                >Cancel</button>
+              </div>
+            );
+          }
+          return (
+            <button
+              onClick={startInPersonSigning}
+              title="Create a DocuSign envelope with RECO + MLS Listing Agreement"
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 14px', borderRadius: 8,
+                border: '1px solid #2563eb', background: '#eff6ff', color: '#1e40af',
+                fontSize: 11, fontWeight: 600, cursor: 'pointer',
+              }}
+            ><PenLine size={13} /> Start In-Person Signing</button>
+          );
+        })()}
 
         {/* Send pre-listing form to seller */}
         <button onClick={sendToSellerViaFUB} title="Draft email to seller with pre-listing form link" style={{
