@@ -6415,14 +6415,20 @@ app.post('/api/listing-form/:id/generate', async (req, res) => {
 
     const persona = `You are the marketing director for Jonathan Wallace, a high-producing real estate agent at Faris Team Real Estate Brokerage serving Georgian Bay communities in Ontario, Canada (primarily Midland, Penetanguishene, Tay, Tiny, and Wasaga Beach).
 
-Your writing is professional, clear, and persuasive. You avoid generic real estate clichés ("don't miss", "won't last", "must-see", "dream home", "spacious", "charming"). You don't exaggerate. You write specifics — actual features, dimensions, and lifestyle benefits — not adjectives. You assume the reader is intelligent.`;
+Your writing is professional, clear, and persuasive. You avoid generic real estate clichés ("don't miss", "won't last", "must-see", "dream home", "spacious", "charming"). You don't exaggerate. You write specifics, actual features, dimensions, and lifestyle benefits, not adjectives. You assume the reader is intelligent. You write in full sentences without em-dashes and without bold headings or labels.`;
 
     let userPrompt;
     if (kind === 'top5') {
       userPrompt = `You are a real estate copywriter for The Faris Team, a top Ontario real estate brokerage known for clear, buyer-focused property descriptions. Your task is to write a "Top 5 Reasons You'll Love This Home" section for a new listing.
 
+GOAL
+Paint a picture. Each bullet should make the reader feel what living in this home would be like — the moments, the routines, the freedom, the pride of ownership. Lead with what would make a buyer fall in love with THIS specific home, not homes in general.
+
 FORMAT
-Number each reason 1-5. Each reason is ONE compelling sentence (20-40 words) that highlights a specific, tangible benefit — not vague praise.
+Number each reason 1-5. Each reason is ONE complete, full sentence (20-40 words) about ONE specific, tangible benefit. No bold headings, no inline labels (do not write "**Lakeside living:**" or any bold/italic prefix). No em-dashes (—). Use periods, commas, and "and" instead of dashes. Plain readable English.
+
+NO REPETITION (critical)
+Each of the 5 bullets must cover a DIFFERENT angle. Do not restate the same point in different words. If you've already mentioned the finished basement, don't bring it up again. If you've already named the location, don't reuse the same neighbourhood detail. Five distinct stories, not one story told five ways.
 
 CATEGORIES
 Across the 5 bullets, include at least one reason from EACH of these categories:
@@ -6433,7 +6439,7 @@ Across the 5 bullets, include at least one reason from EACH of these categories:
 5. Space, layout, or outdoor living — finished basement, functional floor plan, yard, patio, parking, storage
 
 TONE
-Confident, warm, and specific. Avoid filler ("amazing", "stunning", "beautiful", "must-see", "won't last", "don't miss"). Let the facts speak.
+Confident, warm, evocative, and specific. Avoid filler ("amazing", "stunning", "beautiful", "must-see", "won't last", "don't miss"). Let concrete details and sensory cues do the work.
 
 OUTPUT
 Five numbered lines and nothing else. No preamble, no closing line, no headers. Just:
@@ -6446,7 +6452,7 @@ Five numbered lines and nothing else. No preamble, no closing line, no headers. 
 LISTING:
 ${brief}${highlightsBlock}`;
     } else if (kind === 'mlsDescription') {
-      userPrompt = `${persona}\n\nWrite a polished MLS description for the listing below. 120-160 words. Open with the most compelling feature. Cover: the home's character, key spaces, lifestyle benefits, and location advantages. End with a one-line invitation to view (no clichés). Plain prose, no bullets, no headers.\n\nLISTING:\n${brief}${highlightsBlock}`;
+      userPrompt = `${persona}\n\nWrite a polished MLS description for the listing below. 120-160 words.\n\nPaint a picture — make the reader feel what daily life in this home looks and feels like. Lead with the single most compelling feature, then move through the home's character, the spaces that matter, and the lifestyle the location enables. Each sentence must add NEW information — never restate the same point in different words. End with a one-line invitation to view (no clichés like 'don't miss', 'must-see', 'won't last'). Plain prose. No bullets. No headers. No bold text. No em-dashes (—); use commas, periods, and 'and' instead. Full readable sentences only.\n\nLISTING:\n${brief}${highlightsBlock}`;
     } else {
       return res.json({ success: false, error: 'unknown_kind', detail: 'kind must be top5 or mlsDescription' });
     }
