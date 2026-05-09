@@ -6419,41 +6419,68 @@ Your writing is professional, clear, and persuasive. You avoid generic real esta
 
     let userPrompt;
     if (kind === 'top5') {
-      userPrompt = `You are a real estate copywriter for The Faris Team, a top Ontario real estate brokerage. Your task is to write the "Top 5 Reasons You'll Love This Home" section for a new listing.
+      userPrompt = `You are a real estate copywriter for The Faris Team, a top Ontario real estate brokerage. Write the "Top 5 Reasons You'll Love This Home" section for a new listing.
 
 GOAL
-Each bullet must paint a scene of life in this specific home. Open the sentence with the lifestyle moment, then weave in the feature that makes it possible. The reader should feel something. Do not write a feature checklist.
+Each bullet paints ONE scene grounded in ONE feature from the LISTING or KEY HIGHLIGHTS. The reader should feel something. This is not a feature checklist.
+
+FACTS-ONLY RULE
+You may only use details EXPLICITLY in the LISTING or KEY HIGHLIGHTS section. Do not invent, infer, or pair facts. If the brief says "sunsets from the front deck", you may write about sunsets and the front deck, never sunrises. Do not call a neighbourhood "most sought-after" or "exclusive" or "prestigious". Do not infer a "1913 cottage" unless that exact detail is given. If a fact is not in the brief, do not write it.
+
+TENSE / STATE OF UPGRADES
+"Recent upgrades on the inside" or "kitchen and bathroom refreshed" means the work is ALREADY DONE. Write as completed, never as something the buyer needs to imagine doing. Example: "The refreshed kitchen and bathroom are already in place" not "imagine the kitchen freshly upgraded".
+
+ONE THEME PER BULLET (group features that share a function)
+A bullet covers ONE theme. Within that theme you may name several related features in one breath, because they tell the same story. Across the 5 bullets, each theme appears in exactly ONE bullet, never in two. The five themes you pick must be distinct.
+
+GOOD groupings (these features belong together in ONE bullet because they share function):
+- Curb appeal / exterior: siding, roof age, landscaping, paint, exterior trim, exterior style
+- Mechanical / structural updates already done: foundation work, wiring and panel, plumbing, multi-split or HVAC, water heater, insulation
+- Interior character: hardwood floors, original mouldings, period details, refreshed kitchen, refreshed bath
+- Outdoor living: front deck, rear patio, sunroom, yard, garden, view, sunsets
+- Walkable lifestyle / location: downtown shops, waterfront promenade, farmers market, trails, schools
+- Investment / buyer fit: low taxes, project upside, rental potential, in-law potential, named target buyer
+
+BAD groupings (do NOT do this — these mix themes that should be separate bullets):
+- One bullet that mixes mechanical updates AND interior character ("foundation reinforced, wiring upgraded, AND hardwood floors AND refreshed kitchen") — split mechanical updates into one bullet, interior character into another.
+- One bullet that mixes location AND layout AND parking AND taxes ("quiet street, ample parking, functional layout, low taxes") — those are 3 different themes; pick one or split.
+- One bullet that mixes a sunset scene AND a list of mechanical upgrades.
+
+Self-check: ask "What ONE story is this bullet telling?" If the answer is two stories joined with AND, split it.
+
+DEDUP CHECK
+Before writing bullet N, list which features from the brief you have already used in bullets 1 through N-1, and pick a feature you have NOT used yet. Each feature appears in exactly ONE bullet.
+
+CATEGORIES (use as inspiration only)
+Across the 5 bullets cover these angles, ideally one bullet per angle:
+A. Location and lifestyle (waterfront, downtown walk, trails, community amenities specific to Midland, Penetanguishene, Tay, Tiny, Wasaga Beach, Barrie, Collingwood)
+B. Investment, income, or buyer-value angle (rental suite, in-law potential, project upside, low-tax entry point)
+C. Move-in readiness or recent updates (one specific mechanical or structural upgrade, with year if known)
+D. Target buyer (named: first-time buyer, downsizer, investor, blended family, retiree, project buyer)
+E. Space, layout, or outdoor living (one element only: yard, patio, view, parking, layout, basement)
 
 HARD STYLE RULES
-1. NO em-dashes. The character — is forbidden. Use periods, commas, or "and" instead. Even if the model thinks an em-dash flows, replace it.
-2. NO inline labels or colons used as headings. Do NOT write "First-time buyers and investors:" or "Lakeside living:" or any sentence-starting label followed by a colon.
-3. NO bold or italic markers (no ** ** or _ _).
-4. Full, natural sentences only. No fragments.
-5. NO clichés: "amazing", "stunning", "beautiful", "must-see", "won't last", "don't miss", "dream home", "spacious", "charming".
+1. NO em-dashes (the character — is forbidden everywhere). Use periods, commas, or "and".
+2. NO inline labels or colons used as a heading.
+3. NO bold or italic markers.
+4. Full natural sentences only.
+5. NO clichés: "amazing", "stunning", "beautiful", "must-see", "won't last", "don't miss", "dream home", "spacious", "charming", "most sought-after".
 
-NO REPETITION
-The 5 bullets must each cover a DIFFERENT angle. Do not restate the same point in different words. Five distinct stories, not one story told five ways. Cross-check each bullet before finalizing.
+FORMAT
+Five numbered lines, 25 to 45 words each, one full sentence. No preamble, no closing line, no headings. Just:
+1. ...
+2. ...
+3. ...
+4. ...
+5. ...
 
-CATEGORIES (every bullet should be tied to ONE distinct angle, with all 5 of these covered across the set)
-A. Location & lifestyle (downtown, waterfront, trails, parks, schools, community amenities specific to Midland, Penetanguishene, Tay, Tiny, Wasaga Beach, Barrie, Collingwood)
-B. Investment, income, or buyer-value angle (rental suite, in-law potential, multi-generational, first-time buyer affordability, project / sweat-equity upside)
-C. Move-in readiness or recent updates (specific mechanicals or structural upgrades, with year if known)
-D. Target buyer (named explicitly: first-time buyer, downsizer, investor, blended family, retiree, project buyer, couple)
-E. Space, layout, or outdoor living (finished basement, functional layout, yard, patio, parking, storage, views, sunsets)
-
-LENGTH AND FORMAT
-Five numbered lines. Each line is one full sentence, 25 to 45 words. No preamble, no closing line, no headings, nothing before "1." or after the fifth bullet.
-
-EXAMPLES of the style you should match (paint a scene, then ground in fact, no em-dashes, no labels):
-
-GOOD: "1. End your day on the water-facing patio watching the sun drop behind Georgian Bay, with direct sightlines from your living room and back yard that turn every evening into something memorable."
-GOOD: "2. The recently rewired electrical panel, spray-foam insulated foundation, and 2024 multi-split heating and cooling system mean you can settle in without chasing surprise repair bills in your first year."
-GOOD: "3. A walkable five minutes from downtown Penetanguishene's coffee shops, lakefront promenade, and Saturday farmers market makes weekend life simple and the car often optional."
-BAD (do NOT do this): "1. Walking distance to downtown shops, restaurants, and Georgian Bay waterfront access—ideal for buyers seeking small-town charm with lake-country lifestyle."  (uses em-dash, opens with feature, vague)
-BAD (do NOT do this): "2. First-time buyers and investors: low property taxes, updated electrical panel..."  (uses colon as inline label)
-
-OUTPUT
-Just the 5 numbered sentences. Nothing else.
+WORKFLOW (follow this internally before writing the final output)
+Step 1. Read the LISTING and KEY HIGHLIGHTS. Make a mental list of distinct features.
+Step 2. Pick the 5 strongest, most distinct features that hit the 5 categories.
+Step 3. Map each picked feature to ONE bullet. No feature repeats.
+Step 4. For each bullet, write a scene-first sentence (lifestyle moment first, then ground in the ONE feature).
+Step 5. Re-read each bullet. If a bullet mentions a 2nd or 3rd feature, rewrite it with only the assigned one.
+Step 6. Output only the final 5 numbered lines.
 
 LISTING:
 ${brief}${highlightsBlock}`;
@@ -6478,7 +6505,7 @@ ${brief}${highlightsBlock}`;
 
     const msg = await anthropic.messages.create({
       model: 'claude-haiku-4-5-20251001',
-      max_tokens: 600,
+      max_tokens: 900,
       messages: [{ role: 'user', content: userPrompt }],
     });
     let text = (msg.content || []).filter(b => b.type === 'text').map(b => b.text).join('').trim();
