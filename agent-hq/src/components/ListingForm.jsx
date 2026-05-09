@@ -303,6 +303,28 @@ function ListingForm() {
     } catch (err) { alert('Could not cancel: ' + err.message); }
   };
 
+  const [generating, setGenerating] = useState(null); // 'top5' | 'mlsDescription' | null
+  const generateMarketing = async (kind) => {
+    if (!form.propertyId) {
+      alert('Save the listing first (an address is required) before generating marketing copy.');
+      return;
+    }
+    setGenerating(kind);
+    try {
+      const res = await fetch('/api/listing-form/' + encodeURIComponent(form.propertyId) + '/generate?kind=' + kind, { method: 'POST' });
+      const data = await res.json();
+      if (data && data.success && data.text) {
+        if (kind === 'top5') updateField('top5Reasons', data.text);
+        else if (kind === 'mlsDescription') updateField('mlsDescription', data.text);
+      } else {
+        alert('Could not generate: ' + ((data && data.error) || 'unknown'));
+      }
+    } catch (err) {
+      alert('Could not generate: ' + err.message);
+    }
+    setGenerating(null);
+  };
+
   const sendToSellerViaFUB = async () => {
     // Queue a persistent draft on the backend. The draft-seller-emails skill
     // (running on Jonathan's Mac) picks the queue up and creates an actual
@@ -1660,16 +1682,22 @@ function ListingForm() {
               <FormField label="Top 5 Reasons to Love This Home">{ta('top5Reasons', 'Click "Generate" to auto-create from property details...')}</FormField>
               <FormField label="MLS Description">{ta('mlsDescription', 'Click "Generate" to auto-create from property details...')}</FormField>
               <div style={{ display: 'flex', gap: 8 }}>
-                <button type="button" style={{
+                <button type="button" onClick={() => generateMarketing('top5')} disabled={generating === 'top5'} style={{
                   padding: '8px 16px', borderRadius: 8, background: 'linear-gradient(135deg, #c8a96e, #d4b878)',
-                  color: '#fff', border: 'none', fontSize: 12, fontWeight: 600, cursor: 'pointer',
-                  display: 'flex', alignItems: 'center', gap: 6,
-                }}><Sparkles size={13} /> Generate Top 5</button>
-                <button type="button" style={{
+                  color: '#fff', border: 'none', fontSize: 12, fontWeight: 600, cursor: generating === 'top5' ? 'wait' : 'pointer',
+                  display: 'flex', alignItems: 'center', gap: 6, opacity: generating === 'top5' ? 0.7 : 1,
+                }}>
+                  {generating === 'top5' ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <Sparkles size={13} />}
+                  {generating === 'top5' ? 'Generating…' : 'Generate Top 5'}
+                </button>
+                <button type="button" onClick={() => generateMarketing('mlsDescription')} disabled={generating === 'mlsDescription'} style={{
                   padding: '8px 16px', borderRadius: 8, background: 'linear-gradient(135deg, #c8a96e, #d4b878)',
-                  color: '#fff', border: 'none', fontSize: 12, fontWeight: 600, cursor: 'pointer',
-                  display: 'flex', alignItems: 'center', gap: 6,
-                }}><Sparkles size={13} /> Generate MLS Description</button>
+                  color: '#fff', border: 'none', fontSize: 12, fontWeight: 600, cursor: generating === 'mlsDescription' ? 'wait' : 'pointer',
+                  display: 'flex', alignItems: 'center', gap: 6, opacity: generating === 'mlsDescription' ? 0.7 : 1,
+                }}>
+                  {generating === 'mlsDescription' ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <Sparkles size={13} />}
+                  {generating === 'mlsDescription' ? 'Generating…' : 'Generate MLS Description'}
+                </button>
               </div>
               <p style={{ fontSize: 11, color: '#9ca3af', margin: 0 }}>AI generation will use all filled-in property details above to create marketing content.</p>
             </div>

@@ -6369,6 +6369,72 @@ app.delete('/api/aps/deals/:id', (req, res) => {
 // ─────────────────────────────────────────────
 // SISU EXPORT — Generate field mapping for Chrome automation
 // ─────────────────────────────────────────────
+// POST /api/listing-form/:id/generate?kind=top5|mlsDescription
+// AI-generates marketing content from the listing's filled-in fields.
+// kind=top5            → bullet-style "Top 5 Reasons to Love This Home"
+// kind=mlsDescription  → polished MLS description, clichés removed
+app.post('/api/listing-form/:id/generate', async (req, res) => {
+  try {
+    if (!anthropic) return res.json({ success: false, error: 'anthropic_not_configured' });
+    const filePath = path.join(LISTING_FORMS_DIR, `${req.params.id}.json`);
+    if (!fs.existsSync(filePath)) return res.json({ success: false, error: 'listing_not_found' });
+    const form = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+    const kind = (req.query.kind || req.body?.kind || 'top5').toString();
+
+    // Build a compact property brief from the most marketing-relevant fields
+    const brief = [
+      ['Address', [form.address, form.city, 'Ontario'].filter(Boolean).join(', ')],
+      ['Property type', form.propertyType],
+      ['Style', form.styles && form.styles.length ? form.styles.join(', ') : ''],
+      ['Beds', form.bedrooms],
+      ['Full baths', form.fullBathrooms],
+      ['Half baths', form.halfBathrooms],
+      ['Above-grade SF', form.sqftAboveGrade],
+      ['Total finished SF', form.totalFinishedSqFt],
+      ['Lot', [form.lotFrontage, form.lotDepth].filter(Boolean).join(' x ') + (form.lotSize ? ` (${form.lotSize})` : '')],
+      ['Year built', form.yearBuilt],
+      ['Garage', form.garage === 'Yes' ? `${form.garageSpaces || ''} ${form.garageType || ''}`.trim() : (form.garageType && form.garageType !== 'None' ? `${form.garageSpaces || ''} ${form.garageType}`.trim() : '')],
+      ['Driveway', Array.isArray(form.drivewaySize) ? form.drivewaySize.join(', ') : (form.drivewaySize || '')],
+      ['Heat', (form.heatingTypes || []).join(', ')],
+      ['Cooling', (form.acTypes || []).join(', ')],
+      ['Water', form.waterSource],
+      ['Sewer', form.sewerType],
+      ['Basement', [form.basementType, form.basementFinish].filter(Boolean).join(' / ')],
+      ['Roof', form.roofType, form.roofAge ? `(age ${form.roofAge})` : ''].filter(Boolean).join(' '),
+      ['Waterfront', form.isWaterfront ? `Yes — ${form.waterBody || ''} (${form.waterfrontFootage || '?'} ft)`.trim() : 'No'],
+      ['Pool', form.hasPool ? `Yes${form.poolType ? ` — ${form.poolType}` : ''}` : 'No'],
+      ['Visible upgrades', form.visibleUpgrades],
+      ['Hidden upgrades', form.hiddenUpgrades],
+      ['Inclusions', (form.appliancesIncluded || []).concat(form.otherInclusions || []).join(', ')],
+      ['Lifestyle / location notes', form.additionalNotes],
+    ].filter(([_, v]) => v && v.toString().trim()).map(([k, v]) => `- ${k}: ${v}`).join('\n');
+
+    const persona = `You are the marketing director for Jonathan Wallace, a high-producing real estate agent at Faris Team Real Estate Brokerage serving Georgian Bay communities in Ontario, Canada (primarily Midland, Penetanguishene, Tay, Tiny, and Wasaga Beach).
+
+Your writing is professional, clear, and persuasive. You avoid generic real estate clichés ("don't miss", "won't last", "must-see", "dream home", "spacious", "charming"). You don't exaggerate. You write specifics — actual features, dimensions, and lifestyle benefits — not adjectives. You assume the reader is intelligent.`;
+
+    let userPrompt;
+    if (kind === 'top5') {
+      userPrompt = `${persona}\n\nWrite the **Top 5 Reasons to Love This Home** for the listing below. Five bullets. Each bullet starts with a 2-4 word headline (bold), then one sentence (max ~25 words) explaining why a buyer would care. Lead with the strongest, most distinctive feature. Focus on emotional connection and lifestyle, not specs.\n\nLISTING:\n${brief}`;
+    } else if (kind === 'mlsDescription') {
+      userPrompt = `${persona}\n\nWrite a polished MLS description for the listing below. 120-160 words. Open with the most compelling feature. Cover: the home's character, key spaces, lifestyle benefits, and location advantages. End with a one-line invitation to view (no clichés). Plain prose, no bullets, no headers.\n\nLISTING:\n${brief}`;
+    } else {
+      return res.json({ success: false, error: 'unknown_kind', detail: 'kind must be top5 or mlsDescription' });
+    }
+
+    const msg = await anthropic.messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 600,
+      messages: [{ role: 'user', content: userPrompt }],
+    });
+    const text = (msg.content || []).filter(b => b.type === 'text').map(b => b.text).join('').trim();
+    return res.json({ success: true, kind, text, model: msg.model });
+  } catch (err) {
+    console.error('[ListingForm] generate error:', err.message);
+    return res.json({ success: false, error: err.message });
+  }
+});
+
 app.get('/api/listing-form/:id/sisu-export', async (req, res) => {
   try {
     const filePath = path.join(LISTING_FORMS_DIR, `${req.params.id}.json`);
