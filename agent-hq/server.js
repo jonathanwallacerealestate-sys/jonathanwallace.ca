@@ -6419,9 +6419,34 @@ Your writing is professional, clear, and persuasive. You avoid generic real esta
 
     let userPrompt;
     if (kind === 'top5') {
-      userPrompt = `${persona}\n\nWrite the **Top 5 Reasons to Love This Home** for the listing below. Five bullets. Each bullet starts with a 2-4 word headline (bold), then one sentence (max ~25 words) explaining why a buyer would care. Lead with the strongest, most distinctive feature. Focus on emotional connection and lifestyle, not specs.\n\nLISTING:\n${brief}`;
+      userPrompt = `You are a real estate copywriter for The Faris Team, a top Ontario real estate brokerage known for clear, buyer-focused property descriptions. Your task is to write a "Top 5 Reasons You'll Love This Home" section for a new listing.
+
+FORMAT
+Number each reason 1-5. Each reason is ONE compelling sentence (20-40 words) that highlights a specific, tangible benefit — not vague praise.
+
+CATEGORIES
+Across the 5 bullets, include at least one reason from EACH of these categories:
+1. Location & lifestyle — proximity to downtown, waterfront, trails, parks, schools, or community amenities specific to the area (Midland, Penetanguishene, Tay, Tiny, Wasaga Beach, Barrie, Collingwood)
+2. Investment or income potential — rental suite, in-law suite, multi-generational living, first-time buyer value
+3. Move-in readiness or recent updates — specific mechanical, structural, or cosmetic upgrades with years if known (e.g. roof 2022, furnace 2021)
+4. Target buyer appeal — explicitly name the ideal buyer (first-time buyer, downsizer, investor, blended family, retiree)
+5. Space, layout, or outdoor living — finished basement, functional floor plan, yard, patio, parking, storage
+
+TONE
+Confident, warm, and specific. Avoid filler ("amazing", "stunning", "beautiful", "must-see", "won't last", "don't miss"). Let the facts speak.
+
+OUTPUT
+Five numbered lines and nothing else. No preamble, no closing line, no headers. Just:
+1. ...
+2. ...
+3. ...
+4. ...
+5. ...
+
+LISTING:
+${brief}${highlightsBlock}`;
     } else if (kind === 'mlsDescription') {
-      userPrompt = `${persona}\n\nWrite a polished MLS description for the listing below. 120-160 words. Open with the most compelling feature. Cover: the home's character, key spaces, lifestyle benefits, and location advantages. End with a one-line invitation to view (no clichés). Plain prose, no bullets, no headers.\n\nLISTING:\n${brief}`;
+      userPrompt = `${persona}\n\nWrite a polished MLS description for the listing below. 120-160 words. Open with the most compelling feature. Cover: the home's character, key spaces, lifestyle benefits, and location advantages. End with a one-line invitation to view (no clichés). Plain prose, no bullets, no headers.\n\nLISTING:\n${brief}${highlightsBlock}`;
     } else {
       return res.json({ success: false, error: 'unknown_kind', detail: 'kind must be top5 or mlsDescription' });
     }
