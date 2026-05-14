@@ -110,52 +110,124 @@ function validateEvent(raw) {
 }
 
 // ─── FUB Note sync ────────────────────────────────────────────────────
-// Fire-and-forget. Looks up the phone in FUB, POSTs a Note. Skip if either
-// FUB isn't configured or the phone isn't matched.
+// Fire-and-forget. Looks up the phone in FUB, POSTs a Note.
+// Audit-hardened: skips already-synced events (dedup), respects Do-Not-Contact,
+// resolves multi-match conflicts by preferring most-recent activity, and uses
+// a sphere-flavored Note for tier-tagged contacts so the cadence engine sees it.
+const TIER_TAGS = new Set(['advocate', 'a', 'b', 'c']);
+const DNC_RE = /do.?not.?(contact|text|message|disturb)|^dnc$|no.?text|no.?contact/i;
+
+function detectTierFromTags(tags) {
+  for (const tag of tags || []) {
+    const first = String(tag).trim().toLowerCase().split(/[\s\-_]/)[0];
+    if (TIER_TAGS.has(first)) return first;
+  }
+  return null;
+}
+
 async function syncToFub(event, deps) {
-  const { FUB_API_KEY, FUB_BASE, fubHeaders } = deps;
+  const { FUB_API_KEY, FUB_BASE, fubHeaders, onSphereTouch } = deps;
   if (!FUB_API_KEY) return { skipped: 'no FUB_API_KEY' };
   if (event.direction === 'auto_skipped') return { skipped: 'auto-skipped event' };
+  // Dedup — if this event has already been synced, skip
+  if (event.fubSynced) return { skipped: 'already synced' };
 
   try {
-    // Search FUB for a person by phone — exact match first, then fuzzy
+    // Search FUB across all phone variants, collect ALL matches (limit 10 per variant)
     const phoneVariants = [
       event.sender_phone,                              // +15551234567
       event.sender_phone.replace(/^\+1/, ''),          // 5551234567
       event.sender_phone.replace(/^\+/, ''),           // 15551234567
     ];
-    let person = null;
+    const seen = new Set();
+    const allMatches = [];
     for (const variant of phoneVariants) {
-      if (person) break;
+      if (!variant || seen.has(variant)) continue;
+      seen.add(variant);
       const resp = await fetch(
-        `${FUB_BASE}/people?phone=${encodeURIComponent(variant)}&limit=1`,
+        `${FUB_BASE}/people?phone=${encodeURIComponent(variant)}&limit=10`,
         { headers: fubHeaders() }
       );
       if (!resp.ok) continue;
       const data = await resp.json();
-      if (data.people && data.people.length > 0) person = data.people[0];
+      if (Array.isArray(data.people)) {
+        for (const p of data.people) {
+          if (!allMatches.some(m => m.id === p.id)) allMatches.push(p);
+        }
+      }
     }
 
-    if (!person) return { skipped: 'no FUB match' };
+    if (allMatches.length === 0) return { skipped: 'no FUB match' };
 
+    // Multi-match resolution: prefer most-recent lastActivity
+    let person;
+    if (allMatches.length === 1) {
+      person = allMatches[0];
+    } else {
+      person = allMatches.slice().sort((a, b) => {
+        const aD = new Date(a.lastActivity || 0).getTime();
+        const bD = new Date(b.lastActivity || 0).getTime();
+        return bD - aD;
+      })[0];
+      console.warn(`[iMessage] multi-FUB-match for ${event.sender_phone}: ${allMatches.length} contacts; chose person ${person.id} (most recent activity)`);
+    }
+
+    // Do-Not-Contact / Do-Not-Text check
+    const stage = String(person.stage || '').toLowerCase();
+    const tagsRaw = Array.isArray(person.tags) ? person.tags : [];
+    const tagsLower = tagsRaw.map(t => String(t).toLowerCase());
+    const dnc = stage.includes('do not contact')
+      || tagsLower.some(t => DNC_RE.test(t));
+    if (dnc) {
+      console.warn(`[iMessage] DNC — skipping FUB Note for ${event.sender_phone} (person ${person.id})`);
+      event.fubSynced = true; // mark anyway so we don't keep re-checking
+      return { skipped: 'Do Not Contact', personId: person.id };
+    }
+
+    // Tier-tag awareness — surface as a sphere touch when applicable
+    const tier = detectTierFromTags(tagsRaw);
     const directionLabel = event.direction === 'inbound' ? 'Received' : 'Sent';
     const replyLabel = event.draft_label ? ` [${event.draft_label}]` : '';
-    const noteBody = `${directionLabel}${replyLabel} via iMessage at ${event.date}\n\n${event.body}`;
+
+    let subject, body;
+    if (tier && event.direction === 'outbound') {
+      // Outbound to a tier-tagged Sphere contact — log as a sphere touch.
+      // This Note advances `lastTouchAt` in the sphere cadence engine.
+      subject = `Text (Agent HQ — iMessage, tier ${tier.toUpperCase()})`;
+      body = `Outbound iMessage at ${event.date}\n\n${event.body}`;
+    } else {
+      subject = `iMessage ${directionLabel.toLowerCase()}`;
+      body = `${directionLabel}${replyLabel} via iMessage at ${event.date}\n\n${event.body}`;
+    }
 
     const noteResp = await fetch(`${FUB_BASE}/notes`, {
       method: 'POST',
       headers: fubHeaders(),
       body: JSON.stringify({
         personId: person.id,
-        subject: `iMessage ${directionLabel.toLowerCase()}`,
-        body: noteBody,
+        subject,
+        body,
       }),
     });
     if (!noteResp.ok) {
       const txt = await noteResp.text().catch(() => '');
       return { error: `FUB note POST ${noteResp.status}: ${txt.slice(0, 200)}` };
     }
-    return { synced: true, personId: person.id };
+
+    // Mark synced so future re-ingests of this event don't create duplicate Notes
+    event.fubSynced = true;
+
+    // If this advanced sphere cadence, invalidate cache so next refresh shows it
+    if (tier && event.direction === 'outbound' && typeof onSphereTouch === 'function') {
+      try { onSphereTouch(); } catch (e) { console.warn('[iMessage] onSphereTouch callback error:', e.message); }
+    }
+
+    return {
+      synced: true,
+      personId: person.id,
+      tier: tier || null,
+      sphereTouch: !!(tier && event.direction === 'outbound'),
+    };
   } catch (e) {
     return { error: e.message };
   }
@@ -243,6 +315,19 @@ export function register(app, deps) {
 
   // POST /api/imessage/activity — ingest a batch of events
   app.post('/api/imessage/activity', async (req, res) => {
+    // Auth — require X-Ingest-Secret header to match IMESSAGE_INGEST_SECRET env var.
+    // If env var is unset, log a loud warning but allow (so an initial deploy doesn't
+    // break the TEB before the secret is rotated in). Once configured on Railway,
+    // missing/wrong secret = 401.
+    if (deps.INGEST_SECRET) {
+      const provided = req.get('x-ingest-secret') || req.get('X-Ingest-Secret') || '';
+      if (provided !== deps.INGEST_SECRET) {
+        return res.status(401).json({ ok: false, error: 'invalid ingest secret' });
+      }
+    } else if (!deps._warnedNoSecret) {
+      console.warn('[iMessage] WARNING: IMESSAGE_INGEST_SECRET not configured — /api/imessage/activity is currently UNAUTHENTICATED');
+      deps._warnedNoSecret = true;
+    }
     try {
       const incoming = Array.isArray(req.body?.events) ? req.body.events : [];
       if (!incoming.length) return res.json({ ok: false, error: 'no events in payload' });
@@ -250,11 +335,19 @@ export function register(app, deps) {
       const validated = incoming.map(validateEvent).filter(Boolean);
       if (!validated.length) return res.json({ ok: false, error: 'all events failed validation' });
 
-      // Dedup by id — new events overwrite old (allows correcting drafts/names)
+      // Dedup by id — new events overwrite old (allows correcting drafts/names),
+      // but PRESERVE the fubSynced flag from a prior successful sync so a re-ingest
+      // doesn't create duplicate FUB Notes.
       const existingById = new Map(state.events.map(e => [e.id, e]));
       let added = 0, updated = 0;
       for (const e of validated) {
-        if (existingById.has(e.id)) updated++; else added++;
+        const prev = existingById.get(e.id);
+        if (prev) {
+          updated++;
+          if (prev.fubSynced) e.fubSynced = true;
+        } else {
+          added++;
+        }
         existingById.set(e.id, e);
       }
       state.events = Array.from(existingById.values()).sort((a, b) =>
@@ -263,16 +356,24 @@ export function register(app, deps) {
       state.lastUpdatedAt = new Date().toISOString();
       saveState(filePath);
 
-      // Fire-and-forget FUB sync for each NEW event (don't block response)
-      const syncCandidates = validated.filter(e => !existingById.get(e.id)?.fubSynced);
+      // Fire-and-forget FUB sync for each event that hasn't been synced yet.
+      // We check the CURRENT in-memory state (which now contains the merged event)
+      // rather than the pre-merge map, since the new event might bring fresh data.
+      const stateById = new Map(state.events.map(e => [e.id, e]));
+      const syncCandidates = validated.filter(e => !stateById.get(e.id)?.fubSynced);
       Promise.allSettled(
-        syncCandidates.map(e => syncToFub(e, { FUB_API_KEY, FUB_BASE, fubHeaders }))
+        syncCandidates.map(e => syncToFub(e, deps))
       ).then(results => {
         const synced = results.filter(r => r.status === 'fulfilled' && r.value?.synced).length;
+        const sphereTouches = results.filter(r => r.status === 'fulfilled' && r.value?.sphereTouch).length;
         const errors = results.filter(r => r.status === 'fulfilled' && r.value?.error).length;
-        if (synced || errors) {
-          console.log(`[iMessage] FUB sync: ${synced} ok, ${errors} err, ${results.length - synced - errors} skipped`);
+        const skipped = results.length - synced - errors;
+        if (synced || errors || sphereTouches) {
+          console.log(`[iMessage] FUB sync: ${synced} ok (${sphereTouches} sphere touch${sphereTouches === 1 ? '' : 'es'}), ${errors} err, ${skipped} skipped`);
         }
+        // Persist fubSynced flags now that sync has completed.
+        // syncToFub mutates event.fubSynced on the same object refs held in state.events.
+        if (synced || skipped) saveState(filePath);
       }).catch(err => console.error('[iMessage] FUB sync batch error:', err.message));
 
       console.log(`[iMessage] ingest: +${added} new, ~${updated} updated, total=${state.events.length}`);

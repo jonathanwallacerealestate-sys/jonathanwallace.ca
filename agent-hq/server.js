@@ -5838,7 +5838,18 @@ sellerFormPublicRoutes.register(app, { LISTING_FORMS_DIR });
 // The board POSTs every inbound/outbound/auto-skipped event here, so we have
 // a single source of truth that survives browser restarts and can answer
 // "what texts did I not reply to today?" via /api/imessage/missed.
-imessageRoutes.register(app, { DATA_DIR, FUB_API_KEY, FUB_BASE, fubHeaders });
+//
+// INGEST_SECRET: required header for POSTs once configured on Railway (X-Ingest-Secret).
+// onSphereTouch: invalidates the sphere cache when an iMessage advances cadence,
+//   so the Sphere tab reflects the new lastTouchAt on next fetch.
+imessageRoutes.register(app, {
+  DATA_DIR,
+  FUB_API_KEY,
+  FUB_BASE,
+  fubHeaders,
+  INGEST_SECRET: process.env.IMESSAGE_INGEST_SECRET || '',
+  onSphereTouch: () => { sphereCache = { payload: null, key: null }; },
+});
 
 // Faris-team Apple Mail intake skill posts here. Auth via FARIS_INTAKE_SECRET.
 fubIntakeRoutes.register(app, {
