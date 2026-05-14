@@ -25,6 +25,7 @@ import { titleCaseIfAllCaps, formatPostalCode, splitFullName } from './lib/util/
 import * as listingPhotosRoutes from './lib/routes/listing-photos.js';
 import * as listingFormCrudRoutes from './lib/routes/listing-form-crud.js';
 import * as sellerFormPublicRoutes from './lib/routes/seller-form-public.js';
+import * as imessageRoutes from './lib/routes/imessage.js';
 import * as fubIntakeRoutes from './lib/routes/fub-intake.js';
 import * as sellerDraftsRoutes from './lib/routes/seller-drafts.js';
 import * as listingFormIntakeRoutes from './lib/routes/listing-form-intake.js';
@@ -5832,6 +5833,12 @@ listingFormCrudRoutes.register(app, {
 // PUBLIC seller-form routes (no auth) — sellers fill the curated subset
 // via an emailed link. Server-side whitelist drops any non-seller field.
 sellerFormPublicRoutes.register(app, { LISTING_FORMS_DIR });
+
+// iMessage activity log — Phase 1 of the Text Execution Board integration.
+// The board POSTs every inbound/outbound/auto-skipped event here, so we have
+// a single source of truth that survives browser restarts and can answer
+// "what texts did I not reply to today?" via /api/imessage/missed.
+imessageRoutes.register(app, { DATA_DIR, FUB_API_KEY, FUB_BASE, fubHeaders });
 
 // Faris-team Apple Mail intake skill posts here. Auth via FARIS_INTAKE_SECRET.
 fubIntakeRoutes.register(app, {
