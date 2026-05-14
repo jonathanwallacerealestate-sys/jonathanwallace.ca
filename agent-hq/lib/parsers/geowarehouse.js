@@ -5,6 +5,12 @@
 // returns a `fields` object suitable for merging into a Listing Form.
 //
 // Extracted from server.js 2026-04-24 — verbatim copy, no behavior change.
+//
+// 2026-05-09: write-side casing/postal/name normalization via lib/util/casing.js
+//   so storage is canonical (Title-Case city, McMaster, L9M 1N1) regardless of
+//   what the upstream PDF text gave us.
+
+import { titleCaseIfAllCaps, formatPostalCode, normalizeContactName } from '../util/casing.js';
 
 function parseGeoWarehouseText(text) {
   const fields = { _source: 'geowarehouse' };
@@ -33,24 +39,24 @@ function parseGeoWarehouseText(text) {
     // Try to split off municipality + province
     const addrParts = fullAddr.match(/^(.+?)\s+(TINY|MIDLAND|PENETANGUISHENE|TAY|WASAGA BEACH|COLLINGWOOD|SPRINGWATER|ORO-MEDONTE|SEVERN|RAMARA|ORILLIA|BARRIE|INNISFIL|BRADFORD|ESSA|CLEARVIEW|ADJALA-TOSORONTIO|NEW TECUMSETH|GEORGIAN BAY)\s*/i);
     if (addrParts) {
-      fields.address = addrParts[1].trim();
-      fields.city = addrParts[2].trim();
+      fields.address = titleCaseIfAllCaps(addrParts[1].trim());
+      fields.city = titleCaseIfAllCaps(addrParts[2].trim());
     } else {
-      fields.address = fullAddr.replace(/\s+(ON|ONTARIO)\s*$/i, '').trim();
+      fields.address = titleCaseIfAllCaps(fullAddr.replace(/\s+(ON|ONTARIO)\s*$/i, '').trim());
     }
   }
   // Fallback: use the cover page format "115  COUNTY 6 RD S, TINY"
   if (!fields.address) {
     const coverMatch = t.match(/\n(\d+\s+[A-Z][A-Z0-9\s]+(?:RD|ROAD|ST|STREET|AVE|AVENUE|DR|DRIVE|BLVD|CRES|COURT|CT|WAY|LANE|LN|PL|PLACE|CIRCLE|CIR)\s*\w*)\s*,\s*([A-Z]+)\n/i);
     if (coverMatch) {
-      fields.address = coverMatch[1].replace(/\s+/g, ' ').trim();
-      fields.city = coverMatch[2].trim();
+      fields.address = titleCaseIfAllCaps(coverMatch[1].replace(/\s+/g, ' ').trim());
+      fields.city = titleCaseIfAllCaps(coverMatch[2].trim());
     }
   }
   // Fallback city from cover page (first line after address before PIN)
   if (!fields.city) {
     const cityMatch = t.match(/\n(TINY|MIDLAND|PENETANGUISHENE|TAY|WASAGA BEACH|COLLINGWOOD|SPRINGWATER|ORO-MEDONTE|SEVERN|RAMARA|ORILLIA|BARRIE|INNISFIL)\n/i);
-    if (cityMatch) fields.city = cityMatch[1].trim();
+    if (cityMatch) fields.city = titleCaseIfAllCaps(cityMatch[1].trim());
   }
 
   // --- PIN ---
@@ -67,8 +73,8 @@ function parseGeoWarehouseText(text) {
     const names = ownerMatch[1].trim().split(/[;\n]/).map(n => n.trim()).filter(Boolean);
     if (names.length > 0) {
       const parseName = (n) => { const parts = n.split(',').map(p => p.trim()); return parts.length >= 2 ? `${parts[1]} ${parts[0]}` : n; };
-      fields.sellerName = parseName(names[0]);
-      if (names.length > 1) fields.sellerName2 = parseName(names[1]);
+      fields.sellerName = normalizeContactName(parseName(names[0]));
+      if (names.length > 1) fields.sellerName2 = normalizeContactName(parseName(names[1]));
     }
   }
 
@@ -192,7 +198,7 @@ function parseGeoWarehouseText(text) {
 
   // --- Postal Code ---
   const postalMatch = t.match(/([A-Z]\d[A-Z]\s*\d[A-Z]\d)/i);
-  if (postalMatch) fields.postalCode = postalMatch[1].replace(/\s/g, '').toUpperCase();
+  if (postalMatch) fields.postalCode = formatPostalCode(postalMatch[1]);
 
   // --- Sales History (most recent sale) ---
   const saleMatch = t.match(/Sales History[\s\S]*?(\w+\s+\d+,\s*\d{4})\s*\$([\d,]+)\s*Transfer/i);

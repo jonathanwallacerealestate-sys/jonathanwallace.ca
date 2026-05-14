@@ -21,6 +21,7 @@ import * as listingSync from './lib/listing-sync/index.js';
 import * as photoVision from './lib/photo-vision/index.js';
 import { renderPrintHtml } from './lib/listing-print.js';
 import { parseGeoWarehouseText } from './lib/parsers/geowarehouse.js';
+import { titleCaseIfAllCaps, formatPostalCode, splitFullName } from './lib/util/casing.js';
 import * as listingPhotosRoutes from './lib/routes/listing-photos.js';
 import * as listingFormCrudRoutes from './lib/routes/listing-form-crud.js';
 import * as sellerFormPublicRoutes from './lib/routes/seller-form-public.js';
@@ -6531,9 +6532,9 @@ app.get('/api/listing-form/:id/sisu-export', async (req, res) => {
 
     // ─── Basic Info ───
     set('Address Line 1', form.address);
-    set('City', form.city);
+    set('City', titleCaseIfAllCaps(form.city));
     set('Province', 'Ontario');
-    set('Postal Code', form.postalCode);
+    set('Postal Code', formatPostalCode(form.postalCode));
     set('Year Built', form.yearBuilt);
     set('Zoning', form.zoning);
     set('PIN #', form.pin);
@@ -6544,10 +6545,13 @@ app.get('/api/listing-form/:id/sisu-export', async (req, res) => {
     set('MPAC Assessment', form.assessedValue);
 
     // ─── Tier 1 — Seller identity (split + transaction defaults) ───
+    // Use splitFullName so multi-word given names land correctly:
+    //   'Dennis Alfred McMaster' → first='Dennis Alfred', last='McMaster'
+    // Also normalizes ALL CAPS legacy records via titleCaseIfAllCaps.
     {
-      const parts = String(form.sellerName || '').split(/\s+/).filter(Boolean);
-      set('First Name', parts[0] || '');
-      set('Last Name', parts.slice(1).join(' '));
+      const { firstName, lastName } = splitFullName(form.sellerName || '');
+      set('First Name', firstName);
+      set('Last Name', lastName);
     }
     set('Transaction Type', 'Seller');
     set('Listing Amount', form.listPrice);
