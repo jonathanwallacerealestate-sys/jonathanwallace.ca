@@ -1,5 +1,6 @@
 import express from 'express';
 import { google } from 'googleapis';
+import http from 'http';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -26,6 +27,8 @@ import * as listingPhotosRoutes from './lib/routes/listing-photos.js';
 import * as listingFormCrudRoutes from './lib/routes/listing-form-crud.js';
 import * as sellerFormPublicRoutes from './lib/routes/seller-form-public.js';
 import * as imessageRoutes from './lib/routes/imessage.js';
+import * as bridgeRoutes from './lib/routes/bridge.js';
+import * as tebRoutes from './lib/routes/teb.js';
 import * as fubIntakeRoutes from './lib/routes/fub-intake.js';
 import * as sellerDraftsRoutes from './lib/routes/seller-drafts.js';
 import * as listingFormIntakeRoutes from './lib/routes/listing-form-intake.js';
@@ -5851,6 +5854,23 @@ imessageRoutes.register(app, {
   onSphereTouch: () => { sphereCache = { payload: null, key: null }; },
 });
 
+// Mac Bridge — WebSocket endpoint at /bridge that the local Mac daemon
+// connects to. Holds the connection open and exposes a callBridge() helper
+// for other route modules (TEB) to RPC into chat.db reads and iMessage sends.
+bridgeRoutes.register(app, { DATA_DIR });
+
+// Text Execution Board — server-authoritative state + atomic send pipeline.
+// Reads chat.db via the Bridge, sends iMessages via the Bridge, then audits
+// through ingestEventCore() so every send hits the Phase 1 log + FUB Note +
+// Sphere cadence advance in one shot.
+tebRoutes.register(app, {
+  DATA_DIR,
+  FUB_API_KEY,
+  FUB_BASE,
+  fubHeaders,
+  INGEST_SECRET: process.env.IMESSAGE_INGEST_SECRET || '',
+});
+
 // Faris-team Apple Mail intake skill posts here. Auth via FARIS_INTAKE_SECRET.
 fubIntakeRoutes.register(app, {
   LOG_DIR: DATA_DIR,
@@ -8574,13 +8594,23 @@ app.get('*', (req, res) => {
 // ─────────────────────────────────────────────
 // Start
 // ─────────────────────────────────────────────
-app.listen(PORT, '0.0.0.0', () => {
+const httpServer = http.createServer(app);
+
+// Attach the Mac Bridge WebSocket to the HTTP server's 'upgrade' event.
+// MUST happen before httpServer.listen() so the handler is registered when
+// the first connection upgrades.
+bridgeRoutes.attachWebSocket(httpServer, {
+  filePath: path.join(DATA_DIR, '.bridge.json'),
+});
+
+httpServer.listen(PORT, '0.0.0.0', () => {
   console.log(`[Agent HQ] Server running on port ${PORT}`);
   console.log(`[GCal] OAuth configured: ${isOAuthConfigured()}`);
   console.log(`[GCal] Tokens loaded: ${!!tokens}`);
   if (tokens) {
     console.log(`[GCal] Token expires: ${tokens.expiry_date ? new Date(tokens.expiry_date).toISOString() : 'unknown'}`);
   }
+  console.log(`[Bridge] WebSocket endpoint ready at wss://${process.env.PUBLIC_HOST || 'hq.jonathanwallace.ca'}/bridge`);
 
   // (Removed 2026-04-24: startDeploySpool — Drive-backed deploy spool is gone
   //  along with the alternate deploy endpoint. Deploys are now `git push`.)

@@ -11,39 +11,41 @@
 //                                        and the inbound wasn't auto-skipped
 //   GET  /api/imessage/stats           — Quick counters for the dashboard widget
 //
+// Programmatic export (added 2026-05-14 PM for TEB rebuild):
+//   ingestEventCore({events}, deps)   — same logic as POST handler, no HTTP.
+//                                       teb.js calls this after a successful
+//                                       Bridge send to atomically audit + FUB-sync.
+//
 // Storage: <DATA_DIR>/.imessages.json with shape:
 //   { events: [...], lastUpdatedAt: ISO }
 //
 // Each event:
 //   {
-//     id:            "<phone>_<unix_ts>",     // dedup key
+//     id:            "<phone>_<unix_ts>_<direction>",
 //     direction:     "inbound" | "outbound" | "auto_skipped",
-//     sender_phone:  "+15551234567",          // E.164
+//     sender_phone:  "+15551234567",
 //     sender_name:   "Jane Smith (Faris Team)" | null,
 //     body:          "...",
-//     date:          ISO 8601 (when the message was sent/received),
-//     reply_to:      "<inbound id>"           // optional, when outbound replies to a known inbound
+//     date:          ISO 8601,
+//     reply_to:      "<inbound id>" | null,
 //     draft_label:   "direct" | "warm" | "question_back" | "custom" | "voice" | "compose"
 //     auto_skip_reason: "tapback" | "closer"  // only when direction === "auto_skipped"
 //     ingested_at:   ISO 8601                 // set server-side
 //   }
 //
-// FUB sync: when an event lands and FUB_API_KEY is configured, the route
-// looks up the phone in FUB and POSTs a Note tagged "iMessage". Fire-and-forget;
-// failures don't block ingest. This makes every text part of the CRM record
-// and sets up Phase 2 (lead-gen analytics over notes).
-//
 // Created 2026-05-14 for the Text Execution Board / "no missed texts" milestone.
+// Refactored 2026-05-14 PM to expose ingestEventCore for in-process callers.
 
 import fs from 'fs';
 import path from 'path';
 
 const FILENAME = '.imessages.json';
 
-// In-memory cache so we don't re-read disk on every request. Saved to disk
-// after every mutation.
+// Module-scoped state — shared between register() and ingestEventCore()
 let state = { events: [], lastUpdatedAt: null };
 let stateInitialized = false;
+let stateFilePath = null;
+let registeredDeps = null;
 
 function loadState(filePath) {
   try {
@@ -110,10 +112,6 @@ function validateEvent(raw) {
 }
 
 // ─── FUB Note sync ────────────────────────────────────────────────────
-// Fire-and-forget. Looks up the phone in FUB, POSTs a Note.
-// Audit-hardened: skips already-synced events (dedup), respects Do-Not-Contact,
-// resolves multi-match conflicts by preferring most-recent activity, and uses
-// a sphere-flavored Note for tier-tagged contacts so the cadence engine sees it.
 const TIER_TAGS = new Set(['advocate', 'a', 'b', 'c']);
 const DNC_RE = /do.?not.?(contact|text|message|disturb)|^dnc$|no.?text|no.?contact/i;
 
@@ -129,15 +127,13 @@ async function syncToFub(event, deps) {
   const { FUB_API_KEY, FUB_BASE, fubHeaders, onSphereTouch } = deps;
   if (!FUB_API_KEY) return { skipped: 'no FUB_API_KEY' };
   if (event.direction === 'auto_skipped') return { skipped: 'auto-skipped event' };
-  // Dedup — if this event has already been synced, skip
   if (event.fubSynced) return { skipped: 'already synced' };
 
   try {
-    // Search FUB across all phone variants, collect ALL matches (limit 10 per variant)
     const phoneVariants = [
-      event.sender_phone,                              // +15551234567
-      event.sender_phone.replace(/^\+1/, ''),          // 5551234567
-      event.sender_phone.replace(/^\+/, ''),           // 15551234567
+      event.sender_phone,
+      event.sender_phone.replace(/^\+1/, ''),
+      event.sender_phone.replace(/^\+/, ''),
     ];
     const seen = new Set();
     const allMatches = [];
@@ -159,7 +155,6 @@ async function syncToFub(event, deps) {
 
     if (allMatches.length === 0) return { skipped: 'no FUB match' };
 
-    // Multi-match resolution: prefer most-recent lastActivity
     let person;
     if (allMatches.length === 1) {
       person = allMatches[0];
@@ -172,7 +167,6 @@ async function syncToFub(event, deps) {
       console.warn(`[iMessage] multi-FUB-match for ${event.sender_phone}: ${allMatches.length} contacts; chose person ${person.id} (most recent activity)`);
     }
 
-    // Do-Not-Contact / Do-Not-Text check
     const stage = String(person.stage || '').toLowerCase();
     const tagsRaw = Array.isArray(person.tags) ? person.tags : [];
     const tagsLower = tagsRaw.map(t => String(t).toLowerCase());
@@ -180,19 +174,16 @@ async function syncToFub(event, deps) {
       || tagsLower.some(t => DNC_RE.test(t));
     if (dnc) {
       console.warn(`[iMessage] DNC — skipping FUB Note for ${event.sender_phone} (person ${person.id})`);
-      event.fubSynced = true; // mark anyway so we don't keep re-checking
+      event.fubSynced = true;
       return { skipped: 'Do Not Contact', personId: person.id };
     }
 
-    // Tier-tag awareness — surface as a sphere touch when applicable
     const tier = detectTierFromTags(tagsRaw);
     const directionLabel = event.direction === 'inbound' ? 'Received' : 'Sent';
     const replyLabel = event.draft_label ? ` [${event.draft_label}]` : '';
 
     let subject, body;
     if (tier && event.direction === 'outbound') {
-      // Outbound to a tier-tagged Sphere contact — log as a sphere touch.
-      // This Note advances `lastTouchAt` in the sphere cadence engine.
       subject = `Text (Agent HQ — iMessage, tier ${tier.toUpperCase()})`;
       body = `Outbound iMessage at ${event.date}\n\n${event.body}`;
     } else {
@@ -214,10 +205,8 @@ async function syncToFub(event, deps) {
       return { error: `FUB note POST ${noteResp.status}: ${txt.slice(0, 200)}` };
     }
 
-    // Mark synced so future re-ingests of this event don't create duplicate Notes
     event.fubSynced = true;
 
-    // If this advanced sphere cadence, invalidate cache so next refresh shows it
     if (tier && event.direction === 'outbound' && typeof onSphereTouch === 'function') {
       try { onSphereTouch(); } catch (e) { console.warn('[iMessage] onSphereTouch callback error:', e.message); }
     }
@@ -234,14 +223,10 @@ async function syncToFub(event, deps) {
 }
 
 // ─── Missed-threads logic ─────────────────────────────────────────────
-// A phone is "missed" if its most recent INBOUND (that isn't auto-skipped)
-// has no OUTBOUND with a later timestamp. Auto-skipped messages count as
-// implicitly handled (tapbacks/closers don't need replies).
 function computeMissed(events, sinceISO) {
   const since = sinceISO ? new Date(sinceISO).getTime() : 0;
   const filtered = events.filter(e => new Date(e.date).getTime() >= since);
 
-  // Group by phone, get most recent of each direction
   const byPhone = new Map();
   for (const e of filtered) {
     const slot = byPhone.get(e.sender_phone) || { lastInbound: null, lastOutbound: null, lastInboundSkipped: null };
@@ -260,16 +245,12 @@ function computeMissed(events, sinceISO) {
 
   const missed = [];
   for (const [phone, slot] of byPhone.entries()) {
-    if (!slot.lastInbound) continue; // never inbound = nothing to miss
+    if (!slot.lastInbound) continue;
     const lastIn = slot.lastInbound;
     const lastOut = slot.lastOutbound;
     const lastSkip = slot.lastInboundSkipped;
 
-    // If most recent activity for this phone is a more-recent auto-skip
-    // (closer/tapback), treat the thread as handled.
     if (lastSkip && new Date(lastSkip.date).getTime() > new Date(lastIn.date).getTime()) continue;
-
-    // Already replied after the latest inbound?
     if (lastOut && new Date(lastOut.date).getTime() >= new Date(lastIn.date).getTime()) continue;
 
     missed.push({
@@ -281,7 +262,6 @@ function computeMissed(events, sinceISO) {
     });
   }
 
-  // Sort oldest first — those are the most "stale" and need attention
   missed.sort((a, b) => new Date(a.last_inbound_date).getTime() - new Date(b.last_inbound_date).getTime());
   return missed;
 }
@@ -306,19 +286,90 @@ function computeStats(events, sinceISO) {
   };
 }
 
+// ─── Core ingest function — usable from HTTP handler AND from teb.js ──
+//
+// Validates, dedups, persists, and fires FUB sync. Returns synchronously after
+// disk persist; FUB sync is fire-and-forget on the returned promise's
+// "background" property if the caller cares (otherwise it just runs).
+
+export async function ingestEventCore(payload, deps) {
+  if (!stateInitialized) {
+    // If called before register() ran, init from deps.DATA_DIR
+    if (!stateFilePath) {
+      if (!deps || !deps.DATA_DIR) {
+        throw new Error('ingestEventCore: not initialized (call register first) and no DATA_DIR in deps');
+      }
+      stateFilePath = path.join(deps.DATA_DIR, FILENAME);
+    }
+    loadState(stateFilePath);
+  }
+  const effectiveDeps = deps || registeredDeps || {};
+
+  const incoming = Array.isArray(payload?.events) ? payload.events : [];
+  if (!incoming.length) return { ok: false, error: 'no events in payload' };
+
+  const validated = incoming.map(validateEvent).filter(Boolean);
+  if (!validated.length) return { ok: false, error: 'all events failed validation' };
+
+  const existingById = new Map(state.events.map(e => [e.id, e]));
+  let added = 0, updated = 0;
+  for (const e of validated) {
+    const prev = existingById.get(e.id);
+    if (prev) {
+      updated++;
+      if (prev.fubSynced) e.fubSynced = true;
+    } else {
+      added++;
+    }
+    existingById.set(e.id, e);
+  }
+  state.events = Array.from(existingById.values()).sort((a, b) =>
+    new Date(a.date).getTime() - new Date(b.date).getTime()
+  );
+  state.lastUpdatedAt = new Date().toISOString();
+  saveState(stateFilePath);
+
+  // Fire-and-forget FUB sync
+  const stateById = new Map(state.events.map(e => [e.id, e]));
+  const syncCandidates = validated.filter(e => !stateById.get(e.id)?.fubSynced);
+
+  const syncPromise = Promise.allSettled(
+    syncCandidates.map(e => syncToFub(e, effectiveDeps))
+  ).then(results => {
+    const synced = results.filter(r => r.status === 'fulfilled' && r.value?.synced).length;
+    const sphereTouches = results.filter(r => r.status === 'fulfilled' && r.value?.sphereTouch).length;
+    const errors = results.filter(r => r.status === 'fulfilled' && r.value?.error).length;
+    const skipped = results.length - synced - errors;
+    if (synced || errors || sphereTouches) {
+      console.log(`[iMessage] FUB sync: ${synced} ok (${sphereTouches} sphere touch${sphereTouches === 1 ? '' : 'es'}), ${errors} err, ${skipped} skipped`);
+    }
+    if (synced || skipped) saveState(stateFilePath);
+    return { synced, sphereTouches, errors, skipped };
+  }).catch(err => {
+    console.error('[iMessage] FUB sync batch error:', err.message);
+  });
+
+  console.log(`[iMessage] ingest: +${added} new, ~${updated} updated, total=${state.events.length}`);
+  return {
+    ok: true,
+    added,
+    updated,
+    total: state.events.length,
+    fubSyncQueued: syncCandidates.length,
+    // Caller can `await result.background` if it wants to wait for FUB sync
+    background: syncPromise,
+  };
+}
+
 // ─── Register routes ──────────────────────────────────────────────────
 export function register(app, deps) {
-  const { DATA_DIR, FUB_API_KEY, FUB_BASE, fubHeaders } = deps;
-  const filePath = path.join(DATA_DIR, FILENAME);
-
-  if (!stateInitialized) loadState(filePath);
+  const { DATA_DIR } = deps;
+  stateFilePath = path.join(DATA_DIR, FILENAME);
+  registeredDeps = deps;
+  if (!stateInitialized) loadState(stateFilePath);
 
   // POST /api/imessage/activity — ingest a batch of events
   app.post('/api/imessage/activity', async (req, res) => {
-    // Auth — require X-Ingest-Secret header to match IMESSAGE_INGEST_SECRET env var.
-    // If env var is unset, log a loud warning but allow (so an initial deploy doesn't
-    // break the TEB before the secret is rotated in). Once configured on Railway,
-    // missing/wrong secret = 401.
     if (deps.INGEST_SECRET) {
       const provided = req.get('x-ingest-secret') || req.get('X-Ingest-Secret') || '';
       if (provided !== deps.INGEST_SECRET) {
@@ -329,61 +380,11 @@ export function register(app, deps) {
       deps._warnedNoSecret = true;
     }
     try {
-      const incoming = Array.isArray(req.body?.events) ? req.body.events : [];
-      if (!incoming.length) return res.json({ ok: false, error: 'no events in payload' });
-
-      const validated = incoming.map(validateEvent).filter(Boolean);
-      if (!validated.length) return res.json({ ok: false, error: 'all events failed validation' });
-
-      // Dedup by id — new events overwrite old (allows correcting drafts/names),
-      // but PRESERVE the fubSynced flag from a prior successful sync so a re-ingest
-      // doesn't create duplicate FUB Notes.
-      const existingById = new Map(state.events.map(e => [e.id, e]));
-      let added = 0, updated = 0;
-      for (const e of validated) {
-        const prev = existingById.get(e.id);
-        if (prev) {
-          updated++;
-          if (prev.fubSynced) e.fubSynced = true;
-        } else {
-          added++;
-        }
-        existingById.set(e.id, e);
-      }
-      state.events = Array.from(existingById.values()).sort((a, b) =>
-        new Date(a.date).getTime() - new Date(b.date).getTime()
-      );
-      state.lastUpdatedAt = new Date().toISOString();
-      saveState(filePath);
-
-      // Fire-and-forget FUB sync for each event that hasn't been synced yet.
-      // We check the CURRENT in-memory state (which now contains the merged event)
-      // rather than the pre-merge map, since the new event might bring fresh data.
-      const stateById = new Map(state.events.map(e => [e.id, e]));
-      const syncCandidates = validated.filter(e => !stateById.get(e.id)?.fubSynced);
-      Promise.allSettled(
-        syncCandidates.map(e => syncToFub(e, deps))
-      ).then(results => {
-        const synced = results.filter(r => r.status === 'fulfilled' && r.value?.synced).length;
-        const sphereTouches = results.filter(r => r.status === 'fulfilled' && r.value?.sphereTouch).length;
-        const errors = results.filter(r => r.status === 'fulfilled' && r.value?.error).length;
-        const skipped = results.length - synced - errors;
-        if (synced || errors || sphereTouches) {
-          console.log(`[iMessage] FUB sync: ${synced} ok (${sphereTouches} sphere touch${sphereTouches === 1 ? '' : 'es'}), ${errors} err, ${skipped} skipped`);
-        }
-        // Persist fubSynced flags now that sync has completed.
-        // syncToFub mutates event.fubSynced on the same object refs held in state.events.
-        if (synced || skipped) saveState(filePath);
-      }).catch(err => console.error('[iMessage] FUB sync batch error:', err.message));
-
-      console.log(`[iMessage] ingest: +${added} new, ~${updated} updated, total=${state.events.length}`);
-      res.json({
-        ok: true,
-        added,
-        updated,
-        total: state.events.length,
-        fubSyncQueued: syncCandidates.length,
-      });
+      const result = await ingestEventCore(req.body, deps);
+      if (!result.ok) return res.json(result);
+      // Don't expose the background promise over JSON
+      const { background, ...rest } = result;
+      res.json(rest);
     } catch (e) {
       console.error('[iMessage] ingest error:', e.message);
       res.status(500).json({ ok: false, error: e.message });
@@ -403,7 +404,6 @@ export function register(app, deps) {
       if (phone)     filtered = filtered.filter(e => e.sender_phone === phone);
       if (direction) filtered = filtered.filter(e => e.direction === direction);
 
-      // Most recent first
       filtered = filtered
         .slice()
         .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
