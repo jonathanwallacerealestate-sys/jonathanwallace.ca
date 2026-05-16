@@ -186,9 +186,15 @@ export function attachWebSocket(httpServer, { filePath }) {
         try { liveSocket.close(1000, 'replaced by newer connection'); } catch {}
       }
       liveSocket = ws;
+      liveSocket.isAlive = true;
       liveSocketConnectedAt = new Date().toISOString();
       liveSocketLastHeartbeat = liveSocketConnectedAt;
       console.log(`[Bridge] Mac connected (token=${hashed.slice(0, 8)}…)`);
+
+      ws.on('pong', () => {
+        ws.isAlive = true;
+        liveSocketLastHeartbeat = new Date().toISOString();
+      });
 
       ws.on('message', (raw) => {
         let msg;
@@ -246,6 +252,22 @@ export function attachWebSocket(httpServer, { filePath }) {
     }
   }, 60_000);
 
+
+  // WS-level ping every 20s keeps the proxy from idle-killing the TCP connection.
+  // Pongs are auto-replied by the ws library on the Mac side; the 'pong' handler
+  // above resets isAlive and updates liveSocketLastHeartbeat.
+  const pingInterval = setInterval(() => {
+    if (!liveSocket) return;
+    if (liveSocket.isAlive === false) {
+      console.log('[Bridge] no pong since last ping — terminating stale connection');
+      try { liveSocket.terminate(); } catch {}
+      return;
+    }
+    liveSocket.isAlive = false;
+    try { liveSocket.ping(); } catch (e) { console.error('[Bridge] ping failed:', e.message); }
+  }, PING_INTERVAL_MS);
+
+  wss.on('close', () => clearInterval(pingInterval));
   return wss;
 }
 
