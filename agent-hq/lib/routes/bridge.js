@@ -35,6 +35,7 @@ const STATE_FILENAME = '.bridge.json';
 const PAIR_CODE_TTL_MS = 5 * 60 * 1000;       // 5 minutes
 const RPC_TIMEOUT_MS = 15 * 1000;             // 15 seconds per RPC
 const HEARTBEAT_GRACE_MS = 60 * 1000;         // 60s stale = "stale" in status
+const PING_INTERVAL_MS   = 20 * 1000;        // server pings every 20s to keep proxy alive
 const TOKEN_BYTES = 32;                       // 256-bit
 const CODE_BYTES = 3;                         // 6 hex digits → numeric below
 
