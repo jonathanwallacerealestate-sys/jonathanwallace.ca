@@ -38,6 +38,7 @@ import * as jacquiRoutes from './lib/routes/jacqui.js';
 import * as cmaParseRoutes from './lib/routes/cma-parse.js';
 import { runCmaAnalysis } from './lib/cma/run.js';
 import * as dailyDriveRoutes from './lib/routes/daily-drive.js';
+import * as bootstrapRoutes from './lib/routes/bootstrap.js';
 import * as health from './lib/health.js';
 const _require = createRequire(import.meta.url);
 const pdfParse = _require('pdf-parse');
@@ -5937,6 +5938,7 @@ if (!fs.existsSync(DAILY_DRIVE_DIR)) fs.mkdirSync(DAILY_DRIVE_DIR, { recursive: 
 const DAILY_DRIVE_PATH = path.join(DAILY_DRIVE_DIR, 'state.json');
 
 dailyDriveRoutes.register(app, { DAILY_DRIVE_PATH });
+bootstrapRoutes.register(app);
 
 
 // ─────────────────────────────────────────────
