@@ -28,6 +28,7 @@ import * as listingFormCrudRoutes from './lib/routes/listing-form-crud.js';
 import * as sellerFormPublicRoutes from './lib/routes/seller-form-public.js';
 import * as imessageRoutes from './lib/routes/imessage.js';
 import * as bridgeRoutes from './lib/routes/bridge.js';
+import * as proxyRoutes from './lib/routes/proxy.js';
 import * as tebRoutes from './lib/routes/teb.js';
 import * as fubIntakeRoutes from './lib/routes/fub-intake.js';
 import * as sellerDraftsRoutes from './lib/routes/seller-drafts.js';
@@ -5858,6 +5859,7 @@ imessageRoutes.register(app, {
 // connects to. Holds the connection open and exposes a callBridge() helper
 // for other route modules (TEB) to RPC into chat.db reads and iMessage sends.
 bridgeRoutes.register(app, { DATA_DIR });
+proxyRoutes.register(app, {});
 
 // Text Execution Board — server-authoritative state + atomic send pipeline.
 // Reads chat.db via the Bridge, sends iMessages via the Bridge, then audits
