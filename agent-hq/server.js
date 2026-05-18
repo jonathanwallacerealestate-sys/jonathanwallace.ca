@@ -5965,7 +5965,7 @@ voiceMemoRoutes.register(app, {
   fubHeaders,
   dataDir: DATA_DIR,
 });
-jacquiMemoryRoutes.register(app, { jacquiDir: JACQUI_DIR });
+jacquiMemoryRoutes.register(app, { jacquiDir: JACQUI_DIR, anthropic, pdfParse, multer });
 
 
 // ─────────────────────────────────────────────
