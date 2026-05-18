@@ -40,6 +40,7 @@ import { runCmaAnalysis } from './lib/cma/run.js';
 import * as dailyDriveRoutes from './lib/routes/daily-drive.js';
 import * as bootstrapRoutes from './lib/routes/bootstrap.js';
 import * as healthConsoleRoutes from './lib/routes/health-console.js';
+import * as voiceMemoRoutes from './lib/routes/voice-memo.js';
 import * as health from './lib/health.js';
 const _require = createRequire(import.meta.url);
 const pdfParse = _require('pdf-parse');
@@ -5955,6 +5956,13 @@ healthConsoleRoutes.register(app, {
   listingsStorePath: process.env.LISTINGS_STORE_PATH || null,
   databaseUrl: process.env.DATABASE_URL || null,
   pgPool: null,
+});
+voiceMemoRoutes.register(app, {
+  anthropic,
+  fubApiKey: FUB_API_KEY,
+  fubBase: FUB_BASE,
+  fubHeaders,
+  dataDir: DATA_DIR,
 });
 
 
