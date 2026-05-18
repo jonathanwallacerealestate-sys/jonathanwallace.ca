@@ -31,11 +31,12 @@ const JACQUI_TOOLS = [
     name: 'create_email_draft',
     description:
       "Create a draft email in Jonathan's Faris Team Outlook (jonathan@faristeam.ca). " +
-      "Use this for ALL outbound emails Jacqui composes on Jonathan's behalf. The draft " +
-      "lands in Outlook Drafts for Jonathan to review and send with one click. Follow the " +
-      "operating manual: no bold formatting; sign off with one of 'Cheers', 'Have a " +
-      "powerful day', or 'Talk soon'; tone is professional/calm/clear/direct/helpful; " +
-      "never fabricate answers, never give legal/financial advice, never bind agreements.",
+      "DEFAULT TOOL for any email request — use this unless Jonathan has explicitly told " +
+      "you to SEND in his most recent message. The draft lands in Outlook Drafts for him " +
+      "to review and one-click send. Follow the operating manual: no bold formatting; " +
+      "sign off with one of 'Cheers', 'Have a powerful day', or 'Talk soon'; tone is " +
+      "professional/calm/clear/direct/helpful; never fabricate, never give legal/financial " +
+      "advice, never bind agreements.",
     input_schema: {
       type: 'object',
       properties: {
@@ -50,9 +51,52 @@ const JACQUI_TOOLS = [
         body: {
           type: 'string',
           description:
-            "HTML or plain text body of the email. Plain text is preferred. Always sign " +
-            "off with one of: 'Cheers, Jonathan', 'Have a powerful day, Jonathan', or " +
-            "'Talk soon, Jonathan'. No bold formatting.",
+            "Plain text or simple HTML body. Always sign off with one of: " +
+            "'Cheers, Jonathan', 'Have a powerful day, Jonathan', or 'Talk soon, Jonathan'. " +
+            "No bold formatting.",
+        },
+      },
+      required: ['to', 'subject', 'body'],
+    },
+  },
+  {
+    name: 'send_email',
+    description:
+      "Send an email IMMEDIATELY from Jonathan's Faris Team Outlook (jonathan@faristeam.ca) " +
+      "— no draft, no review step. " +
+      "STRICT GUARDRAIL — only use this tool when ALL of the following are true: " +
+      "(1) Jonathan's MOST RECENT message contains an explicit send verb directed at this email " +
+      "('send', 'send it', 'send the email', 'ship it', 'fire it off', 'go ahead and send', " +
+      "'send now', 'yes send', or near-identical phrasing); " +
+      "(2) You have already shown Jonathan the draft content earlier in the conversation, " +
+      "OR the email body is short and unambiguous AND falls inside an approved autonomous " +
+      "action from the operating manual (Realtor.ca reply, appointment confirmation, showing " +
+      "coordination, factual property answer, vendor coordination, feedback follow-up, prep " +
+      "materials); " +
+      "(3) The email does NOT involve legal language, financial terms, deal negotiation, " +
+      "contract terms, lawyer communication, signature requests, or payment. " +
+      "If ANY of the three conditions is unclear or false, use create_email_draft instead " +
+      "and tell Jonathan 'I put it in your Drafts — say send when you want it out.' " +
+      "Follow the operating manual: no bold, approved sign-offs only, professional tone, " +
+      "never fabricate. If Jonathan said 'draft', 'write me one', 'compose', or any non-send " +
+      "verb, use create_email_draft — NOT this tool.",
+    input_schema: {
+      type: 'object',
+      properties: {
+        to: {
+          type: 'string',
+          description: 'Recipient email address. Single address.',
+        },
+        subject: {
+          type: 'string',
+          description: 'Email subject line. Keep concise. If replying, prefix with "Re: ".',
+        },
+        body: {
+          type: 'string',
+          description:
+            "Plain text or simple HTML body. Sign off with one of: " +
+            "'Cheers, Jonathan', 'Have a powerful day, Jonathan', or 'Talk soon, Jonathan'. " +
+            "No bold formatting.",
         },
       },
       required: ['to', 'subject', 'body'],
@@ -84,6 +128,12 @@ async function runTool(name, input) {
   switch (name) {
     case 'create_email_draft':
       return await callOutlookGateway('create_email_draft', {
+        to: input.to,
+        subject: input.subject,
+        body: input.body,
+      });
+    case 'send_email':
+      return await callOutlookGateway('send_email', {
         to: input.to,
         subject: input.subject,
         body: input.body,
@@ -252,3 +302,4 @@ export function register(app, deps) {
     }
   });
 }
+
