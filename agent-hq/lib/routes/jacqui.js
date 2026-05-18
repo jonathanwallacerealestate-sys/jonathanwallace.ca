@@ -12,6 +12,7 @@
 import fs from 'fs';
 import path from 'path';
 import { buildSystemPrompt, JACQUI_MODEL, JACQUI_MAX_TOKENS, JACQUI_HISTORY_CAP } from '../jacqui/system-prompt.js';
+import { loadMemoryContext } from './jacqui-memory.js';
 
 /**
  * deps:
@@ -77,10 +78,23 @@ export function register(app, deps) {
     }));
 
     try {
+      // Pull persistent memory (decisions, patterns, retros, north star, documents)
+      // and prepend it to Jacqui's voice prompt so she actually recalls what
+      // has been logged via /api/jacqui/memory/*.
+      let memoryBlock = '';
+      try {
+        memoryBlock = loadMemoryContext(JACQUI_DIR) || '';
+      } catch (e) {
+        console.warn('[Jacqui] memory load failed (continuing without):', e.message);
+      }
+      const systemPrompt = memoryBlock
+        ? `${buildSystemPrompt()}\n\n---\n\n${memoryBlock}`
+        : buildSystemPrompt();
+
       const completion = await anthropic.messages.create({
         model: JACQUI_MODEL,
         max_tokens: JACQUI_MAX_TOKENS,
-        system: buildSystemPrompt(),
+        system: systemPrompt,
         messages,
       });
 
@@ -109,3 +123,4 @@ export function register(app, deps) {
     }
   });
 }
+

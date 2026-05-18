@@ -51,7 +51,7 @@ function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
 }
 
-function buildContext({ decisions, patterns, retros, northStar, documents }) {
+export function buildContext({ decisions, patterns, retros, northStar, documents }) {
   const lines = [];
   lines.push('# Jacqui — Working Memory');
   lines.push('');
@@ -113,6 +113,25 @@ function buildContext({ decisions, patterns, retros, northStar, documents }) {
   lines.push('When in doubt, ask Jonathan rather than guess. Decisions logged here are durable — reference them, do not contradict them, unless he explicitly revises.');
   return lines.join('\n');
 }
+
+// Server-side helper for in-process callers (e.g. /api/jacqui/chat).
+// Returns the same markdown string that GET /api/jacqui/memory/context serves.
+export function loadMemoryContext(jacquiDir) {
+  const MEM_DIR = path.join(jacquiDir, 'memory');
+  const PATH_DEC  = path.join(MEM_DIR, 'decisions.jsonl');
+  const PATH_PAT  = path.join(MEM_DIR, 'patterns.jsonl');
+  const PATH_RET  = path.join(MEM_DIR, 'retros.jsonl');
+  const PATH_NS   = path.join(MEM_DIR, 'north_star.json');
+  const PATH_DOCS = path.join(MEM_DIR, 'documents.jsonl');
+  const decisions = readJsonl(PATH_DEC);
+  const patterns  = readJsonl(PATH_PAT);
+  const retros    = readJsonl(PATH_RET);
+  const documents = readJsonl(PATH_DOCS);
+  let northStar = null;
+  try { northStar = JSON.parse(fs.readFileSync(PATH_NS, 'utf8')); } catch {}
+  return buildContext({ decisions, patterns, retros, northStar, documents });
+}
+
 
 async function summarizeWithHaiku({ anthropic, text, kind, hint }) {
   if (!anthropic) return { summary: text.slice(0, 240), title: hint || 'Document' };
@@ -546,3 +565,4 @@ export function register(app, deps) {
 
   console.log('[JacquiMemory] registered v2 — decisions/patterns/retros/north-star + documents + ingest-handoff + /admin/jacqui-library');
 }
+
