@@ -102,6 +102,70 @@ const JACQUI_TOOLS = [
       required: ['to', 'subject', 'body'],
     },
   },
+  {
+    name: 'read_inbox',
+    description:
+      "Read the most recent messages from Jonathan's Faris Team Outlook Inbox " +
+      "(jonathan@faristeam.ca). Use when Jonathan asks 'what's in my inbox?', " +
+      "'any new emails?', 'show me my recent emails', or as part of inbox processing " +
+      "windows. Returns each message's id, subject, from, receivedDateTime, bodyPreview, " +
+      "isRead, hasAttachments. After reading, summarize what's actionable per the SOP: " +
+      "flag urgent items, surface anything requiring escalation (signature requests, " +
+      "legal, deal-collapse risk, high-value client concerns, financial risk, urgent " +
+      "seller dissatisfaction), and group routine ones for batch handling.",
+    input_schema: {
+      type: 'object',
+      properties: {
+        limit: {
+          type: 'number',
+          description: 'How many messages to fetch (default 25, max 100). Use 10 for a quick scan, 25-50 for full processing window.',
+        },
+      },
+    },
+  },
+  {
+    name: 'search_messages',
+    description:
+      "Search Jonathan's Faris Team Outlook for messages matching a query string. " +
+      "Use when looking up a specific client thread, address, vendor, or topic. " +
+      "Query syntax follows Outlook search: bare text searches everywhere; 'from:foo' " +
+      "narrows by sender; 'subject:bar' narrows by subject; 'AND' / 'OR' combine. " +
+      "Examples: '47 Bay Street' / 'from:realtor.ca' / 'subject:offer AND from:gmail.com'. " +
+      "Returns id, subject, from, receivedDateTime, bodyPreview, isRead for each match.",
+    input_schema: {
+      type: 'object',
+      properties: {
+        query: {
+          type: 'string',
+          description: 'Search query — bare text or Outlook search operators (from:, subject:, AND, OR).',
+        },
+        limit: {
+          type: 'number',
+          description: 'Max results (default 25).',
+        },
+      },
+      required: ['query'],
+    },
+  },
+  {
+    name: 'mark_read',
+    description:
+      "Mark a specific email message as READ in Jonathan's Faris Team Outlook. Use " +
+      "AFTER you've handled a message (drafted a reply, surfaced it to Jonathan, " +
+      "filed it, etc.) to clear it from the unread queue. Per the SOP: never delete " +
+      "automatically, only mark read. Pass the messageId returned by read_inbox or " +
+      "search_messages.",
+    input_schema: {
+      type: 'object',
+      properties: {
+        messageId: {
+          type: 'string',
+          description: 'The Outlook message ID returned by read_inbox or search_messages (the `id` field).',
+        },
+      },
+      required: ['messageId'],
+    },
+  },
 ];
 
 // --- Helpers --------------------------------------------------------------
@@ -137,6 +201,19 @@ async function runTool(name, input) {
         to: input.to,
         subject: input.subject,
         body: input.body,
+      });
+    case 'read_inbox':
+      return await callOutlookGateway('read_inbox', {
+        limit: input.limit || 25,
+      });
+    case 'search_messages':
+      return await callOutlookGateway('search_messages', {
+        query: input.query,
+        limit: input.limit || 25,
+      });
+    case 'mark_read':
+      return await callOutlookGateway('mark_read', {
+        messageId: input.messageId,
       });
     default:
       return { ok: false, error: `Unknown tool: ${name}` };
