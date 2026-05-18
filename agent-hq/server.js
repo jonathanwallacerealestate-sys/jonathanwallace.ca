@@ -39,6 +39,7 @@ import * as cmaParseRoutes from './lib/routes/cma-parse.js';
 import { runCmaAnalysis } from './lib/cma/run.js';
 import * as dailyDriveRoutes from './lib/routes/daily-drive.js';
 import * as bootstrapRoutes from './lib/routes/bootstrap.js';
+import * as healthConsoleRoutes from './lib/routes/health-console.js';
 import * as health from './lib/health.js';
 const _require = createRequire(import.meta.url);
 const pdfParse = _require('pdf-parse');
@@ -5939,6 +5940,22 @@ const DAILY_DRIVE_PATH = path.join(DAILY_DRIVE_DIR, 'state.json');
 
 dailyDriveRoutes.register(app, { DAILY_DRIVE_PATH });
 bootstrapRoutes.register(app);
+healthConsoleRoutes.register(app, {
+  health,
+  anthropicApiKey: process.env.ANTHROPIC_API_KEY,
+  fubApiKey: FUB_API_KEY,
+  fubBase: FUB_BASE,
+  fubHeaders,
+  getDrive: () => hasFullDriveScope() ? google.drive({ version: 'v3', auth: oauth2Client }) : null,
+  getBackupState: () => backupState,
+  dataDir: DATA_DIR,
+  port: PORT,
+  githubPatExpiresAt: process.env.GITHUB_PAT_EXPIRES_AT || '2026-06-15',
+  proxyAuthConfigured: !!process.env.CLAUDE_PROXY_SECRET,
+  listingsStorePath: process.env.LISTINGS_STORE_PATH || null,
+  databaseUrl: process.env.DATABASE_URL || null,
+  pgPool: null,
+});
 
 
 // ─────────────────────────────────────────────
