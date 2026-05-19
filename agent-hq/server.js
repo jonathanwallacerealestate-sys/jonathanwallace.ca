@@ -366,6 +366,131 @@ app.post('/api/auth/disconnect', (req, res) => {
 });
 
 // ─────────────────────────────────────────────
+// OUTLOOK CALENDAR (Faris Team M365) — replaces Google for /api/calendar/*
+// Registered BEFORE the Google handlers below; Express matches first hit.
+// Talks to Make.com "Agent Outlook Gateway" (scenario 5106541).
+// ─────────────────────────────────────────────
+const OUTLOOK_GATEWAY_URL_CAL =
+  process.env.OUTLOOK_GATEWAY_URL ||
+  'https://hook.us2.make.com/2ikw0v0f6k2os8xetecaa71if1gac9mu';
+
+async function fetchOutlookCalendarEvents(startISO, endISO, limit = 50) {
+  const resp = await fetch(OUTLOOK_GATEWAY_URL_CAL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      action: 'get_calendar_events',
+      action_params: { start: startISO, end: endISO, limit },
+    }),
+  });
+  if (!resp.ok) {
+    const txt = await resp.text();
+    throw new Error(`Outlook gateway ${resp.status}: ${txt.slice(0, 200)}`);
+  }
+  const data = await resp.json();
+  return Array.isArray(data?.events) ? data.events : [];
+}
+
+function mapOutlookEventToShape(ev) {
+  const startDT = ev.start?.dateTime
+    ? ev.start.dateTime + (ev.start.timeZone === 'UTC' ? 'Z' : '')
+    : ev.start?.date || null;
+  const endDT = ev.end?.dateTime
+    ? ev.end.dateTime + (ev.end.timeZone === 'UTC' ? 'Z' : '')
+    : ev.end?.date || null;
+  const locDisplay = ev.location?.displayName || '';
+  const conferenceLink =
+    locDisplay && (locDisplay.startsWith('http://') || locDisplay.startsWith('https://'))
+      ? locDisplay
+      : null;
+  return {
+    id: ev.id,
+    title: ev.subject || '(No title)',
+    description: ev.bodyPreview || '',
+    start: startDT,
+    end: endDT,
+    location: locDisplay,
+    allDay: !!ev.isAllDay,
+    status: ev.isCancelled ? 'cancelled' : 'confirmed',
+    htmlLink: ev.webLink || null,
+    calendarName: 'Faris Team (Outlook)',
+    attendees: (ev.attendees || []).map(a => ({
+      email: a.emailAddress?.address,
+      name: a.emailAddress?.name,
+      status: a.status?.response,
+    })),
+    conferenceLink,
+    showAs: ev.showAs,
+    categories: ev.categories || [],
+  };
+}
+
+app.get('/api/calendar/status', async (req, res) => {
+  try {
+    const now = new Date();
+    const end = new Date(now.getTime() + 60 * 60 * 1000);
+    await fetchOutlookCalendarEvents(now.toISOString(), end.toISOString(), 1);
+    return res.json({
+      connected: true,
+      provider: 'outlook',
+      configured: true,
+      account: 'jonathan@faristeam.ca',
+      label: 'Faris Team (Outlook)',
+      scopes: ['Calendars.Read', 'Calendars.ReadWrite'],
+    });
+  } catch (err) {
+    console.warn('[Outlook Cal] status probe failed:', err.message);
+    return res.json({
+      connected: false,
+      provider: 'outlook',
+      configured: true,
+      reason: err.message,
+    });
+  }
+});
+
+app.get('/api/calendar/events', async (req, res) => {
+  try {
+    const { startISO } = getEasternDayRange();
+    const { endISO } = getEasternDayRange(2);
+    const timeMin = req.query.timeMin || startISO;
+    const timeMax = req.query.timeMax || endISO;
+    const raw = await fetchOutlookCalendarEvents(timeMin, timeMax, 50);
+    const EXCLUDED = ['daily meeting link'];
+    const events = raw
+      .filter(ev => !ev.isCancelled)
+      .filter(ev => {
+        const t = (ev.subject || '').toLowerCase();
+        return !EXCLUDED.some(ex => t.includes(ex));
+      })
+      .map(mapOutlookEventToShape)
+      .sort((a, b) => new Date(a.start) - new Date(b.start));
+    res.json({ events, count: events.length });
+  } catch (err) {
+    console.error('[Outlook Cal] events fetch failed:', err.message);
+    res.status(500).json({ error: err.message, events: [] });
+  }
+});
+
+app.get('/api/calendar/upcoming', async (req, res) => {
+  try {
+    const { startISO: nowISO } = getEasternDayRange();
+    const { endISO: weekEndISO } = getEasternDayRange(7);
+    const raw = await fetchOutlookCalendarEvents(nowISO, weekEndISO, 100);
+    const events = raw
+      .filter(ev => !ev.isCancelled)
+      .map(mapOutlookEventToShape);
+    res.json({ events, count: events.length });
+  } catch (err) {
+    console.error('[Outlook Cal] upcoming fetch failed:', err.message);
+    res.status(500).json({ error: err.message, events: [] });
+  }
+});
+// ─────────────────────────────────────────────
+// END OUTLOOK CALENDAR
+// ─────────────────────────────────────────────
+
+// ─────────────────────────────────────────────
 // API: Calendar Status (cached, resilient)
 // ─────────────────────────────────────────────
 app.get('/api/calendar/status', async (req, res) => {
