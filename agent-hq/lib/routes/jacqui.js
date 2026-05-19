@@ -6,15 +6,23 @@
 //   GET    /api/jacqui/history    — load thread (last N messages)
 //   POST   /api/jacqui/clear      — wipe thread
 //
-// Phase 2: voice + memories + first email tool (create_email_draft via Make.com).
+// Phase 2: voice + memories + email toolkit (5 tools via Make.com Outlook Gateway).
 //
-// CHANGES IN THIS VERSION (2026-05-18):
-//   • Anthropic tool-use loop wired in
-//   • Exposes `create_email_draft` tool that calls Make.com "Agent Outlook Gateway"
-//     (scenario 5106541, webhook hook.us2.make.com/2ikw0v0f6k2os8xetecaa71if1gac9mu)
-//   • Default-safe: drafts only. `send_email` route exists on the gateway but is
-//     intentionally NOT exposed as a Jacqui tool yet — Jonathan reviews + sends.
-//   • Optional env var: OUTLOOK_GATEWAY_URL (defaults to hardcoded URL)
+// CHANGES IN THIS VERSION (2026-05-19):
+//   • PERSISTENCE FIX — only plain-text assistant replies are written to the
+//     thread file. Tool_use / tool_result blocks live in-memory for the
+//     current request's tool-use loop only. Fixes React #31 ("Objects are
+//     not valid as a React child") in the Jacqui tab.
+//   • Tool calls still returned to the caller in the response's `tool_calls`
+//     array for debugging.
+//
+// Previous changes (2026-05-18):
+//   • Anthropic tool-use loop wired in (up to 5 rounds).
+//   • Five email tools exposed: create_email_draft, send_email, read_inbox,
+//     search_messages, mark_read — all via Make.com "Agent Outlook Gateway"
+//     (scenario 5106541, hook.us2.make.com/2ikw0v0f6k2os8xetecaa71if1gac9mu).
+//   • send_email guarded by strict description-level rules.
+//   • Optional env var: OUTLOOK_GATEWAY_URL (defaults to hardcoded URL).
 
 import fs from 'fs';
 import path from 'path';
@@ -109,10 +117,12 @@ const JACQUI_TOOLS = [
       "(jonathan@faristeam.ca). Use when Jonathan asks 'what's in my inbox?', " +
       "'any new emails?', 'show me my recent emails', or as part of inbox processing " +
       "windows. Returns each message's id, subject, from, receivedDateTime, bodyPreview, " +
-      "isRead, hasAttachments. After reading, summarize what's actionable per the SOP: " +
-      "flag urgent items, surface anything requiring escalation (signature requests, " +
-      "legal, deal-collapse risk, high-value client concerns, financial risk, urgent " +
-      "seller dissatisfaction), and group routine ones for batch handling.",
+      "isRead, hasAttachments. After reading, run inbox-triage UX per the system prompt: " +
+      "for each actionable email, surface 3 labeled response options (Direct / Warm / Ask back) " +
+      "in plain text so Jonathan can pick one — DO NOT immediately call create_email_draft. " +
+      "Also flag urgent items and escalations per the SOP (signature requests, legal, " +
+      "deal-collapse risk, high-value client concerns, financial risk, urgent seller " +
+      "dissatisfaction).",
     input_schema: {
       type: 'object',
       properties: {
@@ -315,15 +325,26 @@ export function register(app, deps) {
         lastUsage = completion.usage || lastUsage;
         const content = completion.content || [];
 
-        // Persist the assistant turn's full content (including tool_use blocks)
-        // back into the thread so future turns see the context.
-        thread.push({
-          role: 'assistant',
-          content: content,
-          ts: new Date().toISOString(),
-        });
-        // Mirror for in-loop messages
+        // In-memory: keep the rich content (tool_use blocks) for the current
+        // tool-use loop so Anthropic gets full context across rounds.
         messages.push({ role: 'assistant', content });
+
+        // Persistence: store ONLY the assistant's text reply in the thread file.
+        // The React UI renders message.content as a string — rich content arrays
+        // (tool_use blocks) blow up with React error #31. Tool calls are returned
+        // separately on each request via the `tool_calls` array.
+        const textOnly = content
+          .filter(b => b.type === 'text')
+          .map(b => b.text)
+          .join('\n')
+          .trim();
+        if (textOnly) {
+          thread.push({
+            role: 'assistant',
+            content: textOnly,
+            ts: new Date().toISOString(),
+          });
+        }
 
         // If stop_reason is anything except tool_use, we're done.
         if (completion.stop_reason !== 'tool_use') {
@@ -350,12 +371,10 @@ export function register(app, deps) {
           });
         }
 
-        // Append tool_result as a user turn
-        thread.push({
-          role: 'user',
-          content: toolResultBlocks,
-          ts: new Date().toISOString(),
-        });
+        // In-memory only: tool_result blocks stay in the loop messages so
+        // Anthropic sees them on the next round. They do NOT go into the
+        // persisted thread (they're operational, not user-facing — and they'd
+        // be rich arrays that crash React).
         messages.push({ role: 'user', content: toolResultBlocks });
       }
 
@@ -379,4 +398,3 @@ export function register(app, deps) {
     }
   });
 }
-
