@@ -1001,19 +1001,74 @@ function ListingForm() {
                 if (!data.success) { alert(`Export failed: ${data.error || 'unknown'}`); return; }
                 data.exportedAt = new Date().toISOString();
                 setSisuExport(data);
-                // 3) Stash the export in clipboard for the autofill skill to read.
-                try { await navigator.clipboard.writeText(JSON.stringify(data, null, 2)); } catch {}
-                // 4) Open the Sisu transaction URL in a new tab.
-                window.open(form.sisuTransactionUrl, '_blank', 'noopener,noreferrer');
-                // 5) Tell Jonathan what to do next.
-                alert(
-                  `Sisu opened in a new tab with ${data.fieldCount} field(s) mapped${data.roomCount ? ` and ${data.roomCount} room(s)` : ''}.\n\n` +
-                  `The export JSON is on your clipboard.\n\n` +
-                  `Next: switch to the Cowork chat and say "autofill Sisu" — Claude will read the clipboard and fill the form on the open tab.`
-                );
+
+                // 3) Probe for the Agent HQ Bridge extension. If installed, it does the form fill
+                //    natively (no Cowork chat hand-off needed). If not, fall back to clipboard + alert.
+                const probeReady = new Promise((resolve) => {
+                  const onReady = (event) => {
+                    if (event.source !== window) return;
+                    if (event.data?.type === 'agent-hq-bridge:ready') {
+                      window.removeEventListener('message', onReady);
+                      resolve(true);
+                    }
+                  };
+                  window.addEventListener('message', onReady);
+                  window.postMessage({ type: 'agent-hq-bridge:ping' }, window.location.origin);
+                  setTimeout(() => {
+                    window.removeEventListener('message', onReady);
+                    resolve(false);
+                  }, 1500);
+                });
+                const bridgeInstalled = await probeReady;
+
+                if (bridgeInstalled) {
+                  // ─── Bridge path: dispatch a job and wait for the result ───
+                  const requestId = `sisu_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+                  const wait = new Promise((resolve) => {
+                    const onMsg = (event) => {
+                      if (event.source !== window) return;
+                      const d = event.data;
+                      if (!d || d.type !== 'agent-hq-bridge:result' || d.requestId !== requestId) return;
+                      window.removeEventListener('message', onMsg);
+                      resolve(d);
+                    };
+                    window.addEventListener('message', onMsg);
+                    setTimeout(() => { window.removeEventListener('message', onMsg); resolve(null); }, 120000);
+                  });
+                  window.postMessage({
+                    type: 'agent-hq-bridge',
+                    action: 'autofill-sisu',
+                    payload: { sisuUrl: form.sisuTransactionUrl, fields: data.fields, rooms: data.rooms || [] },
+                    requestId,
+                  }, window.location.origin);
+                  const result = await wait;
+                  if (result?.ok) {
+                    const s = result.result || {};
+                    alert(`Pushed to Sisu via bridge — ${s.filledCount} filled, ${s.skippedCount} skipped, ${s.errorCount} errors.${s.errorCount ? ' Check the Sisu tab DevTools console for details.' : ''}`);
+                    if (s.errorCount && s.errors) console.warn('[Sisu Push] errors:', s.errors);
+                  } else if (result === null) {
+                    try { await navigator.clipboard.writeText(JSON.stringify(data, null, 2)); } catch {}
+                    window.open(form.sisuTransactionUrl, '_blank', 'noopener,noreferrer');
+                    alert(`Bridge timed out. Sisu opened in a new tab with ${data.fieldCount} field(s) mapped. JSON on clipboard — fall back: say "autofill Sisu" in Cowork.`);
+                  } else {
+                    try { await navigator.clipboard.writeText(JSON.stringify(data, null, 2)); } catch {}
+                    window.open(form.sisuTransactionUrl, '_blank', 'noopener,noreferrer');
+                    alert(`Bridge error: ${result.error || 'unknown'}\n\nFell back to clipboard. Sisu open in a new tab; say "autofill Sisu" in Cowork.`);
+                  }
+                } else {
+                  // ─── Fallback path: clipboard + alert (original flow) ───
+                  try { await navigator.clipboard.writeText(JSON.stringify(data, null, 2)); } catch {}
+                  window.open(form.sisuTransactionUrl, '_blank', 'noopener,noreferrer');
+                  alert(
+                    `Agent HQ Bridge extension not detected — using fallback.\n\n` +
+                    `Sisu opened in a new tab with ${data.fieldCount} field(s) mapped${data.roomCount ? ` and ${data.roomCount} room(s)` : ''}. JSON on clipboard.\n\n` +
+                    `Install the bridge extension (instructions in agent-hq-bridge-extension/README.md) for one-click pushes. ` +
+                    `Or for now: switch to Cowork chat and say "autofill Sisu".`
+                  );
+                }
               } catch (err) { alert(`Push failed: ${err.message}`); }
             }}
-            title="Save, export, open Sisu, copy the field JSON to clipboard — then ask Claude to autofill"
+            title="Push listing data into the Sisu form via the Agent HQ Bridge extension (one-click) — falls back to clipboard + Cowork if extension not installed"
             style={{
               display: 'flex', alignItems: 'center', gap: 5, padding: '8px 14px', borderRadius: 8,
               border: '1px solid #2563eb', background: '#2563eb', color: '#fff',
