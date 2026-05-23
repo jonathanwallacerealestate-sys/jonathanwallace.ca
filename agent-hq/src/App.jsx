@@ -1052,103 +1052,263 @@ function DailyDriveBadge() {
 
 function MorningBriefing() {
   const eaData = useContext(EaContext);
+  const fubData = useFubContext();
   const { showings: briefShowings } = useBrokerBayShowings();
-  const awaitingYou = eaData?.threads?.filter(t => t.state === 'awaiting_you') || [];
-  const urgentEmails = awaitingYou.length > 0 ? awaitingYou.slice(0, 5) : emailInboxFallback;
-  const todayKey = new Date().toISOString().slice(0, 10); // resets daily
-  const [dismissed, setDismissed] = useState(() => {
-    try { return localStorage.getItem('agenthq-brief-dismissed') === todayKey; } catch { return false; }
-  });
-  if (dismissed) return null;
+  const awaitingYou = (eaData?.threads || []).filter(t => t.state === 'awaiting_you');
 
-  const handleDismiss = () => {
-    setDismissed(true);
-    try { localStorage.setItem('agenthq-brief-dismissed', todayKey); } catch {}
+  const [calEvents, setCalEvents] = useState([]);
+  const [sphereOverdue, setSphereOverdue] = useState([]);
+  const [listingDiag, setListingDiag] = useState({ totalActive: 0, noShowingsEver: 0 });
+  const [dailyDrive, setDailyDrive] = useState({ callsMade: 0, target: 5 });
+
+  useEffect(() => {
+    fetch('/api/calendar/upcoming').then(r => r.json()).then(d => setCalEvents(d.events || [])).catch(() => {});
+    fetch('/api/sphere/overdue').then(r => r.json()).then(d => setSphereOverdue(d.overdue || [])).catch(() => {});
+    fetch('/api/listings/diagnostics/all').then(r => r.json()).then(d => setListingDiag(d.summary || {})).catch(() => {});
+    fetch('/api/daily-drive/state').then(r => r.json()).then(d => setDailyDrive((d.state && d.state.today) || { callsMade: 0, target: 5 })).catch(() => {});
+  }, []);
+
+  const fmtTime = (iso) => {
+    if (!iso) return '';
+    return new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'America/Toronto' });
+  };
+  const todayDate = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Toronto' });
+  const tmrwDate = new Date(Date.now() + 86400000).toLocaleDateString('en-CA', { timeZone: 'America/Toronto' });
+  const todayEvents = calEvents.filter(ev => (ev.start || '').slice(0, 10) === todayDate);
+  const tmrwEvents = calEvents.filter(ev => (ev.start || '').slice(0, 10) === tmrwDate);
+  const timedToday = todayEvents.filter(e => !e.allDay);
+  const allDayToday = todayEvents.filter(e => e.allDay);
+  const isOffDay = allDayToday.some(e => /day(s)? off|regional|holiday|vacation/i.test(e.title || ''));
+
+  const activeShowings = briefShowings.filter(s => s.status !== 'cancelled');
+  const todayStrShort = new Date().toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+  const todayShowings = activeShowings.filter(s => s.date === todayStrShort);
+
+  const hotLeads = (fubData?.callList || []).filter(c => c.bucket === 'hot').slice(0, 3);
+  const sphereTop = sphereOverdue.slice(0, 5);
+
+  const totalListingVolume = (() => {
+    try {
+      const list = (fubData?.callList || []);
+      return list.reduce((sum, c) => sum + (Number(c.price) || 0), 0);
+    } catch { return 0; }
+  })();
+
+  const fmtCurrency = (n) => {
+    if (!n || n < 1000) return '$0';
+    if (n >= 1000000) return `$${(n / 1000000).toFixed(1)}M`;
+    if (n >= 1000) return `$${(n / 1000).toFixed(0)}K`;
+    return `$${n}`;
+  };
+
+  const needYouCount = awaitingYou.length + todayShowings.length;
+
+  const tier = {
+    hot: { bg: '#fcf2eb', border: '#c2410c', pillBg: '#fcd9c8', pillFg: '#993c1d', label: 'HOT' },
+    act: { bg: '#eef4fc', border: '#185fa5', pillBg: '#d6e6f8', pillFg: '#0c447c', label: 'ACTION' },
+    warm: { bg: '#fbf4e1', border: '#854f0b', pillBg: '#f9e6b8', pillFg: '#633806', label: 'CADENCE' },
+    ok: { bg: '#f0f9e5', border: '#3b6d11', pillBg: '#d6e9c1', pillFg: '#3b6d11', label: 'CLEAR' },
+    neutral: { bg: '#fafaf6', border: '#b4b2a9', pillBg: '#ececea', pillFg: '#444441', label: '' }
+  };
+
+  const itemStyle = (t) => ({
+    background: tier[t].bg,
+    borderLeft: `3px solid ${tier[t].border}`,
+    borderRadius: 8,
+    padding: '10px 12px',
+    marginBottom: 6,
+  });
+  const pillStyle = (t) => ({
+    fontSize: 9, fontWeight: 700, padding: '2px 6px', borderRadius: 8,
+    background: tier[t].pillBg, color: tier[t].pillFg, letterSpacing: '0.04em',
+  });
+  const laneStyle = {
+    background: '#fff', borderRadius: 12, border: '1px solid #e5e7eb',
+    display: 'flex', flexDirection: 'column', minHeight: 380,
+  };
+  const laneHeader = {
+    padding: '12px 16px', borderBottom: '1px solid #e5e7eb',
+    display: 'flex', justifyContent: 'space-between', alignItems: 'baseline',
   };
 
   return (
-    <Card style={{ background: "linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%)", border: "1px solid #fde68a", marginBottom: 16, position: "relative" }}>
-      <button onClick={handleDismiss} style={{ position: "absolute", top: 12, right: 12, background: "none", border: "none", color: "#d97706", cursor: "pointer" }}><X size={14} /></button>
-      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
-        <div style={{ width: 36, height: 36, borderRadius: 10, background: "linear-gradient(135deg,#c8a96e,#f59e0b)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <Coffee size={18} color="#fff" />
-        </div>
+    <div style={{ marginBottom: 16 }}>
+      {/* Header strip */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
         <div>
-          <div style={{ fontSize: 16, fontWeight: 800, color: "#92400e" }}>Good morning, Jonathan</div>
-          <div style={{ fontSize: 12, color: "#b45309" }}>Here's your day at a glance.</div>
-        </div>
-      </div>
-
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
-        {/* Listing Showings snapshot — LIVE from Gmail */}
-        {(() => {
-          // Filter to today's and upcoming showings (non-cancelled)
-          const now = new Date();
-          const todayStr = now.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
-          const activeShowings = briefShowings.filter(s => s.status !== "cancelled");
-          const todayShowings = activeShowings.filter(s => s.date === todayStr);
-          // If none today, show most recent confirmed showings
-          const displayShowings = todayShowings.length > 0 ? todayShowings : activeShowings;
-          const showingLabel = todayShowings.length > 0
-            ? `${todayShowings.length} today`
-            : `${activeShowings.length} this month`;
-          return (
-            <div style={{ background: "#fff", borderRadius: 10, padding: 14, border: "1px solid #fde68a" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 10 }}>
-                <MapPin size={14} color="#e11d48" />
-                <span style={{ fontSize: 12, fontWeight: 700, color: "#92400e" }}>Showings</span>
-                {activeShowings.length > 0 && <span style={{ fontSize: 9, fontWeight: 700, color: "#fff", background: "#10b981", padding: "1px 5px", borderRadius: 3 }}>LIVE</span>}
-              </div>
-              {displayShowings.length > 0 ? (
-                <>
-                  <div style={{ fontSize: 10, color: "#92400e", fontWeight: 600, marginBottom: 6 }}>{showingLabel}</div>
-                  {displayShowings.slice(0, 3).map((s, i) => (
-                    <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-                      <div style={{ width: 3, height: 20, borderRadius: 2, background: s.status === "confirmed" ? "#059669" : s.status === "requested" ? "#d97706" : "#2563eb", flexShrink: 0 }} />
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontSize: 11, fontWeight: 600, color: "#374151", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{s.property.split(",")[0]}</div>
-                        <div style={{ fontSize: 10, color: "#9ca3af" }}>{s.time || s.date} · {s.buyerAgent || s.status}</div>
-                      </div>
-                    </div>
-                  ))}
-                </>
-              ) : (
-                <div style={{ fontSize: 11, color: "#9ca3af", textAlign: "center", padding: "8px 0" }}>No showings found</div>
-              )}
-            </div>
-          );
-        })()}
-
-        {/* Calendar snapshot */}
-        <MorningCalendarSnapshot />
-
-        {/* Emails needing response */}
-        <div style={{ background: "#fff", borderRadius: 10, padding: 14, border: "1px solid #fde68a" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 10 }}>
-            <Mail size={14} color="#dc2626" />
-            <span style={{ fontSize: 12, fontWeight: 700, color: "#92400e" }}>{urgentEmails.length > 0 ? `${urgentEmails.length} emails need you` : 'Emails'}</span>
-            {urgentEmails.length > 0 && <span style={{ fontSize: 9, fontWeight: 700, color: "#fff", background: "#10b981", padding: "1px 5px", borderRadius: 3 }}>LIVE</span>}
-            {urgentEmails.length === 0 && <span style={{ fontSize: 9, fontWeight: 700, color: "#f59e0b", background: "#fffbeb", padding: "1px 5px", borderRadius: 3 }}>GCal offline</span>}
+          <div style={{ fontSize: 16, fontWeight: 700, color: '#111827' }}>
+            Good morning, Jonathan
           </div>
-          {urgentEmails.length > 0 ? urgentEmails.slice(0, 3).map((em, i) => (
-            <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-              <div style={{ width: 24, height: 24, borderRadius: "50%", background: em.priority === "high" ? "#fef2f2" : "#f3f4f6", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                <span style={{ fontSize: 10, fontWeight: 800, color: em.priority === "high" ? "#ef4444" : "#6b7280" }}>{em.from.charAt(0)}</span>
-              </div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 11, fontWeight: 600, color: "#374151", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{em.from}</div>
-                <div style={{ fontSize: 10, color: "#9ca3af", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{em.subject}</div>
-              </div>
+          <div style={{ fontSize: 12, color: '#6b7280' }}>
+            <strong style={{ color: '#374151', fontWeight: 600 }}>Faris Team · Outlook</strong> · {new Date().toLocaleDateString('en-CA', { weekday: 'long', month: 'long', day: 'numeric' })}
+          </div>
+        </div>
+      </div>
+
+      {/* Context strip — appears on off-days or quiet days */}
+      {(isOffDay || timedToday.length === 0) && (
+        <div style={{ background: '#fff5e0', border: '1px solid #f0d68e', borderRadius: 10, padding: '10px 14px', marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: '#633806' }}>
+              {isOffDay ? `Today is marked ${allDayToday.map(e => e.title).join(' · ')} (all-day)` : 'No timed meetings on the calendar today'}
             </div>
-          )) : (
-            <div style={{ textAlign: "center", padding: "8px 0" }}>
-              <div style={{ fontSize: 11, color: "#9ca3af" }}>Gmail offline — reconnect above</div>
+            <div style={{ fontSize: 11, color: '#6f4a0f', marginTop: 2 }}>
+              Use today for sphere catch-up and Jacqui's queue. Pipeline shows what's worth the touch.
             </div>
-          )}
+          </div>
+          <span style={{ fontSize: 11, padding: '4px 12px', background: '#fef9e7', color: '#6f4a0f', borderRadius: 12, border: '1px solid #f0d68e', fontWeight: 600 }}>Light day mode</span>
+        </div>
+      )}
+
+      {/* KPI strip */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 8, marginBottom: 14 }}>
+        {[
+          { v: needYouCount, l: 'Need you', color: '#c2410c' },
+          { v: hotLeads.length, l: 'Hot FUB', color: '#185fa5' },
+          { v: sphereOverdue.length, l: 'Sphere overdue', color: '#854f0b' },
+          { v: listingDiag.totalActive || 0, l: 'Active listings', color: '#3b6d11' },
+          { v: `${dailyDrive.callsMade || 0}/${dailyDrive.target || 5}`, l: 'Calls today', color: '#111827' },
+        ].map((k, i) => (
+          <div key={i} style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, padding: '10px 12px' }}>
+            <div style={{ fontSize: 22, fontWeight: 700, color: k.color, lineHeight: 1.1 }}>{k.v}</div>
+            <div style={{ fontSize: 10, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.06em', marginTop: 3 }}>{k.l}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Three lanes */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+
+        {/* INBOUND LANE */}
+        <div style={laneStyle}>
+          <div style={laneHeader}>
+            <span style={{ fontSize: 14, fontWeight: 700, color: '#111827' }}>Inbound — Jacqui's queue</span>
+            <span style={{ fontSize: 11, color: '#6b7280' }}>Outlook + iMessage</span>
+          </div>
+          <div style={{ padding: '8px 10px 14px', flex: 1 }}>
+            {awaitingYou.length > 0 ? awaitingYou.slice(0, 4).map((t, i) => (
+              <div key={t.id || i} style={itemStyle(t.priority === 'p1' ? 'hot' : 'act')}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 6 }}>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: '#111827' }}>{(t.from || 'Unknown').replace(/<.+>/g, '').trim().slice(0, 32)}</span>
+                  <span style={pillStyle(t.priority === 'p1' ? 'hot' : 'act')}>{t.priority === 'p1' ? 'HOT' : 'ACTION'}</span>
+                </div>
+                <div style={{ fontSize: 11, color: '#6b7280', marginTop: 3 }}>{(t.subject || '').slice(0, 60)}</div>
+              </div>
+            )) : (
+              <div style={itemStyle('neutral')}>
+                <div style={{ fontSize: 12, color: '#374151' }}>Email triage offline (Outlook rewire pending). Use the Cowork Command Center artifact for live iMessage + Outlook triage today.</div>
+              </div>
+            )}
+
+            <div style={{ ...itemStyle('act'), marginTop: 8 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                <span style={{ fontSize: 13, fontWeight: 600, color: '#111827' }}>iMessage triage</span>
+                <span style={pillStyle('act')}>COWORK</span>
+              </div>
+              <div style={{ fontSize: 11, color: '#6b7280', marginTop: 3 }}>Opens Jacqui Command Center in Cowork — names resolved against 1,896-contact directory, drafts ready, one-click Approve & Send via iMessage MCP.</div>
+            </div>
+          </div>
+          <div style={{ padding: '8px 14px 14px', borderTop: '1px solid #e5e7eb', fontSize: 11, color: '#6b7280' }}>
+            {awaitingYou.length > 4 ? `+ ${awaitingYou.length - 4} more in Email tab` : 'See all in Email tab'}
+          </div>
+        </div>
+
+        {/* TODAY LANE */}
+        <div style={laneStyle}>
+          <div style={laneHeader}>
+            <span style={{ fontSize: 14, fontWeight: 700, color: '#111827' }}>Today — Outlook</span>
+            <span style={{ fontSize: 11, color: '#6b7280' }}>{todayEvents.length} event{todayEvents.length === 1 ? '' : 's'}</span>
+          </div>
+          <div style={{ padding: '8px 10px 14px', flex: 1 }}>
+            {allDayToday.map((ev, i) => (
+              <div key={ev.id || `ad${i}`} style={itemStyle('ok')}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: '#111827' }}>{ev.title || 'Untitled'}</span>
+                  <span style={pillStyle('ok')}>ALL DAY</span>
+                </div>
+              </div>
+            ))}
+            {timedToday.length > 0 ? timedToday.slice(0, 5).map((ev, i) => (
+              <div key={ev.id || i} style={itemStyle('act')}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: '#111827' }}>{(ev.title || 'Untitled').slice(0, 50)}</span>
+                  <span style={pillStyle('act')}>{fmtTime(ev.start)}</span>
+                </div>
+                {ev.location && <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>{ev.location.slice(0, 40)}</div>}
+              </div>
+            )) : (timedToday.length === 0 && allDayToday.length === 0) && (
+              <div style={itemStyle('neutral')}>
+                <div style={{ fontSize: 12, color: '#374151' }}>Calendar's clear today.</div>
+              </div>
+            )}
+            {todayShowings.length > 0 && todayShowings.slice(0, 2).map((s, i) => (
+              <div key={`sh${i}`} style={itemStyle('hot')}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: '#111827' }}>{(s.property || '').split(',')[0]}</span>
+                  <span style={pillStyle('hot')}>SHOWING</span>
+                </div>
+                <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>{s.time || s.date} · {s.buyerAgent || s.status}</div>
+              </div>
+            ))}
+            {timedToday.length === 0 && (
+              <div style={{ ...itemStyle('act'), marginTop: 8 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: '#111827' }}>If you do one thing today</div>
+                <div style={{ fontSize: 11, color: '#374151', marginTop: 3 }}>Send 3 sphere check-in texts — pulls from the {sphereOverdue.length} A-tier overdue contacts in the Pipeline lane. 10 minutes.</div>
+              </div>
+            )}
+          </div>
+          <div style={{ padding: '8px 14px 14px', borderTop: '1px solid #e5e7eb', fontSize: 11, color: '#6b7280' }}>
+            {tmrwEvents.length > 0 ? `Tomorrow: ${tmrwEvents.length} event${tmrwEvents.length === 1 ? '' : 's'}` : 'Tomorrow is clear'}
+          </div>
+        </div>
+
+        {/* PIPELINE LANE */}
+        <div style={laneStyle}>
+          <div style={laneHeader}>
+            <span style={{ fontSize: 14, fontWeight: 700, color: '#111827' }}>Pipeline</span>
+            <span style={{ fontSize: 11, color: '#6b7280' }}>FUB · sphere · listings</span>
+          </div>
+          <div style={{ padding: '8px 10px 14px', flex: 1 }}>
+            {hotLeads.map((c, i) => (
+              <div key={c.id || i} style={itemStyle('hot')}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: '#111827' }}>{c.name || 'Unknown'}</span>
+                  <span style={pillStyle('hot')}>FUB · {(c.fubStage || 'A').split(' ')[0]}</span>
+                </div>
+                <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>{(c.context || c.tag || '').slice(0, 80)}{c.lastContact ? ` · last ${c.lastContact}` : ''}</div>
+              </div>
+            ))}
+            {sphereOverdue.length > 0 && (
+              <div style={itemStyle('warm')}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: '#111827' }}>Sphere — {sphereOverdue.length} A-tier overdue</span>
+                  <span style={pillStyle('warm')}>CADENCE</span>
+                </div>
+                <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>{sphereTop.map(c => c.name).filter(Boolean).slice(0, 4).join(' · ')}</div>
+              </div>
+            )}
+            {(listingDiag.noShowingsEver || 0) > 0 && (
+              <div style={itemStyle('act')}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: '#111827' }}>Listings — {listingDiag.noShowingsEver} with no showings ever</span>
+                  <span style={pillStyle('act')}>ATTN</span>
+                </div>
+                <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>{listingDiag.totalActive} active · {listingDiag.cmaDue || 0} CMAs due</div>
+              </div>
+            )}
+            {hotLeads.length === 0 && sphereOverdue.length === 0 && (
+              <div style={itemStyle('neutral')}>
+                <div style={{ fontSize: 12, color: '#374151' }}>Pipeline data syncing…</div>
+              </div>
+            )}
+          </div>
+          <div style={{ padding: '8px 14px 14px', borderTop: '1px solid #e5e7eb', fontSize: 11, color: '#6b7280' }}>
+            Daily Drive target <strong style={{ color: '#374151', fontWeight: 700 }}>{dailyDrive.callsMade || 0} / {dailyDrive.target || 5}</strong> calls today
+          </div>
         </div>
 
       </div>
-    </Card>
+    </div>
   );
 }
 
@@ -10001,7 +10161,7 @@ export default function Dashboard() {
         {/* Content */}
         <div style={{ flex: 1, overflowY: "auto", padding: 22 }}>
           {/* Google reconnect banner — single place for all Google services */}
-          <GoogleConnectionBanner />
+          {/* GoogleConnectionBanner removed — Outlook is the live calendar/email source */}
 
           {/* Hour of Power — always visible */}
           <HourOfPowerBar />
