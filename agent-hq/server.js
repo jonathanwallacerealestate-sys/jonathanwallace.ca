@@ -820,7 +820,7 @@ async function fetchOutlookEaThreads(days = 14) {
         outlookCcDetected: false,
         inSentFolder,
         source: 'outlook',
-        ...(existingState?.closedAt && state === 'closed' ? { closedAt: existingState.closedAt } : {}),
+        ...(state === 'closed' ? { closedAt: existingState?.closedAt || Date.now() } : {}),
       };
     } catch (e) {
       console.error(`[EA Outlook] Error processing conversation ${cid}:`, e.message);
