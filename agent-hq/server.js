@@ -426,6 +426,232 @@ function mapOutlookEventToShape(ev) {
 }
 
 // ─────────────────────────────────────────────
+// OUTLOOK-BACKED BROKERBAY SCRUB — replaces Gmail for /api/gmail/brokerbay
+// Calls Make.com Outlook Gateway, filters to BrokerBay senders, parses each
+// email via existing parseBrokerBayShowingEmail + extractAddressFromSubject,
+// then syncs confirmed showings into feedbackState.byMlsId so listing
+// diagnostics reflect real activity.
+// ─────────────────────────────────────────────
+const BB_OUTLOOK_GATEWAY_URL =
+  process.env.OUTLOOK_GATEWAY_URL ||
+  'https://hook.us2.make.com/2ikw0v0f6k2os8xetecaa71if1gac9mu';
+
+async function fetchOutlookBrokerBayEmails(days = 30) {
+  // Pull a wide window — the gateway doesn't filter by sender, we do it here
+  const resp = await fetch(BB_OUTLOOK_GATEWAY_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      action: 'read_inbox',
+      action_params: { limit: 200, unread_only: false },
+    }),
+  });
+  if (!resp.ok) throw new Error(`BB gateway ${resp.status}: ${(await resp.text()).slice(0,200)}`);
+  const data = await resp.json();
+  const all = Array.isArray(data?.messages) ? data.messages : [];
+  // Filter to BrokerBay senders + time window
+  const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
+  return all.filter(m => {
+    const addr = (m.from?.emailAddress?.address || '').toLowerCase();
+    const t = new Date(m.receivedDateTime || 0).getTime();
+    return addr.endsWith('brokerbay.com') && t >= cutoff;
+  });
+}
+
+// Normalize an address for matching: lowercase, strip non-alphanumeric.
+// "405 Bay Street N/A #2 (For Lease)" → "405baystreetna2forlease"
+function normalizeAddressKey(s) {
+  return (s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+// Loose match: keep only digits + first word ("405 Bay" → "405bay")
+function looseAddressKey(s) {
+  const norm = normalizeAddressKey(s);
+  const tokens = (s || '').toLowerCase().match(/\b[a-z0-9]+\b/g) || [];
+  if (tokens.length >= 2) return (tokens[0] + tokens[1]).replace(/[^a-z0-9]/g, '');
+  return norm;
+}
+
+// Write scrubbed showings into feedbackState so computeListingDiagnostics sees them.
+// Dedupes by externalId (message id) so re-runs don't double-count.
+function syncBrokerBayShowingsToFeedback(scrubResult) {
+  if (!scrubResult || !listingsState?.listings) return { matched: 0, skipped: 0, newEntries: 0 };
+
+  const buckets = [
+    { items: scrubResult.showings?.confirmed || [], status: 'confirmed' },
+    { items: scrubResult.showings?.cancelled || [], status: 'cancelled' },
+    { items: scrubResult.showings?.requested || [], status: 'requested' },
+    { items: scrubResult.showings?.modified || [], status: 'modified' },
+  ];
+
+  let matched = 0;
+  let skipped = 0;
+  let newEntries = 0;
+
+  // Build address lookup maps from active listings (not archived)
+  const activeListings = listingsState.listings.filter(l => !l.archived);
+  const byNorm = new Map();
+  const byLoose = new Map();
+  for (const l of activeListings) {
+    const norm = normalizeAddressKey(l.address);
+    const loose = looseAddressKey(l.address);
+    if (norm) byNorm.set(norm, l);
+    if (loose && !byLoose.has(loose)) byLoose.set(loose, l);
+  }
+
+  for (const bucket of buckets) {
+    for (const s of bucket.items) {
+      const addr = s.address || '';
+      if (!addr) { skipped++; continue; }
+      const norm = normalizeAddressKey(addr);
+      const loose = looseAddressKey(addr);
+      const listing = byNorm.get(norm) || byLoose.get(loose);
+      if (!listing) { skipped++; continue; }
+      matched++;
+
+      feedbackState.byMlsId[listing.mlsId] = feedbackState.byMlsId[listing.mlsId] || [];
+      const existing = feedbackState.byMlsId[listing.mlsId];
+      const externalId = s.messageId;
+      if (existing.some(e => e.externalId === externalId)) continue;
+
+      const entry = {
+        id: `bb_${externalId || Date.now()}_${Math.random().toString(36).slice(2,7)}`,
+        externalId,
+        type: 'showing',
+        status: bucket.status,
+        date: s.timestamp ? new Date(s.timestamp).toISOString() : (s.date || new Date().toISOString()),
+        agentName: s.agentName || null,
+        brokerage: s.brokerage || null,
+        showingDate: s.showingDate || null,
+        showingTime: s.showingTime || null,
+        source: 'brokerbay-outlook',
+      };
+      existing.unshift(entry);
+      if (existing.length > 200) feedbackState.byMlsId[listing.mlsId] = existing.slice(0, 200);
+      newEntries++;
+    }
+  }
+
+  if (newEntries > 0) {
+    try { saveFeedback(); } catch (e) { console.error('[BB Sync] saveFeedback failed:', e.message); }
+  }
+  return { matched, skipped, newEntries };
+}
+
+// Process raw BB messages into the same { showings, feedbackRequests, other } shape
+// the legacy Gmail handler returned. Uses existing parseBrokerBayShowingEmail
+// and extractAddressFromSubject.
+function processOutlookBrokerBayMessages(messages) {
+  const showings = { confirmed: [], cancelled: [], requested: [], modified: [] };
+  const feedbackRequests = [];
+  const other = [];
+
+  for (const msg of messages) {
+    try {
+      const subject = msg.subject || '';
+      const date = msg.receivedDateTime || '';
+      const timestamp = date ? new Date(date).getTime() : 0;
+      const body = msg.bodyPreview || msg.body?.content || '';
+      const emailData = { messageId: msg.id, subject, date, timestamp };
+      const subjectLower = subject.toLowerCase();
+
+      if (subjectLower.includes('showing confirmed') || subjectLower.includes('showing accepted')) {
+        const addr = extractAddressFromSubject(subject, 'Showing Confirmed');
+        const details = parseBrokerBayShowingEmail(body, subject);
+        showings.confirmed.push({ ...emailData, address: addr, ...details });
+      } else if (subjectLower.includes('showing cancel') || subjectLower.includes('cancellation')) {
+        const addr = extractAddressFromSubject(subject, 'Showing Cancel');
+        const details = parseBrokerBayShowingEmail(body, subject);
+        showings.cancelled.push({ ...emailData, address: addr, ...details });
+      } else if (subjectLower.includes('showing request') || subjectLower.includes('new showing')) {
+        const addr = extractAddressFromSubject(subject, 'Showing Request');
+        const details = parseBrokerBayShowingEmail(body, subject);
+        showings.requested.push({ ...emailData, address: addr, ...details });
+      } else if (subjectLower.includes('showing modif') || subjectLower.includes('time change') || subjectLower.includes('reschedule')) {
+        const addr = extractAddressFromSubject(subject, 'Showing Modified');
+        const details = parseBrokerBayShowingEmail(body, subject);
+        showings.modified.push({ ...emailData, address: addr, ...details });
+      } else if (subjectLower.includes('showing feedback') || subjectLower.includes('feedback request')) {
+        const addr = extractAddressFromSubject(subject, 'Showing Feedback');
+        let feedbackUrl = '';
+        if (body) {
+          const m = body.match(/https:\/\/edge\.brokerbay\.com[^\s"'<>]*showing\/[a-f0-9]+[^\s"'<>]*/i);
+          if (m) feedbackUrl = m[0];
+        }
+        feedbackRequests.push({ ...emailData, address: addr, feedbackUrl });
+      } else {
+        other.push(emailData);
+      }
+    } catch (e) {
+      console.error(`[BB Outlook] Error processing ${msg.id}:`, e.message);
+    }
+  }
+
+  // Cross-ref: resolve requests against confirms/cancellations
+  const norm = (s) => (s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  const makeKey = (e) => `${norm(e.address)}|${norm(e.showingTime || e.showingDate || '')}|${norm(e.agentName || '')}`;
+  const makeLooseKey = (e) => `${norm(e.address)}|${norm(e.agentName || '')}`;
+  const confirmedKeys = new Set(showings.confirmed.map(makeKey));
+  const cancelledKeys = new Set(showings.cancelled.map(makeKey));
+  const confirmedLooseKeys = new Set(showings.confirmed.map(makeLooseKey));
+  const cancelledLooseKeys = new Set(showings.cancelled.map(makeLooseKey));
+
+  const resolvedRequests = [];
+  const activeRequests = [];
+  for (const r of showings.requested) {
+    const k = makeKey(r);
+    const lk = makeLooseKey(r);
+    if (cancelledKeys.has(k) || cancelledLooseKeys.has(lk)) {
+      resolvedRequests.push({ ...r, resolution: 'cancelled' });
+    } else if (confirmedKeys.has(k) || confirmedLooseKeys.has(lk)) {
+      resolvedRequests.push({ ...r, resolution: 'confirmed' });
+    } else {
+      activeRequests.push(r);
+    }
+  }
+
+  return {
+    showings: { ...showings, requested: activeRequests },
+    feedbackRequests,
+    resolvedRequests,
+    other,
+    summary: {
+      totalEmails: messages.length,
+      confirmedShowings: showings.confirmed.length,
+      cancelledShowings: showings.cancelled.length,
+      requestedShowings: activeRequests.length,
+      resolvedRequests: resolvedRequests.length,
+      modifiedShowings: showings.modified.length,
+      feedbackRequests: feedbackRequests.length,
+    },
+  };
+}
+
+// Cache last result + scrub timestamp
+let brokerBayOutlookCache = { result: null, scrubbedAt: null, syncResult: null };
+
+async function refreshBrokerBayFromOutlook(days = 30, opts = {}) {
+  try {
+    const messages = await fetchOutlookBrokerBayEmails(days);
+    const result = processOutlookBrokerBayMessages(messages);
+    let syncResult = null;
+    try {
+      syncResult = syncBrokerBayShowingsToFeedback(result);
+    } catch (e) {
+      console.error('[BB Outlook] sync error:', e.message);
+    }
+    brokerBayOutlookCache = { result, scrubbedAt: new Date().toISOString(), syncResult };
+    if (opts.log !== false) {
+      console.log(`[BB Outlook] scrub: ${result.summary.totalEmails} emails, ${result.summary.confirmedShowings} confirmed | sync: ${syncResult?.newEntries || 0} new entries across ${syncResult?.matched || 0} matches`);
+    }
+    return { result, syncResult };
+  } catch (e) {
+    console.error('[BB Outlook] refresh error:', e.message);
+    return { error: e.message };
+  }
+}
+
+// ─────────────────────────────────────────────
 // OUTLOOK-BACKED EMAIL ASSISTANT — replaces Gmail for /api/ea/triage
 // Calls the Make.com Outlook Gateway (scenario 5106541) for inbox + sent.
 // Groups by conversationId → thread, applies the same classifiers + state
@@ -1851,163 +2077,29 @@ app.get('/api/gmail/brokerbay/debug', async (req, res) => {
 });
 
 // GET /api/gmail/brokerbay — All BrokerBay emails: showings, confirmations, cancellations, feedback
+// GET /api/gmail/brokerbay — Outlook-backed (was Gmail). Returns same shape so
+// the React useBrokerBayShowings hook + Morning Brief widget keep working.
 app.get('/api/gmail/brokerbay', async (req, res) => {
-  if (!tokens) return res.json({ status: 'disconnected', data: {} });
-
   try {
-    const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
     const days = parseInt(req.query.days) || 30;
-
-    // Search for all BrokerBay emails
-    const listRes = await gmail.users.messages.list({
-      userId: 'me',
-      q: `from:brokerbay.com newer_than:${days}d`,
-      maxResults: 50,
-    });
-    const messages = listRes.data.messages || [];
-
-    const showings = { confirmed: [], cancelled: [], requested: [], modified: [] };
-    const feedbackRequests = [];
-    const other = [];
-
-    for (const msg of messages) {
-      try {
-        const detail = await gmail.users.messages.get({ userId: 'me', id: msg.id, format: 'full' });
-        const headers = detail.data.payload.headers || [];
-        const subject = headers.find(h => h.name === 'Subject')?.value || '';
-        const date = headers.find(h => h.name === 'Date')?.value || '';
-        const body = getEmailBody(detail.data.payload);
-
-        const emailData = { messageId: msg.id, subject, date, timestamp: parseInt(detail.data.internalDate) };
-
-        // Classify BrokerBay email type
-        const subjectLower = subject.toLowerCase();
-
-        if (subjectLower.includes('showing confirmed') || subjectLower.includes('showing accepted')) {
-          const addr = extractAddressFromSubject(subject, 'Showing Confirmed');
-          const showingDetails = parseBrokerBayShowingEmail(body, subject);
-          showings.confirmed.push({ ...emailData, address: addr, ...showingDetails });
-        }
-        else if (subjectLower.includes('showing cancelled') || subjectLower.includes('showing canceled') || subjectLower.includes('cancellation')) {
-          const addr = extractAddressFromSubject(subject, 'Showing Cancel');
-          const showingDetails = parseBrokerBayShowingEmail(body, subject);
-          showings.cancelled.push({ ...emailData, address: addr, ...showingDetails });
-        }
-        else if (subjectLower.includes('showing request') || subjectLower.includes('new showing')) {
-          const addr = extractAddressFromSubject(subject, 'Showing Request');
-          const showingDetails = parseBrokerBayShowingEmail(body, subject);
-          showings.requested.push({ ...emailData, address: addr, ...showingDetails });
-        }
-        else if (subjectLower.includes('showing modified') || subjectLower.includes('time change') || subjectLower.includes('reschedule')) {
-          const addr = extractAddressFromSubject(subject, 'Showing Modified');
-          const showingDetails = parseBrokerBayShowingEmail(body, subject);
-          showings.modified.push({ ...emailData, address: addr, ...showingDetails });
-        }
-        else if (subjectLower.includes('showing feedback') || subjectLower.includes('feedback request')) {
-          const addr = extractAddressFromSubject(subject, 'Showing Feedback');
-          let feedbackUrl = '';
-          if (body) {
-            const urlMatch = body.match(/https:\/\/edge\.brokerbay\.com[^\s"'<>]*showing\/[a-f0-9]+[^\s"'<>]*/i);
-            if (urlMatch) feedbackUrl = urlMatch[0];
-          }
-          feedbackRequests.push({ ...emailData, address: addr, feedbackUrl });
-        }
-        else {
-          other.push(emailData);
-        }
-      } catch (e) {
-        console.error(`[BrokerBay] Error processing message ${msg.id}:`, e.message);
+    const { result, syncResult, error } = await refreshBrokerBayFromOutlook(days, { log: false });
+    if (error) {
+      // Fall back to cached result if scrub fails
+      if (brokerBayOutlookCache.result) {
+        return res.json({ status: 'cached', source: 'outlook', error, ...brokerBayOutlookCache.result, scrubbedAt: brokerBayOutlookCache.scrubbedAt });
       }
+      return res.status(503).json({ status: 'error', source: 'outlook', error });
     }
-
-    // ── CROSS-REFERENCE ──
-    // Match confirmations/cancellations against requests using:
-    //   address (normalized) + showingTime + agentName
-    // Requests that have a matching confirmation → resolved
-    // Requests that have a matching cancellation → cancelled
-    const normalize = (s) => (s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-    const makeKey = (entry) => {
-      const addr = normalize(entry.address);
-      const time = normalize(entry.showingTime || entry.showingDate || '');
-      const agent = normalize(entry.agentName || '');
-      return `${addr}|${time}|${agent}`;
-    };
-
-    // Build lookup sets from confirmations and cancellations
-    const confirmedKeys = new Set(showings.confirmed.map(makeKey));
-    const cancelledKeys = new Set(showings.cancelled.map(makeKey));
-
-    // Also match by address + agent (in case time format differs between emails)
-    const makeLooseKey = (entry) => {
-      const addr = normalize(entry.address);
-      const agent = normalize(entry.agentName || '');
-      return `${addr}|${agent}`;
-    };
-    const confirmedLooseKeys = new Set(showings.confirmed.map(makeLooseKey));
-    const cancelledLooseKeys = new Set(showings.cancelled.map(makeLooseKey));
-
-    // Tag requests with their resolution status
-    const resolvedRequests = [];
-    const activeRequests = [];
-    for (const req of showings.requested) {
-      const key = makeKey(req);
-      const looseKey = makeLooseKey(req);
-      if (cancelledKeys.has(key) || cancelledLooseKeys.has(looseKey)) {
-        resolvedRequests.push({ ...req, resolution: 'cancelled', matchedBy: 'address+time+agent' });
-      } else if (confirmedKeys.has(key) || confirmedLooseKeys.has(looseKey)) {
-        resolvedRequests.push({ ...req, resolution: 'confirmed', matchedBy: 'address+time+agent' });
-      } else {
-        activeRequests.push(req);
-      }
-    }
-
-    // ── AUTO-CREATE REALTOR CONTACTS IN FUB ──
-    // Fire-and-forget: don't block the response
-    // Prioritize REQUEST emails — they have the agent's cell phone
-    // Confirmed emails typically only have the brokerage office number
-    const agentsToProcess = [...activeRequests, ...showings.requested, ...showings.modified, ...showings.confirmed];
-    const realtorResults = [];
-    if (FUB_API_KEY) {
-      // Process in background — don't await, just kick it off
-      (async () => {
-        for (const s of agentsToProcess) {
-          if (s.agentName) {
-            try {
-              const result = await ensureRealtorInFub(s.agentName, s.agentEmail, s.agentPhone, s.brokeragePhone, s.brokerage, s.address);
-              if (result) realtorResults.push(result);
-            } catch (err) {
-              console.error(`[BB→FUB] Background error for ${s.agentName}:`, err.message);
-            }
-          }
-        }
-        if (realtorResults.filter(r => r.status === 'created').length > 0) {
-          console.log(`[BB→FUB] Created ${realtorResults.filter(r => r.status === 'created').length} new realtor contacts from showings`);
-        }
-      })();
-    }
-
     res.json({
       status: 'ok',
-      summary: {
-        totalEmails: messages.length,
-        confirmedShowings: showings.confirmed.length,
-        cancelledShowings: showings.cancelled.length,
-        requestedShowings: activeRequests.length,
-        resolvedRequests: resolvedRequests.length,
-        modifiedShowings: showings.modified.length,
-        feedbackRequests: feedbackRequests.length,
-      },
-      showings: {
-        ...showings,
-        requested: activeRequests,
-        resolved: resolvedRequests,
-      },
-      feedbackRequests,
-      other,
+      source: 'outlook',
+      scrubbedAt: brokerBayOutlookCache.scrubbedAt,
+      diagnosticsSync: syncResult,
+      ...result,
     });
   } catch (err) {
-    console.error('[BrokerBay] Scan error:', err.message);
-    res.json({ status: 'error', error: err.message, data: {} });
+    console.error('[BB Outlook] handler error:', err.message);
+    res.status(500).json({ status: 'error', source: 'outlook', error: err.message });
   }
 });
 
@@ -2254,6 +2346,17 @@ const AUTO_ARCHIVE_PATTERNS = [
   { from: 'github.com', subject: null, action: 'archive', label: null },
   { from: 'notifications@em.realmmlp.ca', subject: null, action: 'archive', label: null },
   { from: 'offers@faristeam.ca', subject: null, action: 'archive', label: null },
+  // FUB notification mentions — already in FUB, just an alert. Keep
+  // "Lead assigned" actionable by excluding it from the archive rule.
+  { from: 'notifications@followupboss.com', subject: /mentioned you in a note|note created for|note added/i, action: 'archive', label: null },
+  // Coaching / training / industry newsletters — informational, not actionable
+  { from: 'gloveru.com', subject: null, action: 'archive', label: null },
+  { from: 'leccoach.com', subject: null, action: 'archive', label: null },
+  { from: 'onepointar.ca', subject: null, action: 'archive', label: null },
+  { from: 'thenatureofrealestate.com', subject: null, action: 'archive', label: null },
+  { from: 'crea.ca', subject: null, action: 'archive', label: null },
+  // InterFace — administrative form notifications
+  { from: 'interface.re', subject: null, action: 'archive', label: null },
 ];
 
 // Priority classification from framework §3.4 + §12.3
@@ -2435,6 +2538,27 @@ setTimeout(() => {
   console.log('[EA Sweep] Running startup sweep...');
   runScheduledSweep('startup');
 }, 15 * 1000);
+
+// BrokerBay scrub cron — every 15 min during business hours (7am-9pm ET).
+// Pulls fresh emails from Outlook, parses, syncs to feedbackState so listing
+// diagnostics stay current without anyone opening the dashboard.
+const BB_SCRUB_INTERVAL_MS = 15 * 60 * 1000;
+setInterval(() => {
+  try {
+    const hourEt = parseInt(new Date().toLocaleString('en-US', { timeZone: 'America/Toronto', hour: 'numeric', hour12: false }), 10);
+    if (hourEt >= 7 && hourEt < 21) {
+      refreshBrokerBayFromOutlook(30, { log: true });
+    }
+  } catch (e) {
+    console.error('[BB Cron] tick error:', e.message);
+  }
+}, BB_SCRUB_INTERVAL_MS);
+
+// Startup scrub
+setTimeout(() => {
+  console.log('[BB Cron] running startup scrub...');
+  refreshBrokerBayFromOutlook(30, { log: true });
+}, 20 * 1000);
 
 // GET /api/ea/sweep-status — View scheduled sweep status and logs
 app.get('/api/ea/sweep-status', (req, res) => {
