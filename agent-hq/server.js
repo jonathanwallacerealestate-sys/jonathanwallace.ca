@@ -425,6 +425,185 @@ function mapOutlookEventToShape(ev) {
   };
 }
 
+// ─────────────────────────────────────────────
+// OUTLOOK-BACKED EMAIL ASSISTANT — replaces Gmail for /api/ea/triage
+// Calls the Make.com Outlook Gateway (scenario 5106541) for inbox + sent.
+// Groups by conversationId → thread, applies the same classifiers + state
+// machine the Gmail version used. Returns identical thread shape so the
+// frontend doesn't change.
+// ─────────────────────────────────────────────
+const OUTLOOK_GATEWAY_URL_EA =
+  process.env.OUTLOOK_GATEWAY_URL ||
+  'https://hook.us2.make.com/2ikw0v0f6k2os8xetecaa71if1gac9mu';
+
+async function callOutlookEaGateway(action, params = {}) {
+  const resp = await fetch(OUTLOOK_GATEWAY_URL_EA, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action, action_params: params }),
+  });
+  if (!resp.ok) {
+    const txt = await resp.text();
+    throw new Error(`Outlook gateway ${action} ${resp.status}: ${txt.slice(0, 200)}`);
+  }
+  return resp.json();
+}
+
+async function fetchOutlookEaThreads(days = 14) {
+  // 1) Pull recent inbox messages
+  const inboxResp = await callOutlookEaGateway('read_inbox', { limit: 100, unread_only: false });
+  const inboxMessages = Array.isArray(inboxResp?.messages) ? inboxResp.messages : [];
+
+  // 2) Pull recent sent messages (optional — used to detect replies)
+  let sentMessages = [];
+  try {
+    const sentResp = await callOutlookEaGateway('list_sent', { limit: 100 });
+    sentMessages = Array.isArray(sentResp?.messages) ? sentResp.messages : [];
+  } catch (e) {
+    console.warn('[EA Outlook] list_sent failed (continuing without sent detection):', e.message);
+  }
+
+  const sentConvIds = new Set(sentMessages.map(m => m.conversationId).filter(Boolean));
+
+  // 3) Group inbox by conversationId
+  const grouped = {};
+  for (const msg of inboxMessages) {
+    const cid = msg.conversationId || msg.id;
+    if (!cid) continue;
+    if (!grouped[cid]) grouped[cid] = [];
+    grouped[cid].push(msg);
+  }
+
+  // 4) Merge sent into matching conversations
+  for (const sent of sentMessages) {
+    const cid = sent.conversationId;
+    if (cid && grouped[cid]) {
+      grouped[cid].push({ ...sent, _fromSent: true });
+    }
+  }
+
+  // 5) Process each conversation into a thread
+  const processedThreads = {};
+  for (const [cid, msgs] of Object.entries(grouped)) {
+    try {
+      // Sort oldest first
+      msgs.sort((a, b) => {
+        const aT = new Date(a.receivedDateTime || a.sentDateTime || 0).getTime();
+        const bT = new Date(b.receivedDateTime || b.sentDateTime || 0).getTime();
+        return aT - bT;
+      });
+
+      const firstMsg = msgs[0];
+      const lastMsg = msgs[msgs.length - 1];
+      const subject = firstMsg.subject || '(no subject)';
+
+      const lastFromAddr =
+        lastMsg.from?.emailAddress?.address ||
+        (lastMsg._fromSent ? 'jonathan@faristeam.ca' : '');
+      const lastFromName = lastMsg.from?.emailAddress?.name || '';
+      const lastFrom = lastFromName && lastFromAddr
+        ? `${lastFromName} <${lastFromAddr}>`
+        : (lastFromAddr || lastFromName);
+      const lastFromEmail = lastFromAddr;
+      const lastSnippet = lastMsg.bodyPreview || '';
+      const lastDate = lastMsg.receivedDateTime || lastMsg.sentDateTime || '';
+
+      const firstFromAddr = firstMsg.from?.emailAddress?.address || '';
+      const firstFromName = firstMsg.from?.emailAddress?.name || '';
+      const firstFrom = firstFromName && firstFromAddr
+        ? `${firstFromName} <${firstFromAddr}>`
+        : (firstFromAddr || firstFromName);
+
+      const lastFromEmailLc = (lastFromEmail || '').toLowerCase();
+      const isFromJonathan = JONATHAN_EMAILS.some(j => lastFromEmailLc.includes(j.toLowerCase()));
+      const jonathanSentInThread = msgs.some(m =>
+        m._fromSent ||
+        JONATHAN_EMAILS.some(j => (m.from?.emailAddress?.address || '').toLowerCase().includes(j.toLowerCase()))
+      );
+      const inSentFolder = sentConvIds.has(cid);
+      const jonathanHasReplied = isFromJonathan || jonathanSentInThread || inSentFolder;
+
+      const lastSenderType = classifySenderType(lastFromEmail);
+      const category = categorizeEmail(lastFrom, subject, lastSnippet, []);
+      const priority = classifyThreadPriority(lastFromEmail, subject, category);
+      const archiveRule = shouldAutoArchive(lastFromEmail, subject);
+
+      const existingState = eaThreadCache.threads[cid];
+      let state = 'awaiting_you';
+
+      if (existingState?.state === 'snoozed') {
+        const snoozeUntil = existingState.snoozeUntil ? new Date(existingState.snoozeUntil) : null;
+        state = snoozeUntil && snoozeUntil > new Date() ? 'snoozed' : 'awaiting_you';
+      } else if (existingState?.state === 'closed') {
+        const closedAt = existingState.closedAt || 0;
+        const lastMsgTime = lastDate ? new Date(lastDate).getTime() : 0;
+        state = lastMsgTime > closedAt ? 'awaiting_you' : 'closed';
+      } else if (archiveRule) {
+        state = 'closed';
+      } else if (isFromJonathan || jonathanHasReplied) {
+        const snippetLc = lastSnippet.toLowerCase();
+        if (isFromJonathan && (
+          snippetLc.includes('thank') ||
+          snippetLc.includes('confirmed') ||
+          snippetLc.includes('sounds good') ||
+          snippetLc.includes('all set')
+        )) {
+          state = 'closed';
+        } else {
+          state = 'awaiting_them';
+        }
+      } else if (existingState?.state === 'draft_ready') {
+        state = 'draft_ready';
+      } else {
+        state = 'awaiting_you';
+      }
+
+      const participants = new Set();
+      for (const m of msgs) {
+        const f = m.from?.emailAddress?.address;
+        if (f) participants.add(f);
+        for (const r of (m.toRecipients || [])) {
+          if (r.emailAddress?.address) participants.add(r.emailAddress.address);
+        }
+      }
+
+      processedThreads[cid] = {
+        threadId: cid,
+        id: cid,
+        subject,
+        from: parseEmailSender(lastFrom) || lastFromName || lastFromAddr,
+        fromEmail: lastFromEmail,
+        firstFrom: parseEmailSender(firstFrom) || firstFromName || firstFromAddr,
+        firstFromEmail: firstFromAddr,
+        lastFrom,
+        lastFromEmail,
+        lastSenderType,
+        lastSnippet,
+        lastDate,
+        timestamp: lastDate ? new Date(lastDate).getTime() : 0,
+        messageCount: msgs.length,
+        state,
+        priority,
+        category,
+        isRead: lastMsg.isRead !== false,
+        isStarred: lastMsg.flag?.flagStatus === 'flagged',
+        snippet: lastSnippet,
+        participants: [...participants],
+        autoArchiveRule: archiveRule ? archiveRule.action : null,
+        linkedProperty: null,
+        outlookCcDetected: false,
+        inSentFolder,
+        source: 'outlook',
+        ...(existingState?.closedAt && state === 'closed' ? { closedAt: existingState.closedAt } : {}),
+      };
+    } catch (e) {
+      console.error(`[EA Outlook] Error processing conversation ${cid}:`, e.message);
+    }
+  }
+
+  return processedThreads;
+}
+
 app.get('/api/calendar/status', async (req, res) => {
   try {
     const now = new Date();
@@ -2145,306 +2324,32 @@ function shouldAutoArchive(fromEmail, subject) {
 // GET /api/ea/triage — The main EA email sweep endpoint
 // Scans Gmail threads, classifies state, returns the full thread state dashboard
 app.get('/api/ea/triage', async (req, res) => {
-  if (!tokens) {
-    // Return cached data as fallback when disconnected
-    const threads = Object.values(eaThreadCache.threads);
-    if (threads.length > 0) {
-      return res.json({
-        status: 'offline_cached',
-        lastSweep: eaThreadCache.lastSweep,
-        threads: threads,
-        counts: countThreadStates(threads),
-      });
-    }
-    return res.json({ status: 'disconnected', threads: [], counts: { awaiting_you: 0, draft_ready: 0, awaiting_them: 0, closed: 0, snoozed: 0 } });
-  }
-
   try {
-    const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
     const days = parseInt(req.query.days) || 14;
+    const processedThreads = await fetchOutlookEaThreads(days);
 
-    // Ensure Done label exists for filtering
-    await getOrCreateDoneLabel(gmail);
-
-    // Step 1: Fetch inbox threads — exclude threads already marked Done via label
-    const doneFilter = eaDoneLabelId ? ` -label:${EA_DONE_LABEL_NAME}` : '';
-    const inboxRes = await gmail.users.threads.list({
-      userId: 'me',
-      q: `in:inbox newer_than:${days}d${doneFilter}`,
-      maxResults: 80,
-    });
-    const inboxThreads = inboxRes.data.threads || [];
-
-    // Step 2: Fetch sent threads to detect "awaiting them" state
-    const sentRes = await gmail.users.threads.list({
-      userId: 'me',
-      q: `in:sent newer_than:${days}d`,
-      maxResults: 50,
-    });
-    const sentThreadIds = new Set((sentRes.data.threads || []).map(t => t.id));
-
-    // Step 2b: Fetch forwarded CC copies from Outlook (jonathan@faristeam.ca → Gmail forwarding)
-    // These arrive as inbound messages FROM jonathan@faristeam.ca when he CCs himself on Outlook replies
-    const ccForwardRes = await gmail.users.messages.list({
-      userId: 'me',
-      q: `from:jonathan@faristeam.ca newer_than:${days}d`,
-      maxResults: 100,
-    });
-    const ccForwardMsgIds = new Set((ccForwardRes.data.messages || []).map(m => m.id));
-    const ccForwardCount = ccForwardMsgIds.size;
-    console.log(`[EA] Found ${ccForwardCount} CC-forwarded Outlook replies in Gmail`);
-
-    // Step 3: Process each thread
-    const processedThreads = {};
-
-    for (const thread of inboxThreads) {
-      try {
-        const detail = await gmail.users.threads.get({
-          userId: 'me',
-          id: thread.id,
-          format: 'metadata',
-          metadataHeaders: ['From', 'To', 'Subject', 'Date', 'Cc'],
-        });
-
-        const messages = detail.data.messages || [];
-        if (messages.length === 0) continue;
-
-        // Get the first message for subject, and last message for state
-        const firstMsg = messages[0];
-        const lastMsg = messages[messages.length - 1];
-
-        const firstHeaders = firstMsg.payload?.headers || [];
-        const lastHeaders = lastMsg.payload?.headers || [];
-
-        const subject = firstHeaders.find(h => h.name === 'Subject')?.value || '(no subject)';
-        const lastFrom = lastHeaders.find(h => h.name === 'From')?.value || '';
-        const lastDate = lastHeaders.find(h => h.name === 'Date')?.value || '';
-        const lastFromEmail = extractEmail(lastFrom);
-        const lastSenderType = classifySenderType(lastFromEmail);
-
-        // First message sender info (for display)
-        const firstFrom = firstHeaders.find(h => h.name === 'From')?.value || '';
-
-        // Classify the email category
-        const lastSnippet = lastMsg.snippet || '';
-        const lastLabels = lastMsg.labelIds || [];
-        const category = categorizeEmail(lastFrom, subject, lastSnippet, lastLabels);
-        const priority = classifyThreadPriority(lastFromEmail, subject, category);
-
-        // Check if auto-archive applies
-        const archiveRule = shouldAutoArchive(lastFromEmail, subject);
-
-        // Determine thread state per framework §3.5
-        let state = 'awaiting_you';
-        const isFromJonathan = JONATHAN_EMAILS.some(j => lastFromEmail.includes(j));
-        const existingState = eaThreadCache.threads[thread.id];
-
-        // Also check: did Jonathan send ANY recent message in this thread?
-        // This catches CC-forwarded Outlook replies that may not be the "last" message
-        // (e.g., if the forwarded CC arrives slightly after the original)
-        const jonathanSentInThread = messages.some(msg => {
-          const msgFrom = (msg.payload?.headers || []).find(h => h.name === 'From')?.value || '';
-          const msgFromEmail = extractEmail(msgFrom);
-          return JONATHAN_EMAILS.some(j => msgFromEmail.includes(j));
-        });
-        // Check if this thread also appears in sent folder
-        const inSentFolder = sentThreadIds.has(thread.id);
-        // Combined: Jonathan has replied if last msg is from him, OR he sent in thread, OR thread is in sent
-        const jonathanHasReplied = isFromJonathan || (jonathanSentInThread && !isFromJonathan);
-
-        if (existingState?.state === 'snoozed') {
-          // Respect snooze — check if snooze has expired
-          const snoozeUntil = existingState.snoozeUntil ? new Date(existingState.snoozeUntil) : null;
-          if (snoozeUntil && snoozeUntil > new Date()) {
-            state = 'snoozed';
-          } else {
-            state = 'awaiting_you'; // Snooze expired
-          }
-        } else if (existingState?.state === 'closed') {
-          // Respect manual close — only reopen if a NEW message arrived after the close
-          const closedAt = existingState.closedAt || 0;
-          const lastMsgTime = parseInt(lastMsg.internalDate) || 0;
-          if (lastMsgTime > closedAt) {
-            state = 'awaiting_you'; // New message arrived after Done — reopen
-          } else {
-            state = 'closed'; // No new messages since Done — stay closed
-          }
-        } else if (archiveRule) {
-          state = 'closed'; // Auto-archive rule
-        } else if (isFromJonathan || jonathanHasReplied || inSentFolder) {
-          // Jonathan sent last, OR CC'd reply detected, OR thread is in sent folder
-          // Determine if it's a closing reply or still awaiting their response
-          const lastSnippetLower = lastSnippet.toLowerCase();
-          if (isFromJonathan && (lastSnippetLower.includes('thank') || lastSnippetLower.includes('confirmed') ||
-              lastSnippetLower.includes('sounds good') || lastSnippetLower.includes('all set'))) {
-            state = 'closed';
-          } else {
-            state = 'awaiting_them';
-          }
-        } else if (existingState?.state === 'draft_ready') {
-          state = 'draft_ready'; // Preserve draft_ready
-        } else {
-          state = 'awaiting_you';
-        }
-
-        // Determine who we're waiting on / who needs reply
-        const participants = new Set();
-        for (const msg of messages) {
-          const from = (msg.payload?.headers || []).find(h => h.name === 'From')?.value || '';
-          const to = (msg.payload?.headers || []).find(h => h.name === 'To')?.value || '';
-          if (from) participants.add(extractEmail(from));
-          if (to) participants.add(extractEmail(to));
-        }
-
-        processedThreads[thread.id] = {
-          threadId: thread.id,
-          subject,
-          from: parseEmailSender(lastFrom),
-          fromEmail: lastFromEmail,
-          firstFrom: parseEmailSender(firstFrom),
-          firstFromEmail: extractEmail(firstFrom),
-          lastDate,
-          timestamp: parseInt(lastMsg.internalDate),
-          messageCount: messages.length,
-          state,
-          priority,
-          category,
-          senderType: lastSenderType,
-          isRead: !lastLabels.includes('UNREAD'),
-          isStarred: lastLabels.includes('STARRED'),
-          snippet: lastSnippet,
-          participants: [...participants],
-          autoArchiveRule: archiveRule ? archiveRule.action : null,
-          linkedProperty: null, // Will be populated by property-matching logic
-          outlookCcDetected: jonathanSentInThread && !isFromJonathan, // CC-forwarded reply detected
-          inSentFolder: inSentFolder,
-          ...(existingState?.closedAt && state === 'closed' ? { closedAt: existingState.closedAt } : {}),
-        };
-      } catch (e) {
-        console.error(`[EA] Error processing thread ${thread.id}:`, e.message);
-      }
-    }
-
-    // Cross-reference confirmed showings — if a thread's subject mentions
-    // the address of a CONFIRMED BrokerBay showing, force-close it. This
-    // catches the agent-direct emails about a showing that come BEFORE/around
-    // the BrokerBay confirmation: once Jonathan confirms in BrokerBay, the
-    // matching back-and-forth thread no longer needs to sit in Email AI.
-    let closedByConfirmation = 0;
-    const confirmedShowingKeys = await getConfirmedShowingKeys(gmail, days);
-    if (confirmedShowingKeys.size > 0) {
-      for (const tid of Object.keys(processedThreads)) {
-        const t = processedThreads[tid];
-        if (t.state === 'closed' || t.state === 'snoozed') continue;
-        const subjectLower = (t.subject || '').toLowerCase();
-        // Restrict to showing-related threads to avoid false positives on
-        // unrelated emails that happen to share an address (e.g. an offer
-        // thread for the same property — those should stay visible).
-        const isShowingRelated = t.category === 'showing'
-          || /\b(showing|viewing|preview|tour|see the (?:home|house|property))\b/i.test(t.subject || '');
-        if (!isShowingRelated) continue;
-        for (const key of confirmedShowingKeys) {
-          if (subjectLower.includes(key)) {
-            t.state = 'closed';
-            t.autoArchiveRule = 'showing_confirmed';
-            t.closedAt = Date.now();
-            closedByConfirmation++;
-            break;
-          }
-        }
-      }
-      if (closedByConfirmation > 0) {
-        console.log(`[EA] Auto-closed ${closedByConfirmation} thread(s) matching ${confirmedShowingKeys.size} confirmed showing(s)`);
-      }
-    }
-
-    // Also check FUB for sent-email activity (solves Outlook sent-folder visibility gap)
-    let fubSentActivity = [];
-    if (FUB_API_KEY) {
-      try {
-        // FUB tracks email events — we can see what Jonathan has sent
-        const fubResp = await fetch(`${FUB_BASE}/events?type=email&limit=50&sort=created&order=desc`, {
-          headers: fubHeaders(),
-        });
-        if (fubResp.ok) {
-          const fubData = await fubResp.json();
-          fubSentActivity = (fubData.events || []).filter(e =>
-            e.type === 'email' && e.isIncoming === false
-          ).map(e => ({
-            personId: e.personId,
-            personName: e.person ? [e.person.firstName, e.person.lastName].filter(Boolean).join(' ') : '',
-            subject: e.description || '',
-            date: e.created,
-            source: 'fub',
-          }));
-          console.log(`[EA] FUB sent activity: ${fubSentActivity.length} outbound emails found`);
-        }
-      } catch (e) {
-        console.log('[EA] FUB events check (non-critical):', e.message);
-      }
-    }
-
-    // Cross-reference FUB sent emails to update thread states
-    // If we see a FUB sent email that matches a thread's subject/contact, mark it awaiting_them
-    for (const fubSent of fubSentActivity) {
-      // Try to match by subject similarity
-      for (const [tid, thread] of Object.entries(processedThreads)) {
-        if (thread.state === 'awaiting_you') {
-          const fubSubLower = (fubSent.subject || '').toLowerCase();
-          const threadSubLower = (thread.subject || '').toLowerCase();
-          // Match if subjects overlap or if the FUB person name matches the thread sender
-          const nameLower = (fubSent.personName || '').toLowerCase();
-          const threadFrom = (thread.from || '').toLowerCase();
-          if ((fubSubLower && threadSubLower.includes(fubSubLower.slice(0, 20))) ||
-              (nameLower && threadFrom.includes(nameLower.split(' ')[0]))) {
-            // Check if FUB sent date is after last thread message
-            const fubDate = new Date(fubSent.date).getTime();
-            if (fubDate > (thread.timestamp || 0)) {
-              processedThreads[tid].state = 'awaiting_them';
-              processedThreads[tid].fubSentMatch = true;
-            }
-          }
-        }
-      }
-    }
-
-    // Save thread cache
+    // Merge into cache (preserves snooze/closed overrides from prior sweeps)
     eaThreadCache = {
-      threads: processedThreads,
+      threads: { ...eaThreadCache.threads, ...processedThreads },
       lastSweep: new Date().toISOString(),
       sweepCount: (eaThreadCache.sweepCount || 0) + 1,
-      fubSentCount: fubSentActivity.length,
     };
     saveEaThreads();
 
     const threads = Object.values(processedThreads);
-    const counts = countThreadStates(threads);
-
-    // Sort: P0 first, then P1, then by unread, then by timestamp
-    threads.sort((a, b) => {
-      const po = { p0: 0, p1: 1, p2: 2 };
-      const pd = (po[a.priority] || 2) - (po[b.priority] || 2);
-      if (pd !== 0) return pd;
-      if (a.isRead !== b.isRead) return a.isRead ? 1 : -1;
-      return (b.timestamp || 0) - (a.timestamp || 0);
-    });
-
     res.json({
-      status: 'ok',
+      status: 'success',
+      source: 'outlook',
       lastSweep: eaThreadCache.lastSweep,
-      sweepCount: eaThreadCache.sweepCount,
-      fubSentTracked: fubSentActivity.length,
-      outlookCcForwards: ccForwardCount,
-      confirmedShowingsClosed: closedByConfirmation,
       threads,
-      counts,
+      counts: countThreadStates(threads),
     });
   } catch (err) {
-    console.error('[EA] Triage error:', err.message);
-    // Fallback to cached data
+    console.error('[EA Outlook] triage error:', err.message);
     const threads = Object.values(eaThreadCache.threads);
     res.json({
       status: 'error_cached',
+      source: 'outlook',
       error: err.message,
       lastSweep: eaThreadCache.lastSweep,
       threads,
@@ -2472,169 +2377,18 @@ const MAX_SWEEP_LOG = 50;
 
 async function runScheduledSweep(trigger = 'scheduled') {
   const startTime = Date.now();
-  console.log(`[EA Sweep] Starting ${trigger} sweep at ${new Date().toISOString()}`);
-
-  if (!tokens) {
-    const entry = { time: new Date().toISOString(), trigger, status: 'skipped', reason: 'no_tokens', duration: 0 };
-    scheduledSweepLog.unshift(entry);
-    if (scheduledSweepLog.length > MAX_SWEEP_LOG) scheduledSweepLog.pop();
-    console.log(`[EA Sweep] Skipped — no Google tokens`);
-    return entry;
-  }
-
   try {
-    const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
-    const days = 14;
+    console.log(`[EA Sweep] Starting (trigger: ${trigger}) — Outlook source`);
+    const processedThreads = await fetchOutlookEaThreads(14);
 
-    // Ensure Done label exists for filtering
-    await getOrCreateDoneLabel(gmail);
-
-    // Step 1: Fetch inbox threads — exclude threads already marked Done via label
-    const sweepDoneFilter = eaDoneLabelId ? ` -label:${EA_DONE_LABEL_NAME}` : '';
-    const inboxRes = await gmail.users.threads.list({
-      userId: 'me',
-      q: `in:inbox newer_than:${days}d${sweepDoneFilter}`,
-      maxResults: 80,
-    });
-    const inboxThreads = inboxRes.data.threads || [];
-
-    // Step 2: Fetch sent threads
-    const sentRes = await gmail.users.threads.list({
-      userId: 'me',
-      q: `in:sent newer_than:${days}d`,
-      maxResults: 50,
-    });
-    const sentThreadIds = new Set((sentRes.data.threads || []).map(t => t.id));
-
-    // Step 2b: CC-forwarded Outlook replies
-    const ccForwardRes = await gmail.users.messages.list({
-      userId: 'me',
-      q: `from:jonathan@faristeam.ca newer_than:${days}d`,
-      maxResults: 100,
-    });
-    const ccForwardCount = (ccForwardRes.data.messages || []).length;
-
-    // Step 3: Process threads (same logic as /api/ea/triage)
-    const processedThreads = {};
     let stateChanges = 0;
-    const prevThreads = { ...eaThreadCache.threads };
-
-    for (const thread of inboxThreads) {
-      try {
-        const detail = await gmail.users.threads.get({
-          userId: 'me',
-          id: thread.id,
-          format: 'metadata',
-          metadataHeaders: ['From', 'To', 'Subject', 'Date', 'Cc'],
-        });
-
-        const messages = detail.data.messages || [];
-        if (messages.length === 0) continue;
-
-        const firstMsg = messages[0];
-        const lastMsg = messages[messages.length - 1];
-        const firstHeaders = firstMsg.payload?.headers || [];
-        const lastHeaders = lastMsg.payload?.headers || [];
-
-        const subject = firstHeaders.find(h => h.name === 'Subject')?.value || '(no subject)';
-        const lastFrom = lastHeaders.find(h => h.name === 'From')?.value || '';
-        const lastDate = lastHeaders.find(h => h.name === 'Date')?.value || '';
-        const lastFromEmail = extractEmail(lastFrom);
-        const lastSenderType = classifySenderType(lastFromEmail);
-        const firstFrom = firstHeaders.find(h => h.name === 'From')?.value || '';
-        const lastSnippet = lastMsg.snippet || '';
-        const lastLabels = lastMsg.labelIds || [];
-        const category = categorizeEmail(lastFrom, subject, lastSnippet, lastLabels);
-        const priority = classifyThreadPriority(lastFromEmail, subject, category);
-        const archiveRule = shouldAutoArchive(lastFromEmail, subject);
-
-        let state = 'awaiting_you';
-        const isFromJonathan = JONATHAN_EMAILS.some(j => lastFromEmail.includes(j));
-        const existingState = eaThreadCache.threads[thread.id];
-
-        const jonathanSentInThread = messages.some(msg => {
-          const msgFrom = (msg.payload?.headers || []).find(h => h.name === 'From')?.value || '';
-          const msgFromEmail = extractEmail(msgFrom);
-          return JONATHAN_EMAILS.some(j => msgFromEmail.includes(j));
-        });
-        const inSentFolder = sentThreadIds.has(thread.id);
-        const jonathanHasReplied = isFromJonathan || (jonathanSentInThread && !isFromJonathan);
-
-        if (existingState?.state === 'snoozed') {
-          const snoozeUntil = existingState.snoozeUntil ? new Date(existingState.snoozeUntil) : null;
-          if (snoozeUntil && snoozeUntil <= new Date()) {
-            state = 'awaiting_you';
-          } else {
-            state = 'snoozed';
-          }
-        } else if (existingState?.state === 'closed') {
-          // Respect manual close — only reopen if a NEW message arrived after the close
-          const closedAt = existingState.closedAt || 0;
-          const lastMsgTime = parseInt(lastMsg.internalDate) || 0;
-          if (lastMsgTime > closedAt) {
-            state = 'awaiting_you'; // New message arrived after Done — reopen
-          } else {
-            state = 'closed'; // No new messages since Done — stay closed
-          }
-        } else if (archiveRule) {
-          state = 'closed';
-        } else if (isFromJonathan || jonathanHasReplied || inSentFolder) {
-          const lastSnippetLower = lastSnippet.toLowerCase();
-          if (isFromJonathan && (lastSnippetLower.includes('thank') || lastSnippetLower.includes('confirmed') ||
-              lastSnippetLower.includes('sounds good') || lastSnippetLower.includes('all set'))) {
-            state = 'closed';
-          } else {
-            state = 'awaiting_them';
-          }
-        } else {
-          state = 'awaiting_you';
-        }
-
-        // Track state changes from previous sweep
-        const prevState = prevThreads[thread.id]?.state;
-        if (prevState && prevState !== state) {
-          stateChanges++;
-          console.log(`[EA Sweep] Thread ${thread.id} state changed: ${prevState} → ${state} (${subject.substring(0, 40)})`);
-        }
-
-        const participants = new Set();
-        messages.forEach(msg => {
-          const from = (msg.payload?.headers || []).find(h => h.name === 'From')?.value || '';
-          const to = (msg.payload?.headers || []).find(h => h.name === 'To')?.value || '';
-          if (from) participants.add(extractEmail(from));
-          if (to) to.split(',').forEach(e => participants.add(extractEmail(e.trim())));
-        });
-
-        processedThreads[thread.id] = {
-          id: thread.id,
-          subject,
-          from: firstFrom,
-          lastFrom,
-          lastFromEmail,
-          lastSenderType,
-          lastSnippet,
-          lastDate,
-          timestamp: lastDate ? new Date(lastDate).getTime() : 0,
-          messageCount: messages.length,
-          state,
-          priority,
-          category,
-          isRead: !lastLabels.includes('UNREAD'),
-          participants: [...participants],
-          autoArchiveRule: archiveRule ? archiveRule.action : null,
-          linkedProperty: null,
-          outlookCcDetected: jonathanSentInThread && !isFromJonathan,
-          inSentFolder: inSentFolder,
-          ...(existingState?.closedAt && state === 'closed' ? { closedAt: existingState.closedAt } : {}),
-        };
-      } catch (e) {
-        console.error(`[EA Sweep] Error processing thread ${thread.id}:`, e.message);
-      }
+    for (const [cid, fresh] of Object.entries(processedThreads)) {
+      const prev = eaThreadCache.threads[cid];
+      if (!prev || prev.state !== fresh.state) stateChanges++;
     }
 
-    // Save updated cache
     eaThreadCache = {
-      threads: processedThreads,
+      threads: { ...eaThreadCache.threads, ...processedThreads },
       lastSweep: new Date().toISOString(),
       sweepCount: (eaThreadCache.sweepCount || 0) + 1,
     };
@@ -2648,17 +2402,18 @@ async function runScheduledSweep(trigger = 'scheduled') {
       status: 'success',
       duration,
       threadsProcessed: Object.keys(processedThreads).length,
-      ccForwardsFound: ccForwardCount,
+      ccForwardsFound: 0,
       stateChanges,
       counts,
+      source: 'outlook',
     };
     scheduledSweepLog.unshift(entry);
     if (scheduledSweepLog.length > MAX_SWEEP_LOG) scheduledSweepLog.pop();
-    console.log(`[EA Sweep] Complete: ${entry.threadsProcessed} threads, ${ccForwardCount} CC forwards, ${stateChanges} state changes, ${duration}ms`);
+    console.log(`[EA Sweep] Complete: ${entry.threadsProcessed} threads, ${stateChanges} state changes, ${duration}ms`);
     return entry;
   } catch (err) {
     const duration = Date.now() - startTime;
-    const entry = { time: new Date().toISOString(), trigger, status: 'error', error: err.message, duration };
+    const entry = { time: new Date().toISOString(), trigger, status: 'error', error: err.message, duration, source: 'outlook' };
     scheduledSweepLog.unshift(entry);
     if (scheduledSweepLog.length > MAX_SWEEP_LOG) scheduledSweepLog.pop();
     console.error(`[EA Sweep] Error:`, err.message);
