@@ -10033,7 +10033,16 @@ export default function Dashboard() {
     return <SellerForm propertyId={sellerPropertyId} />;
   }
 
-  const [section, setSection] = useState("briefing");
+  const [section, setSection] = useState(() => {
+    // ?tab=jacqui (or any sidebar id) opens straight to that section.
+    // Used by the PWA "Talk to Jacqui" home-screen shortcut.
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const t = params.get('tab');
+      if (t) return t;
+    } catch {}
+    return "briefing";
+  });
   const [collapsed, setCollapsed] = useState(() => {
     try { return localStorage.getItem('agenthq-sidebar-collapsed') === 'true'; } catch { return false; }
   });
