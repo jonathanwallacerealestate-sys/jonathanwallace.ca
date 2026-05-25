@@ -1425,6 +1425,41 @@ app.get('/api/tasks', (req, res) => {
 app.post('/api/tasks', (req, res) => {
   const { priorities, backlog, doneCount, doneIds } = req.body;
   saveTaskState({ priorities, backlog, doneCount, doneIds, savedAt: new Date().toISOString() });
+
+// ─────────────────────────────────────────────
+// DICTATION → PRIORITIES executor — when /api/jacqui/dictation parses a 'task'
+// action, write it directly into taskState.priorities so it shows up in Top
+// Priorities sidebar. Top of list (rank 0), flagged fromDictation for audit.
+// ─────────────────────────────────────────────
+function appendDictationTaskToPriorities(action, dictationId) {
+  const current = taskState || { priorities: [], backlog: [], doneCount: 0, doneIds: [] };
+  const priorities = Array.isArray(current.priorities) ? current.priorities.slice() : [];
+  const backlog = Array.isArray(current.backlog) ? current.backlog.slice() : [];
+  priorities.forEach(p => { p.rank = (typeof p.rank === 'number' ? p.rank : 0) + 1; });
+  const newPriority = {
+    id: Date.now() + Math.floor(Math.random() * 1000),
+    text: action.title || action.body || 'Untitled task',
+    category: 'task',
+    categoryColor: '#6b7280',
+    done: false,
+    aiGenerated: false,
+    fromDictation: true,
+    dictationId,
+    rank: 0,
+    due: action.due || null,
+    createdAt: new Date().toISOString(),
+  };
+  priorities.unshift(newPriority);
+  saveTaskState({
+    priorities,
+    backlog,
+    doneCount: current.doneCount || 0,
+    doneIds: current.doneIds || [],
+    savedAt: new Date().toISOString(),
+  });
+  return newPriority;
+}
+
   res.json({ status: 'saved' });
 });
 
@@ -9050,6 +9085,21 @@ Rules:
   } else {
     entry.parseError = 'anthropic not configured';
   }
+  let executedCount = 0;
+  for (const action of entry.actions) {
+    if (action.type === 'task' && (action.title || action.body)) {
+      try {
+        const p = appendDictationTaskToPriorities(action, entry.id);
+        action.executed = true;
+        action.executionResult = { kind: 'priority_added', priorityId: p.id };
+        executedCount++;
+      } catch (e) {
+        action.executionError = e.message;
+      }
+    }
+  }
+  entry.executedCount = executedCount;
+
   dictationStore.entries.unshift(entry);
   if (dictationStore.entries.length > 500) dictationStore.entries = dictationStore.entries.slice(0, 500);
   saveDictationStore();
