@@ -25,6 +25,13 @@
   ],
   "shortcuts": [
     {
+      "name": "Talk to Jacqui",
+      "short_name": "Jacqui",
+      "description": "Chat, dictate, or teach Jacqui with a document",
+      "url": "/?tab=jacqui",
+      "icons": [{ "src": "/agent-hq-logo.png", "sizes": "192x192" }]
+    },
+    {
       "name": "Voice Memo",
       "short_name": "Voice",
       "description": "Capture a voice memo and route it to FUB / Tasks / CMA",
