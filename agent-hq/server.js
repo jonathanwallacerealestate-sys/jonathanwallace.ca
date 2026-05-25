@@ -9075,7 +9075,10 @@ Rules:
 - If Jonathan mentions a showing he just did, prefer feedback_capture for the listing + draft_text to the co-op agent.
 - Keep drafts short, in Jonathan's match-the-channel voice (warm-professional for email, lowercase-friendly for iMessage).
 - Skip nice-to-haves. Only include actions clearly implied.
-- For draft_email actions: default send=false (creates a draft in Outlook for Jonathan to review). ONLY set send=true if Jonathan explicitly says 'draft and send', 'send it', 'send now', or similar SEND command. Default is always draft.`;
+- For draft_email actions: default send=false (creates a draft in Outlook for Jonathan to review). ONLY set send=true if Jonathan explicitly says 'draft and send', 'send it', 'send now', or similar SEND command. Default is always draft.
+- For draft_text (iMessage) actions: default send=false. Set send=true on ANY explicit send-intent phrase: 'draft and send', 'send the text', 'text it', 'text now', 'send it', or 'send a text to X saying Y' (imperative whole-action phrasing). When in doubt and Jonathan used the word 'send' near a clear recipient + body, prefer send=true.
+- Jonathan's own cell phone is +17054332525. When Jonathan says 'text me', 'text myself', 'iMessage me' or similar, set to='+17054332525'. For any other phone given in the dictation, pass it through as-is (server will normalize to E.164).
+- Jonathan's own email addresses are jonathan@faristeam.ca (primary) and jonathanwallacerealestate@gmail.com. When he says 'email me' / 'send to myself' for EMAIL, use jonathan@faristeam.ca.`;
       const completion = await anthropic.messages.create({
         model: 'claude-haiku-4-5-20251001',
         max_tokens: 1500,
@@ -9144,11 +9147,17 @@ Rules:
         action.executionError = e.message;
       }
     } else if (action.type === 'draft_text' && action.to && action.body && action.send === true) {
-      // Mac Bridge: callBridge('imessage.send', { phone, body }) — phone is full E.164.
+      // Mac Bridge: callBridge('imessage.send', { phone, body }) — phone is E.164.
       try {
-        const result = await callBridge('imessage.send', { phone: action.to, body: action.body }, { timeoutMs: 15000 });
+        const digits = String(action.to).replace(/\D/g, '');
+        let phone;
+        if (digits.length === 10) phone = '+1' + digits;
+        else if (digits.length === 11 && digits[0] === '1') phone = '+' + digits;
+        else if (String(action.to).startsWith('+')) phone = String(action.to);
+        else phone = '+' + digits;
+        const result = await callBridge('imessage.send', { phone, body: action.body }, { timeoutMs: 15000 });
         action.executed = true;
-        action.executionResult = { kind: 'imessage_sent', method: 'imessage.send', phone: action.to, bridgeResult: result };
+        action.executionResult = { kind: 'imessage_sent', method: 'imessage.send', phone, bridgeResult: result };
         executedCount++;
       } catch (e) {
         action.executionError = (e.message || String(e)) + (e.code ? ` [${e.code}]` : '');
