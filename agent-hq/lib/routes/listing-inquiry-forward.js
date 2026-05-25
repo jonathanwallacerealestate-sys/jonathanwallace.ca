@@ -252,7 +252,7 @@ async function postActionOnMessage(messageId, postAction) {
   return { ok: true, action: 'none' };
 }
 
-export async function runScan({ anthropic, jacquiDir }) {
+export async function runScan({ anthropic, jacquiDir, dryRun = false }) {
   const RULES_DIR = path.join(jacquiDir, 'rules');
   ensureDir(RULES_DIR);
   const STATE_PATH = path.join(RULES_DIR, 'listing-inquiry-forward.json');
@@ -261,6 +261,7 @@ export async function runScan({ anthropic, jacquiDir }) {
 
   const run = {
     startedAt: new Date().toISOString(),
+    dryRun: !!dryRun,
     found: 0,
     skipped_already_processed: 0,
     skipped_no_contact: 0,
@@ -373,22 +374,29 @@ export async function runScan({ anthropic, jacquiDir }) {
       `Cheers, Jonathan`,
     ].join('\n');
 
-    const fwdRes = await callGateway('send_email', {
-      to: cfg.forward_to,
-      subject: fwdSubject,
-      body: fwdBody,
-    });
-    detail.forward = fwdRes;
-    if (!fwdRes.ok) {
-      run.errors.push({ stage: 'forward', id, error: fwdRes.error });
-      detail.status = 'forward-failed';
-      run.details.push(detail);
-      continue;
+    let fwdRes;
+    if (dryRun) {
+      fwdRes = { ok: true, dryRun: true };
+      detail.forward = fwdRes;
+      run.forwarded += 1;
+    } else {
+      fwdRes = await callGateway('send_email', {
+        to: cfg.forward_to,
+        subject: fwdSubject,
+        body: fwdBody,
+      });
+      detail.forward = fwdRes;
+      if (!fwdRes.ok) {
+        run.errors.push({ stage: 'forward', id, error: fwdRes.error });
+        detail.status = 'forward-failed';
+        run.details.push(detail);
+        continue;
+      }
+      run.forwarded += 1;
     }
-    run.forwarded += 1;
 
     // Acknowledge engagement
-    if (cfg.ack_to) {
+    if (cfg.ack_to && !dryRun) {
       const ackSubject = `Re: ${getSubject(msg).slice(0, 100)}`;
       const ackRes = await callGateway('send_email', {
         to: cfg.ack_to,
@@ -401,21 +409,32 @@ export async function runScan({ anthropic, jacquiDir }) {
       } else {
         run.errors.push({ stage: 'ack', id, error: ackRes.error });
       }
+    } else if (dryRun) {
+      detail.ack = { ok: true, dryRun: true };
+      run.acknowledged += 1;
     }
 
     // Post-action on original (delete preferred, mark_read fallback)
-    const paRes = await postActionOnMessage(id, cfg.post_action);
-    detail.post_action = paRes;
-    if (paRes.ok && (paRes.action === 'deleted' || paRes.action === 'archived')) {
-      run.deleted += 1;
-    } else if (!paRes.ok) {
-      run.errors.push({ stage: 'post_action', id, error: paRes.error });
+    let paRes;
+    if (dryRun) {
+      paRes = { ok: true, action: 'dry-run', note: 'would ' + cfg.post_action };
+      detail.post_action = paRes;
+    } else {
+      paRes = await postActionOnMessage(id, cfg.post_action);
+      detail.post_action = paRes;
+      if (paRes.ok && (paRes.action === 'deleted' || paRes.action === 'archived')) {
+        run.deleted += 1;
+      } else if (!paRes.ok) {
+        run.errors.push({ stage: 'post_action', id, error: paRes.error });
+      }
     }
 
-    // Record dedupe + processed
-    state.processed_message_ids.push(id);
-    if (emailKey) state.processed_lead_emails.push(emailKey);
-    if (phoneKey) state.processed_lead_phones.push(phoneKey);
+    // Record dedupe + processed (skip in dry run so a real run can still see them)
+    if (!dryRun) {
+      state.processed_message_ids.push(id);
+      if (emailKey) state.processed_lead_emails.push(emailKey);
+      if (phoneKey) state.processed_lead_phones.push(phoneKey);
+    }
 
     detail.status = 'forwarded';
     run.details.push(detail);
@@ -431,7 +450,7 @@ export async function runScan({ anthropic, jacquiDir }) {
     skipped: run.skipped_already_processed + run.skipped_duplicate_lead + run.skipped_blocklisted_sender + run.skipped_no_contact,
     errors: run.errors.length,
   });
-  saveState(STATE_PATH, state);
+  if (!dryRun) saveState(STATE_PATH, state);
   return run;
 }
 
@@ -447,7 +466,8 @@ export function register(app, deps) {
 
   app.post('/api/jacqui/rules/listing-inquiry-forward/scan', async (req, res) => {
     try {
-      const run = await runScan({ anthropic, jacquiDir: dir });
+      const dryRun = req.query.dry_run === '1' || req.query.dry_run === 'true' || req.body?.dry_run === true;
+      const run = await runScan({ anthropic, jacquiDir: dir, dryRun });
       res.json({ ok: true, run });
     } catch (e) {
       console.error('[ListingInquiryForward] scan error:', e);
@@ -477,6 +497,41 @@ export function register(app, deps) {
     state.config = { ...state.config, ...b };
     saveState(STATE_PATH, state);
     res.json({ ok: true, config: state.config });
+  });
+
+  app.post('/api/jacqui/rules/listing-inquiry-forward/seed-dedupe', (req, res) => {
+    const state = loadState(STATE_PATH);
+    const b = req.body || {};
+    const emails = Array.isArray(b.lead_emails) ? b.lead_emails : [];
+    const phones = Array.isArray(b.lead_phones) ? b.lead_phones : [];
+    const msgIds = Array.isArray(b.message_ids) ? b.message_ids : [];
+    let added = { emails: 0, phones: 0, message_ids: 0 };
+    for (const e of emails) {
+      const k = String(e).toLowerCase().trim();
+      if (k && !state.processed_lead_emails.includes(k)) {
+        state.processed_lead_emails.push(k);
+        added.emails += 1;
+      }
+    }
+    for (const p of phones) {
+      const k = String(p).replace(/\D/g, '');
+      if (k && !state.processed_lead_phones.includes(k)) {
+        state.processed_lead_phones.push(k);
+        added.phones += 1;
+      }
+    }
+    for (const m of msgIds) {
+      if (m && !state.processed_message_ids.includes(m)) {
+        state.processed_message_ids.push(m);
+        added.message_ids += 1;
+      }
+    }
+    saveState(STATE_PATH, state);
+    res.json({ ok: true, added, counts: {
+      processed_message_ids: state.processed_message_ids.length,
+      processed_lead_emails: state.processed_lead_emails.length,
+      processed_lead_phones: state.processed_lead_phones.length,
+    }});
   });
 
   app.post('/api/jacqui/rules/listing-inquiry-forward/reset', (req, res) => {
