@@ -9146,15 +9146,50 @@ Rules:
       } catch (e) {
         action.executionError = e.message;
       }
-    } else if (action.type === 'draft_text' && action.to && action.body && action.send === true) {
-      // Mac Bridge: callBridge('imessage.send', { phone, body }) — phone is E.164.
-      try {
-        const digits = String(action.to).replace(/\D/g, '');
-        let phone;
+    } else if (action.type === 'draft_text' && action.body && action.to) {
+      // Server-side normalization: parser is unreliable on send-trigger + name aliases.
+      // 1) Resolve recipient — if it's a name/self-alias, substitute Jonathan's cell.
+      const rawTo = String(action.to).trim();
+      const rawLow = rawTo.toLowerCase();
+      const JW_CELL = '+17054332525';
+      let phone = null;
+      if (/^\+?[\d\s\-().]+$/.test(rawTo)) {
+        const digits = rawTo.replace(/\D/g, '');
         if (digits.length === 10) phone = '+1' + digits;
         else if (digits.length === 11 && digits[0] === '1') phone = '+' + digits;
-        else if (String(action.to).startsWith('+')) phone = String(action.to);
-        else phone = '+' + digits;
+        else if (rawTo.startsWith('+')) phone = rawTo;
+        else if (digits.length > 0) phone = '+' + digits;
+      }
+      if (!phone) {
+        // Match against self-aliases
+        if (/(^|\b)(me|myself|jonathan|jonathan wallace|jw)$/i.test(rawLow)) phone = JW_CELL;
+      }
+      action.phoneResolved = phone;
+      // 2) Detect send intent from ORIGINAL dictation text (parser unreliable).
+      // Set send=true if user clearly used a send-imperative phrase.
+      let wantSend = action.send === true;
+      if (!wantSend) {
+        const lowText = String(entry.text || '').toLowerCase();
+        const sendTriggers = [
+          /\bdraft\s+(and|then)\s+send\b/,
+          /\bsend\s+(the|a|that|this|it|now)\s+(text|imessage|message)\b/,
+          /\bsend\s+(it|now|this)\b/,
+          /\b(text|imessage)\s+(me|myself|him|her|them|.+)\s+(saying|that|with)\b/,
+          /\bsend\s+(a\s+)?(text|imessage|message)\s+to\s+.+\s+saying\b/,
+          /\bsend\s+.+\s+a\s+(text|imessage|message)\b/,
+        ];
+        if (sendTriggers.some(re => re.test(lowText))) wantSend = true;
+      }
+      action.sendResolved = wantSend;
+      if (!wantSend) {
+        // Draft mode — don't send; just surface for approval (already in action list).
+        continue;
+      }
+      if (!phone) {
+        action.executionError = `Could not resolve recipient '${rawTo}' to a phone number. Try dictating with the full number, e.g. 'text 705-433-2525 saying ...'`;
+        continue;
+      }
+      try {
         const result = await callBridge('imessage.send', { phone, body: action.body }, { timeoutMs: 15000 });
         action.executed = true;
         action.executionResult = { kind: 'imessage_sent', method: 'imessage.send', phone, bridgeResult: result };
