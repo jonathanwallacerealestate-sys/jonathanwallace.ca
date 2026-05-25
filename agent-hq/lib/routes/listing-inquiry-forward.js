@@ -357,21 +357,14 @@ export async function runScan({ anthropic, jacquiDir, dryRun = false }) {
     const fwdSubject = cfg.forward_subject_template
       .replace('{address}', cfg.listing_match)
       .replace('{name}', contact.name || 'New inquiry');
+    // Minimal forward — only the 3 fields Ryan actually needs. No greeting,
+    // no source/timestamp metadata, no auto-forwarded note, no signature.
+    // (Jonathan correction 2026-05-25.)
     const fwdBody = [
-      `Hi Ryan,`,
-      ``,
       `New lead on ${cfg.listing_match}, Midland:`,
-      ``,
-      `Name:  ${contact.name || '—'}`,
+      `Name: ${contact.name || '—'}`,
       `Email: ${contact.email || '—'}`,
       `Phone: ${contact.phone || '—'}`,
-      ``,
-      `Source: ${sender || 'unknown'} (${getSubject(msg)})`,
-      `Received: ${msg.receivedDateTime || msg.received || '—'}`,
-      ``,
-      `Auto-forwarded by Agent HQ. Reply directly if anything looks off.`,
-      ``,
-      `Cheers, Jonathan`,
     ].join('\n');
 
     let fwdRes;
