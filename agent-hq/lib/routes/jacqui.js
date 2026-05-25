@@ -176,6 +176,46 @@ const JACQUI_TOOLS = [
       required: ['messageId'],
     },
   },
+  {
+    name: 'remember_this',
+    description:
+      "Log something Jonathan just taught you into your persistent memory. " +
+      "Call this ONLY when Jonathan's most recent message contains a teaching cue " +
+      "(remember that, note that, from now on, always, never, lesson, etc.). " +
+      "Choose the kind that matches the cue: 'fact' for atomic facts about people/listings/clients, " +
+      "'decision' for forward-looking 'from now on / we've decided / going forward' statements, " +
+      "'pattern' for 'when X then Y / every time / the rule is' statements, " +
+      "'retro' for 'what went wrong / lesson / next time' statements. " +
+      "Keep summary under 120 chars. Always include at least one tag.",
+    input_schema: {
+      type: 'object',
+      properties: {
+        kind: {
+          type: 'string',
+          enum: ['fact', 'decision', 'pattern', 'retro'],
+          description: 'Which memory store to write to.',
+        },
+        summary: {
+          type: 'string',
+          description: 'One-sentence summary, under 120 chars. Shown to Jonathan as the audit chip.',
+        },
+        body: {
+          type: 'string',
+          description: 'Verbatim or near-verbatim slice of Jonathan\'s message that captures the teaching.',
+        },
+        tags: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'At least one short slug tag (e.g. "listing", "112-farlain-lake", "client:edmund-rucels").',
+        },
+        why: {
+          type: 'string',
+          description: 'Optional — why this matters. Defaults to empty.',
+        },
+      },
+      required: ['kind', 'summary', 'body', 'tags'],
+    },
+  },
 ];
 
 // --- Helpers --------------------------------------------------------------
@@ -193,6 +233,63 @@ async function callOutlookGateway(action, action_params) {
       return { ok: false, status: resp.status, error: parsed?.error || text };
     }
     return { ok: true, status: resp.status, ...parsed };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+}
+
+
+async function rememberThis(input) {
+  // Auto-write to Jacqui's persistent memory. We map the LLM-facing kind
+  // ('fact' | 'decision' | 'pattern' | 'retro') to the existing memory
+  // endpoints, which each expect a specific field name (decision/pattern/lesson).
+  // Tagged source=jacqui-auto so the memory browser can show an AUTO badge.
+  const port = process.env.PORT || 3000;
+  const base = `http://127.0.0.1:${port}`;
+  const kind = input.kind || 'fact';
+  const tags = Array.isArray(input.tags) ? input.tags : [];
+  // Stamp every auto-write with a "jacqui-auto" tag so the UI can render the
+  // AUTO chip and Jonathan can filter for things she wrote on her own.
+  const autoTags = tags.includes('jacqui-auto') ? tags : [...tags, 'jacqui-auto'];
+
+  let url, body;
+  if (kind === 'pattern') {
+    url = '/api/jacqui/memory/pattern';
+    body = {
+      pattern: input.summary,
+      example: input.body || null,
+      tags: autoTags,
+    };
+  } else if (kind === 'retro') {
+    url = '/api/jacqui/memory/retro';
+    body = {
+      lesson: input.summary,
+      what_worked: null,
+      what_didnt: input.body || null,
+      tags: autoTags,
+    };
+  } else {
+    // fact OR decision — both go to /decision for now
+    url = '/api/jacqui/memory/decision';
+    body = {
+      topic: kind === 'fact' ? 'fact' : (input.summary?.slice(0, 60) || null),
+      decision: input.summary,
+      why: input.why || (input.body || null),
+      tags: autoTags,
+    };
+  }
+
+  try {
+    const resp = await fetch(base + url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const text = await resp.text();
+    let parsed;
+    try { parsed = JSON.parse(text); } catch { parsed = { raw: text }; }
+    if (!resp.ok) return { ok: false, status: resp.status, error: parsed?.error || text };
+    return { ok: true, kind, summary: input.summary, entry: parsed?.entry || null };
   } catch (e) {
     return { ok: false, error: e.message };
   }
@@ -225,6 +322,8 @@ async function runTool(name, input) {
       return await callOutlookGateway('mark_read', {
         messageId: input.messageId,
       });
+    case 'remember_this':
+      return await rememberThis(input);
     default:
       return { ok: false, error: `Unknown tool: ${name}` };
   }
