@@ -27,6 +27,7 @@
 import fs from 'fs';
 import path from 'path';
 import { buildSystemPrompt, JACQUI_MODEL, JACQUI_MAX_TOKENS, JACQUI_HISTORY_CAP } from '../jacqui/system-prompt.js';
+import { pickModel } from '../jacqui/model-router.js';
 import { loadMemoryContext } from './jacqui-memory.js';
 
 const OUTLOOK_GATEWAY_URL =
@@ -462,7 +463,7 @@ export function register(app, deps) {
     try {
       for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
         const completion = await anthropic.messages.create({
-          model: JACQUI_MODEL,
+          model: pickModel('reasoning'),
           max_tokens: JACQUI_MAX_TOKENS,
           system: systemPrompt,
           tools: JACQUI_TOOLS,
