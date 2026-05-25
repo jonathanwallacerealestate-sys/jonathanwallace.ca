@@ -9029,6 +9029,90 @@ app.get('/dictate', (req, res) => {
   res.send(JACQUI_DICTATE_HTML);
 });
 
+
+// ─────────────────────────────────────────────
+// JACQUI RESEARCH — web_search → email/text delivery (async)
+// ─────────────────────────────────────────────
+async function runJacquiResearch(query) {
+  if (!anthropic) throw new Error('Anthropic SDK not configured');
+  const response = await anthropic.messages.create({
+    model: 'claude-sonnet-4-6',
+    max_tokens: 4000,
+    tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 8 }],
+    messages: [{
+      role: 'user',
+      content: `Research this for Jonathan Wallace, a real estate agent in Georgian Bay / Simcoe County, Ontario (covers Midland, Penetanguishene, Tay, Tiny, Wasaga Beach, Barrie, Orillia). Be precise and current — verify info via real web sources.
+
+QUERY: ${query}
+
+Return a structured brief he can act on. Include:
+- For each item/option: name, contact info (phone + email + website if available), what they actually do, why they fit his criteria, last-known reputation indicator (years in business, reviews if findable)
+- Cited sources (URLs)
+- Any caveats / red flags
+- A short recommendation at the end if appropriate
+
+Be specific. Skip filler.`,
+    }],
+  });
+  const textBlocks = (response.content || []).filter(b => b.type === 'text').map(b => b.text);
+  const finalText = textBlocks.join('\n\n').trim();
+  if (!finalText) throw new Error('Empty research response');
+  return finalText;
+}
+
+async function sendResearchEmail(researchText, query) {
+  const subject = `Jacqui research: ${query.slice(0, 90)}${query.length > 90 ? '…' : ''}`;
+  // Light markdown → HTML conversion (basic)
+  const html = researchText
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/\n\n/g, '</p><p>')
+    .replace(/\n/g, '<br>')
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>');
+  const body = `<p>Hi Jonathan — here's what I found.</p><p>${html}</p><hr><p style="color:#666;font-size:12px">Researched by Jacqui via /dictate. Query: <em>${query.replace(/</g,'&lt;')}</em></p>`;
+  const resp = await fetch(OUTLOOK_GATEWAY_URL_EA, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      action: 'send_email',
+      action_params: { to: 'jonathan@faristeam.ca', subject, body },
+    }),
+  });
+  if (!resp.ok) throw new Error(`send_email ${resp.status}: ${(await resp.text()).slice(0,200)}`);
+  return resp.json();
+}
+
+async function processResearchActionAsync(dictationId, action) {
+  console.log(`[Jacqui Research] starting query="${action.query?.slice(0,80)}" for dictation ${dictationId}`);
+  try {
+    const research = await runJacquiResearch(action.query);
+    const deliverVia = action.deliver_via || 'email';
+    if (deliverVia === 'email') {
+      await sendResearchEmail(research, action.query);
+    }
+    // Update the dictation entry in the store
+    const entry = dictationStore.entries.find(e => e.id === dictationId);
+    if (entry) {
+      const a = (entry.actions || []).find(x => x === action || (x.type === 'research' && x.query === action.query));
+      if (a) {
+        a.executionResult = { ...(a.executionResult || {}), kind: 'research_completed', completedAt: new Date().toISOString(), deliverVia, researchPreview: research.slice(0, 400) };
+      }
+      saveDictationStore();
+    }
+    console.log(`[Jacqui Research] completed for dictation ${dictationId}`);
+  } catch (e) {
+    console.error(`[Jacqui Research] failed:`, e.message);
+    const entry = dictationStore.entries.find(e2 => e2.id === dictationId);
+    if (entry) {
+      const a = (entry.actions || []).find(x => x === action || (x.type === 'research' && x.query === action.query));
+      if (a) {
+        a.executionResult = { ...(a.executionResult || {}), kind: 'research_failed', error: e.message, failedAt: new Date().toISOString() };
+      }
+      saveDictationStore();
+    }
+  }
+}
+
 app.post('/api/jacqui/dictation', express.json({ limit: '512kb' }), async (req, res) => {
   const { text, capturedAt } = req.body || {};
   if (!text || typeof text !== 'string' || text.trim().length < 3) {
@@ -9064,7 +9148,8 @@ Return ONLY a JSON object — no prose, no markdown fence. Shape:
     { "type": "feedback_capture", "listing": "Address", "rating": 1, "comments": "..." },
     { "type": "task", "title": "...", "due": "today|tomorrow|YYYY-MM-DD" },
     { "type": "calendar", "title": "...", "when": "Sat 2pm" },
-    { "type": "review", "reason": "...", "snippet": "..." }
+    { "type": "review", "reason": "...", "snippet": "..." },
+    { "type": "research", "query": "specific question to investigate", "deliver_via": "email" }
   ]
 }
 
@@ -9078,7 +9163,8 @@ Rules:
 - For draft_email actions: default send=false (creates a draft in Outlook for Jonathan to review). ONLY set send=true if Jonathan explicitly says 'draft and send', 'send it', 'send now', or similar SEND command. Default is always draft.
 - For draft_text (iMessage) actions: default send=false. Set send=true on ANY explicit send-intent phrase: 'draft and send', 'send the text', 'text it', 'text now', 'send it', or 'send a text to X saying Y' (imperative whole-action phrasing). When in doubt and Jonathan used the word 'send' near a clear recipient + body, prefer send=true.
 - Jonathan's own cell phone is +17054332525. When Jonathan says 'text me', 'text myself', 'iMessage me' or similar, set to='+17054332525'. For any other phone given in the dictation, pass it through as-is (server will normalize to E.164).
-- Jonathan's own email addresses are jonathan@faristeam.ca (primary) and jonathanwallacerealestate@gmail.com. When he says 'email me' / 'send to myself' for EMAIL, use jonathan@faristeam.ca.`;
+- Jonathan's own email addresses are jonathan@faristeam.ca (primary) and jonathanwallacerealestate@gmail.com. When he says 'email me' / 'send to myself' for EMAIL, use jonathan@faristeam.ca.
+- For research actions: use when Jonathan asks Jacqui to research, investigate, find, look up, or compile info on something. Set query to the specific question (be SPECIFIC — include geography, criteria, what he actually wants). Default deliver_via='email'. Use 'text' if he explicitly says 'text me the results', 'priority' if 'add to my priorities'. Do NOT also emit a separate draft_email — the research executor handles delivery itself.`;
       const completion = await anthropic.messages.create({
         model: 'claude-haiku-4-5-20251001',
         max_tokens: 1500,
@@ -9146,6 +9232,13 @@ Rules:
       } catch (e) {
         action.executionError = e.message;
       }
+    } else if (action.type === 'research' && action.query) {
+      // Fire-and-forget — research takes 15-60s, /dictate page can't wait
+      action.executed = 'queued';
+      action.executionResult = { kind: 'research_queued', deliverVia: action.deliver_via || 'email', queuedAt: new Date().toISOString() };
+      executedCount++;
+      // Defer the actual work — capture entry/action refs in closure
+      setImmediate(() => { processResearchActionAsync(entry.id, action); });
     } else if (action.type === 'draft_text' && action.body && action.to) {
       // Server-side normalization: parser is unreliable on send-trigger + name aliases.
       // 1) Resolve recipient — if it's a name/self-alias, substitute Jonathan's cell.
