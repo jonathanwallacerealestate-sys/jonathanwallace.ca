@@ -8708,8 +8708,10 @@ body { padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-are
 @keyframes pulse { 0%,100% { box-shadow: 0 8px 32px rgba(220,38,38,0.35); } 50% { box-shadow: 0 8px 32px rgba(220,38,38,0.7), 0 0 0 14px rgba(220,38,38,0.15); } }
 .label { margin-top: 18px; font-size: 14px; color: #d4d4d2; font-weight: 500; letter-spacing: 0.02em; }
 .label .small { color: #8a8784; font-size: 12px; display: block; margin-top: 4px; font-weight: 400; }
-.live { width: 100%; min-height: 80px; max-height: 180px; overflow-y: auto; background: #161615; border: 1px solid #2a2a28; border-radius: 14px; padding: 14px 16px; margin: 18px 0 12px; font-size: 15px; line-height: 1.55; color: #f5f5f4; display: none; }
-.live.show { display: block; }
+.live { width: 100%; min-height: 100px; max-height: 220px; overflow-y: auto; background: #161615; border: 1px solid #2a2a28; border-radius: 14px; padding: 14px 16px; margin: 18px 0 12px; font-size: 15px; line-height: 1.55; color: #f5f5f4; outline: none; cursor: text; }
+.live:focus { border-color: #3b6d11; }
+.live.empty:before { content: 'Tap mic, or type here…'; color: #5f5e5a; font-style: italic; }
+/* .live always visible */
 .live .interim { color: #8a8784; font-style: italic; }
 .actions { display: flex; gap: 10px; width: 100%; margin-top: 12px; display: none; }
 .actions.show { display: flex; }
@@ -8763,10 +8765,10 @@ body { padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-are
         <path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 1 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11h-2z"/>
       </svg>
     </button>
-    <div class="label" id="label">Tap to start<span class="small">Then talk — Jacqui transcribes live</span></div>
+    <div class="label" id="label">Tap mic, or type below<span class="small">Voice or text — Jacqui handles both</span></div>
   </div>
 
-  <div id="live" class="live"></div>
+  <div id="live" class="live empty" contenteditable="true" spellcheck="true" role="textbox" aria-label="Speak or type to Jacqui"></div>
 
   <div id="actions" class="actions">
     <button class="btn-cancel" id="cancelBtn">Cancel</button>
@@ -8832,14 +8834,31 @@ function setupRecognition() {
 }
 
 function renderLive() {
-  if (!finalText && !interimText) {
-    live.classList.remove('show');
-    return;
+  if (isRecording) {
+    live.innerHTML = (finalText || '') + (interimText ? '<span class="interim">' + interimText + '</span>' : '');
   }
-  live.classList.add('show');
-  live.innerHTML = (finalText || '') + (interimText ? '<span class="interim">' + interimText + '</span>' : '');
-  live.scrollTop = live.scrollHeight;
+  const isEmpty = live.innerText.trim().length === 0;
+  live.classList.toggle('empty', isEmpty);
+  const hasContent = live.innerText.trim().length >= 3;
+  if (hasContent && !isRecording) actions.classList.add('show');
+  else if (!hasContent) actions.classList.remove('show');
+  if (isRecording) live.scrollTop = live.scrollHeight;
 }
+
+live.addEventListener('input', () => {
+  if (!isRecording) {
+    finalText = live.innerText;
+    interimText = '';
+    renderLive();
+  }
+});
+live.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    if (live.innerText.trim().length >= 3 && !isProcessing) sendBtn.click();
+  }
+});
+renderLive();
 
 function startRecording() {
   if (!recognition) recognition = setupRecognition();
@@ -8858,16 +8877,20 @@ function stopRecording() {
   isRecording = false;
   micBtn.classList.remove('recording');
   if (recognition) { try { recognition.stop(); } catch {} }
-  if ((finalText + interimText).trim().length < 3) {
-    label.innerHTML = 'Tap to start<span class="small">Then talk — Jacqui transcribes live</span>';
+  if ((finalText + interimText).trim().length >= 3) {
+    finalText = (finalText + ' ' + interimText).trim();
+    live.innerText = finalText;
+  }
+  interimText = '';
+  renderLive();
+  if (live.innerText.trim().length < 3) {
+    label.innerHTML = 'Tap mic, or type below<span class="small">Voice or text — Jacqui handles both</span>';
     actions.classList.remove('show');
     return;
   }
-  finalText = (finalText + ' ' + interimText).trim();
-  interimText = '';
-  renderLive();
-  label.innerHTML = 'Review and send<span class="small">Or tap mic to redo</span>';
+  label.innerHTML = 'Review and send<span class="small">Edit if needed, then Send (or tap mic to redo)</span>';
   actions.classList.add('show');
+  live.focus();
 }
 
 micBtn.addEventListener('click', () => {
@@ -8878,13 +8901,14 @@ micBtn.addEventListener('click', () => {
 
 cancelBtn.addEventListener('click', () => {
   finalText = ''; interimText = '';
+  live.innerText = '';
   renderLive();
   actions.classList.remove('show');
-  label.innerHTML = 'Tap to start<span class="small">Then talk — Jacqui transcribes live</span>';
+  label.innerHTML = 'Tap mic, or type below<span class="small">Voice or text — Jacqui handles both</span>';
 });
 
 sendBtn.addEventListener('click', async () => {
-  const text = finalText.trim();
+  const text = live.innerText.trim();
   if (!text) return;
   isProcessing = true;
   sendBtn.disabled = true;
@@ -8902,9 +8926,10 @@ sendBtn.addEventListener('click', async () => {
     renderResult(data.entry);
     showToast('Captured — Jacqui logged it.');
     finalText = ''; interimText = '';
+    live.innerText = '';
     renderLive();
     actions.classList.remove('show');
-    label.innerHTML = 'Done<span class="small">Tap mic for another</span>';
+    label.innerHTML = 'Done<span class="small">Tap mic or type for another</span>';
     loadRecent();
   } catch (e) {
     showToast('Failed: ' + e.message, 'err');
