@@ -159,36 +159,53 @@ export default function Jacqui() {
 
   async function uploadDoc(file) {
     if (!file) return;
+    // Route audio files (.m4a/.mp3/.wav/.webm/etc.) to /api/jacqui/memory/audio
+    // for Whisper transcription. Everything else (PDF/text/image) goes to
+    // /api/jacqui/memory/document for the existing pdf-parse path.
+    const isAudio =
+      (file.type || '').startsWith('audio/') ||
+      /\.(m4a|mp3|mp4|wav|webm|aac|ogg|flac)$/i.test(file.name || '');
+
     setUploading(true);
-    setUploadMsg(`Uploading "${file.name}"…`);
+    setUploadMsg(
+      isAudio
+        ? `🎧 Transcribing "${file.name}" — this can take 30–90s for long recordings…`
+        : `Uploading "${file.name}"…`
+    );
+
+    const endpoint = isAudio ? '/api/jacqui/memory/audio' : '/api/jacqui/memory/document';
+
     try {
       const fd = new FormData();
       fd.append('file', file);
-      const r = await fetch('/api/jacqui/memory/document', {
-        method: 'POST',
-        body: fd,
-      });
+      const r = await fetch(endpoint, { method: 'POST', body: fd });
       const d = await r.json();
       if (d.success || d.ok) {
         const summary = d.summary || d.document?.summary || '';
+        const docId = d.doc_id || d.document?.id || null;
+        const duration = d.duration ? ` (${Math.round(d.duration / 60)} min)` : '';
+        const decomposeUrl = d.decompose_url || (docId ? `/api/jacqui/memory/documents/${docId}/decompose` : null);
         setUploadMsg('');
-        // Inject a system-style bubble so Jonathan sees Jacqui acknowledged the doc.
         setMessages(prev => [
           ...prev,
           {
             role: 'assistant',
-            content: `📚 I read "${file.name}". ${summary ? '— ' + summary : ''}`,
+            content: isAudio
+              ? `🎧 I transcribed "${file.name}"${duration}. ${summary ? '— ' + summary : ''}\n\nReady to extract structured knowledge — say "decompose it" to pull procedures, decisions, and lessons into my memory.`
+              : `📚 I read "${file.name}". ${summary ? '— ' + summary : ''}`,
             ts: new Date().toISOString(),
             taught: true,
+            doc_id: docId,
+            decompose_url: decomposeUrl,
           },
         ]);
       } else {
         setUploadMsg(`Upload failed: ${d.error || 'unknown error'}`);
-        setTimeout(() => setUploadMsg(''), 5000);
+        setTimeout(() => setUploadMsg(''), 6000);
       }
     } catch (e) {
       setUploadMsg(`Upload failed: ${e.message}`);
-      setTimeout(() => setUploadMsg(''), 5000);
+      setTimeout(() => setUploadMsg(''), 6000);
     } finally {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -303,7 +320,7 @@ export default function Jacqui() {
         <input
           ref={fileInputRef}
           type="file"
-          accept=".pdf,.txt,.md,.docx,.png,.jpg,.jpeg,application/pdf,text/*,image/png,image/jpeg"
+          accept=".pdf,.txt,.md,.docx,.png,.jpg,.jpeg,.m4a,.mp3,.mp4,.wav,.webm,.aac,.ogg,audio/*,application/pdf,text/*,image/png,image/jpeg"
           style={{ display: 'none' }}
           onChange={e => uploadDoc(e.target.files?.[0])}
         />
@@ -311,7 +328,7 @@ export default function Jacqui() {
           value={input}
           onChange={e => setInput(e.target.value)}
           onKeyDown={onKeyDown}
-          placeholder={listening ? 'Listening — speak now…' : 'Talk to Jacqui, or tap 🎤 to dictate, or 📎 to teach her a doc…'}
+          placeholder={listening ? 'Listening — speak now…' : 'Talk to Jacqui · 🎤 dictate · 📎 drop a PDF, image, or voice memo for her to learn from…'}
           rows={1}
           style={{
             flex: 1, minWidth: 180,
@@ -324,7 +341,7 @@ export default function Jacqui() {
         <button
           onClick={() => fileInputRef.current?.click()}
           disabled={uploading}
-          title="Teach Jacqui with a document (PDF, image, text)"
+          title="Teach Jacqui with a doc, image, or voice memo (PDF, m4a, mp3, wav, etc.)"
           style={{
             padding: '10px 12px', borderRadius: 10,
             border: '1px solid #e5e7eb', background: '#fff',
