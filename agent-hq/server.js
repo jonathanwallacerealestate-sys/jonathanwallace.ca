@@ -28,6 +28,7 @@ import * as listingFormCrudRoutes from './lib/routes/listing-form-crud.js';
 import * as sellerFormPublicRoutes from './lib/routes/seller-form-public.js';
 import * as imessageRoutes from './lib/routes/imessage.js';
 import * as bridgeRoutes from './lib/routes/bridge.js';
+import { callBridge } from './lib/routes/bridge.js';
 import * as proxyRoutes from './lib/routes/proxy.js';
 import * as tebRoutes from './lib/routes/teb.js';
 import * as fubIntakeRoutes from './lib/routes/fub-intake.js';
@@ -5904,6 +5905,18 @@ imessageRoutes.register(app, {
 // connects to. Holds the connection open and exposes a callBridge() helper
 // for other route modules (TEB) to RPC into chat.db reads and iMessage sends.
 bridgeRoutes.register(app, { DATA_DIR });
+// /api/bridge/probe — debug endpoint to test Mac Bridge methods directly.
+app.post('/api/bridge/probe', express.json(), async (req, res) => {
+  const { method, params = {}, timeoutMs = 12000 } = req.body || {};
+  if (!method || typeof method !== 'string') return res.status(400).json({ ok: false, error: 'method required' });
+  try {
+    const result = await callBridge(method, params, { timeoutMs });
+    res.json({ ok: true, method, result });
+  } catch (e) {
+    res.status(200).json({ ok: false, error: e.message, code: e.code || null });
+  }
+});
+
 proxyRoutes.register(app, {});
 
 // Text Execution Board — server-authoritative state + atomic send pipeline.
@@ -9129,6 +9142,28 @@ Rules:
         executedCount++;
       } catch (e) {
         action.executionError = e.message;
+      }
+    } else if (action.type === 'draft_text' && action.to && action.body && action.send === true) {
+      try {
+        const candidates = ['imessage.send', 'send_imessage', 'imessage_send'];
+        let lastErr = null;
+        let sent = false;
+        for (const m of candidates) {
+          try {
+            const result = await callBridge(m, { recipient: action.to, message: action.body }, { timeoutMs: 12000 });
+            action.executed = true;
+            action.executionResult = { kind: 'imessage_sent', method: m, recipient: action.to, bridgeResult: result };
+            executedCount++;
+            sent = true;
+            break;
+          } catch (e) {
+            lastErr = e;
+            if (!/unknown method|method.*not.*found|invalid method/i.test(e.message || '')) throw e;
+          }
+        }
+        if (!sent) throw lastErr || new Error('No supported bridge method for iMessage send');
+      } catch (e) {
+        action.executionError = (e.message || String(e)) + (e.code ? ` [${e.code}]` : '');
       }
     }
   }
