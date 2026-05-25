@@ -9037,6 +9037,8 @@ Context: Jonathan is a real estate agent in Georgian Bay (Midland, Tay, Tiny, Pe
 
 Known contacts include: Eric Beutler (realtor peer at For Sale on Georgian Bay), Gregory Holthaus (Tom Ferry coach), Rachael Bebb (seller 255 Lindsay), Anna + Darren Darvill (sellers 282 RPR), Wyatt Negrini, Sarah Pickett (co-op realtor), Vittotio Destefano (seller Hoyt St), Erikka Jonker (photographer), Ryan Lesperance (Faris team buyer agent), Courtney Overell (family — HARD STOP, never draft), Nancy (cleaner — HARD STOP).
 
+Jonathan's own email addresses: jonathan@faristeam.ca (primary, work) and jonathanwallacerealestate@gmail.com (gmail). When Jonathan says 'myself', 'me', or 'send to myself', use jonathan@faristeam.ca.
+
 Active listings include: 160 Lafontaine Rd W, 255 Lindsay St, 405 Bay St #2, 100 Dean Ave #207, 466 Trillium St, 282 Robins Point Rd, 472 William St, 5 Scott St, and 14 others.
 
 Return ONLY a JSON object — no prose, no markdown fence. Shape:
@@ -9045,7 +9047,7 @@ Return ONLY a JSON object — no prose, no markdown fence. Shape:
   "actions": [
     { "type": "fub_note", "contact": "Name", "body": "Note content for FUB" },
     { "type": "draft_text", "to": "Name", "body": "Draft text to send" },
-    { "type": "draft_email", "to": "Name or email", "subject": "...", "body": "..." },
+    { "type": "draft_email", "to": "email address", "subject": "...", "body": "...", "send": false },
     { "type": "feedback_capture", "listing": "Address", "rating": 1, "comments": "..." },
     { "type": "task", "title": "...", "due": "today|tomorrow|YYYY-MM-DD" },
     { "type": "calendar", "title": "...", "when": "Sat 2pm" },
@@ -9059,7 +9061,8 @@ Rules:
 - If a draft is for a known seller's listing, include the listing address in the body context.
 - If Jonathan mentions a showing he just did, prefer feedback_capture for the listing + draft_text to the co-op agent.
 - Keep drafts short, in Jonathan's match-the-channel voice (warm-professional for email, lowercase-friendly for iMessage).
-- Skip nice-to-haves. Only include actions clearly implied.`;
+- Skip nice-to-haves. Only include actions clearly implied.
+- For draft_email actions: default send=false (creates a draft in Outlook for Jonathan to review). ONLY set send=true if Jonathan explicitly says 'draft and send', 'send it', 'send now', or similar SEND command. Default is always draft.`;
       const completion = await anthropic.messages.create({
         model: 'claude-haiku-4-5-20251001',
         max_tokens: 1500,
@@ -9094,6 +9097,35 @@ Rules:
         const p = appendDictationTaskToPriorities(action, entry.id);
         action.executed = true;
         action.executionResult = { kind: 'priority_added', priorityId: p.id };
+        executedCount++;
+      } catch (e) {
+        action.executionError = e.message;
+      }
+    } else if (action.type === 'draft_email' && action.to && (action.body || action.subject)) {
+      try {
+        const wantSend = action.send === true;
+        const gatewayAction = wantSend ? 'send_email' : 'create_email_draft';
+        const resp = await fetch(OUTLOOK_GATEWAY_URL_EA, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: gatewayAction,
+            action_params: {
+              to: action.to,
+              subject: action.subject || '(no subject)',
+              body: action.body || '',
+            },
+          }),
+        });
+        if (!resp.ok) throw new Error(`Make.com ${gatewayAction} ${resp.status}: ${(await resp.text()).slice(0,200)}`);
+        const data = await resp.json();
+        action.executed = true;
+        action.executionResult = {
+          kind: wantSend ? 'email_sent' : 'draft_created',
+          messageId: data.messageId || null,
+          draftId: data.draftId || null,
+          to: action.to,
+        };
         executedCount++;
       } catch (e) {
         action.executionError = e.message;
