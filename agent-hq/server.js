@@ -44,6 +44,7 @@ import * as healthConsoleRoutes from './lib/routes/health-console.js';
 import * as voiceMemoRoutes from './lib/routes/voice-memo.js';
 import * as jacquiMemoryRoutes from './lib/routes/jacqui-memory.js';
 import * as jacquiAudioRoutes from './lib/routes/jacqui-audio.js';
+import { pickModel } from './lib/jacqui/model-router.js';
 import * as listingInquiryForwardRoutes from './lib/routes/listing-inquiry-forward.js';
 import * as health from './lib/health.js';
 const _require = createRequire(import.meta.url);
@@ -1578,9 +1579,10 @@ app.get('/api/priorities/generate', async (req, res) => {
       return res.json({ status: 'ok', priorities: fallbackList, source: 'rules', generatedAt: new Date().toISOString() });
     }
 
-    // Call Claude to generate prioritized task list
+    // Call Claude to generate prioritized task list — use Sonnet (reasoning class)
+    // for sharper multi-source ranking than Haiku.
     const msg = await anthropic.messages.create({
-      model: 'claude-haiku-4-5-20251001',
+      model: pickModel('reasoning'),
       max_tokens: 800,
       messages: [{
         role: 'user',
@@ -1595,6 +1597,7 @@ CRITICAL RULES — READ CAREFULLY:
 3. Each task is ONE sentence: the action + the specific target + the reason WHY.
 4. ONLY reference names, emails, phone numbers, and subjects that appear in the CONTEXT above. Never invent details or reference data you don't have.
 5. NEVER suggest showing-related tasks — showings are managed separately and don't belong here.
+6. NO GHOST DATA: do not invent vendors, quotes, deadlines, contracts, photo drop-offs, staging quotes, listing-prep items, or any specific task that is not directly supported by a row in the CONTEXT block above. If the data does not name a specific person and a specific reason, do not create a task about it.
 
 EXAMPLES OF GOOD TASKS:
 - "Call Jim Beattie (705-555-1234) — hot lead, no activity in 12 days, may be losing interest"
@@ -1648,6 +1651,7 @@ Return ONLY the JSON array, no other text.`
       prospecting: '#059669', strategy: '#6366f1', showing: '#0891b2', task: '#6b7280',
     };
 
+    const generatedAt = new Date().toISOString();
     const priorityList = tasks.slice(0, 12).map((t, i) => ({
       id: Date.now() + i,
       text: t.text || 'Task',
@@ -1655,6 +1659,8 @@ Return ONLY the JSON array, no other text.`
       categoryColor: catColors[t.category] || '#6b7280',
       done: false,
       aiGenerated: true,
+      source: 'ai',
+      generatedAt,
       rank: i + 1,
     }));
 
