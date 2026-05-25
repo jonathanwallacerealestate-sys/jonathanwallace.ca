@@ -3387,7 +3387,17 @@ function TopPriorities() {
         const res = await fetch('/api/tasks');
         const { state } = await res.json();
         if (state && state.priorities && state.priorities.length > 0 && state.savedAt) {
-          setTasks(state.priorities);
+          // Auto-stale AI-generated tasks older than 24h. Manual tasks are kept forever.
+          const TWENTY_FOUR_HRS = 24 * 60 * 60 * 1000;
+          const now = Date.now();
+          const filtered = state.priorities.filter(t => {
+            const isAi = t && (t.aiGenerated === true || t.source === 'ai');
+            if (!isAi) return true;  // keep all manual
+            const ts = t.generatedAt ? new Date(t.generatedAt).getTime() : (state.generatedAt ? new Date(state.generatedAt).getTime() : null);
+            if (!ts) return false;  // legacy AI task with no timestamp — drop as stale
+            return (now - ts) < TWENTY_FOUR_HRS;
+          });
+          setTasks(filtered);
           setDoneCount(state.doneCount || 0);
           setDoneIds(state.doneIds || []);
           setSource(state.source || 'saved');
@@ -3419,11 +3429,15 @@ function TopPriorities() {
       const res = await fetch('/api/priorities/generate');
       const data = await res.json();
       if (data.status === 'ok' && data.priorities?.length > 0) {
-        setTasks(data.priorities);
+        // Merge strategy: keep your manual tasks (source==='manual' or aiGenerated!==true),
+        // replace AI tasks with the fresh batch. Avoids wiping things you typed in.
+        setTasks(prev => {
+          const manual = (prev || []).filter(t => t && (t.source === 'manual' || (t.aiGenerated !== true && t.source !== 'ai')));
+          return [...data.priorities, ...manual];
+        });
         setSource(data.source);
         setLastGenerated(data.generatedAt);
-        setDoneCount(0);
-        setDoneIds([]);
+        // Don't reset doneCount/doneIds here — manual progress should persist
       }
     } catch (e) {
       console.error('[Priorities] Generate error:', e);
@@ -3444,7 +3458,14 @@ function TopPriorities() {
 
   const addTask = () => {
     if (!newTask.trim()) return;
-    const task = { id: Date.now(), text: newTask, done: false, category: "task", categoryColor: "#6b7280", rank: tasks.length + 1 };
+    const task = {
+      id: Date.now(), text: newTask, done: false,
+      category: "task", categoryColor: "#6b7280",
+      rank: tasks.length + 1,
+      source: 'manual',
+      aiGenerated: false,
+      addedAt: new Date().toISOString(),
+    };
     setTasks(prev => [...prev, task]);
     setNewTask("");
   };
