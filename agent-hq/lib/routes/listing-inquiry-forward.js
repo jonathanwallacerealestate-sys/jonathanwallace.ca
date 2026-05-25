@@ -71,6 +71,31 @@ const DEFAULT_CONFIG = {
     'info@mg.brokerbay.com',
     'info@mg2.brokerbay.com',
   ],
+  // Auto-disable trigger — when an email indicates the listing is rented/
+  // leased, flip enabled to false so Ryan stops getting forwards on a unit
+  // that's off-market. This runs as a pre-flight check at the start of every
+  // scan. The match is "listing alias appears in subject or body preview AND
+  // any rented_keyword appears in subject or body preview". No sender filter
+  // here — announcements can come from anywhere (Faris colleague, listing
+  // agent, BrokerBay status, DocuSign completion).
+  disable_on_rented: true,
+  rented_keywords: [
+    'leased',
+    'rented',
+    'lease signed',
+    'lease executed',
+    'lease completed',
+    'tenant secured',
+    'tenant moving in',
+    'status: leased',
+    'status: rented',
+    'off market',
+    'off-market',
+    'no longer available',
+  ],
+  // Set when the rule auto-disables. Null when active.
+  disabled_reason: null,
+  disabled_at: null,
   // Cap scans to N messages per cycle to bound cost.
   scan_limit: 25,
 };
@@ -263,6 +288,45 @@ async function postActionOnMessage(messageId, postAction) {
   return { ok: true, action: 'none' };
 }
 
+// Pre-flight: scan inbox for any email signaling the listing is rented/leased.
+// Returns { hit: bool, evidence: {subject, sender, snippet} | null }.
+async function detectRented({ config }) {
+  const aliases = (config.listing_match_aliases || [config.listing_match]).map(a => a.toLowerCase());
+  const keywords = (config.rented_keywords || []).map(k => k.toLowerCase());
+  if (!aliases.length || !keywords.length) return { hit: false, evidence: null };
+  // Search by listing match — broadest catch.
+  const r = await callGateway('search_messages', {
+    query: config.listing_match,
+    limit: 25,
+  });
+  if (!r.ok) return { hit: false, evidence: null, error: r.error };
+  const msgs = r.messages || r.value || r.results || [];
+  for (const m of msgs) {
+    const subj = String(m.subject || '').toLowerCase();
+    const prev = String(m.bodyPreview || '').toLowerCase();
+    const matchesListing = aliases.some(a => subj.includes(a) || prev.includes(a));
+    if (!matchesListing) continue;
+    const hitKw = keywords.find(k => subj.includes(k) || prev.includes(k));
+    if (hitKw) {
+      const senderObj = m.from || m.sender || {};
+      const ea = senderObj.emailAddress || senderObj;
+      const sender = String(ea?.address || ea?.email || '');
+      return {
+        hit: true,
+        evidence: {
+          messageId: m.id || null,
+          subject: m.subject || '',
+          sender,
+          keyword: hitKw,
+          snippet: (m.bodyPreview || '').slice(0, 200),
+          receivedDateTime: m.receivedDateTime || m.received || null,
+        },
+      };
+    }
+  }
+  return { hit: false, evidence: null };
+}
+
 export async function runScan({ anthropic, jacquiDir, dryRun = false }) {
   const RULES_DIR = path.join(jacquiDir, 'rules');
   ensureDir(RULES_DIR);
@@ -288,7 +352,26 @@ export async function runScan({ anthropic, jacquiDir, dryRun = false }) {
 
   if (!cfg.enabled) {
     run.error = 'rule disabled';
+    run.disabled_reason = cfg.disabled_reason || null;
+    run.disabled_at = cfg.disabled_at || null;
     return run;
+  }
+
+  // PRE-FLIGHT: rented detection. If any inbound email signals the listing
+  // is rented/leased, auto-disable the rule and stop. No forwards this cycle.
+  if (cfg.disable_on_rented) {
+    const rented = await detectRented({ config: cfg });
+    if (rented.hit) {
+      cfg.enabled = false;
+      cfg.disabled_reason = `rented-detected: ${rented.evidence.keyword} in "${rented.evidence.subject}" from ${rented.evidence.sender}`;
+      cfg.disabled_at = new Date().toISOString();
+      state.config = cfg;
+      run.error = 'auto-disabled: listing rented/leased';
+      run.auto_disabled = true;
+      run.evidence = rented.evidence;
+      saveState(STATE_PATH, state);
+      return run;
+    }
   }
 
   // Phase 1: pull a recent inbox window. We search by listing match to bias
