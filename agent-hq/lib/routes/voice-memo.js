@@ -20,6 +20,7 @@
 
 import fs from 'fs';
 import path from 'path';
+import { pickModel } from '../jacqui/model-router.js';
 
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, c => (
@@ -49,7 +50,7 @@ async function classifyMemo({ anthropic, text }) {
     };
   }
   const completion = await anthropic.messages.create({
-    model: 'claude-haiku-4-5-20251001',
+    model: pickModel('quick'),
     max_tokens: 500,
     messages: [{
       role: 'user',
