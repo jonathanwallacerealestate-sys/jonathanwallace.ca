@@ -33,6 +33,7 @@
 
 import fs from 'fs';
 import path from 'path';
+import { pickModel } from '../jacqui/model-router.js';
 
 function ensureDir(dir) { if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true }); }
 function readJsonl(filePath, limit = Infinity) {
@@ -136,7 +137,7 @@ export function loadMemoryContext(jacquiDir) {
 async function summarizeWithHaiku({ anthropic, text, kind, hint }) {
   if (!anthropic) return { summary: text.slice(0, 240), title: hint || 'Document' };
   const completion = await anthropic.messages.create({
-    model: 'claude-haiku-4-5-20251001',
+    model: pickModel('quick'),
     max_tokens: 400,
     messages: [{ role: 'user', content:
 `Summarize the following ${kind} for a real estate agent's working memory. Return ONLY JSON (no fence, no prose):
@@ -222,7 +223,7 @@ Rules:
 - Return JSON only — no markdown fences, no commentary.`;
 
   const completion = await anthropic.messages.create({
-    model: 'claude-haiku-4-5-20251001',
+    model: pickModel('reasoning'),  // Sonnet by default — better quality + faster long-context
     max_tokens: 8000,
     messages: [{ role: 'user', content: prompt }],
   });
@@ -252,7 +253,7 @@ Rules:
 async function extractHandoffWithHaiku({ anthropic, markdown }) {
   if (!anthropic) return { decisions: [], patterns: [], retros: [] };
   const completion = await anthropic.messages.create({
-    model: 'claude-haiku-4-5-20251001',
+    model: pickModel('reasoning'),
     max_tokens: 4000,
     messages: [{ role: 'user', content:
 `You are extracting structured memory from a session handoff document for Jonathan Wallace's real estate operations dashboard Agent HQ. Identify discrete decisions (what was decided + why + alternatives), observed patterns (recurring approaches), and retrospectives (what worked / what didn't / lessons).
