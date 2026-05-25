@@ -152,6 +152,103 @@ ${kind === 'document' ? 'Document text (may be truncated):' : 'Markdown:'} """${
   try { return JSON.parse(raw); } catch { return { title: hint || 'Document', summary: text.slice(0, 240), tags: [] }; }
 }
 
+
+// ── decomposeDocumentWithHaiku ────────────────────────────────────────
+// Given a document's text, ask Haiku to break it into structured memory
+// items: procedures (SOPs with steps + triggers), decisions (forward-looking
+// rules), facts (atomic data points), retros (lessons / case studies).
+// Used by POST /api/jacqui/memory/documents/:id/decompose.
+async function decomposeDocumentWithHaiku({ anthropic, title, summary, text, tags }) {
+  if (!anthropic) return { error: 'anthropic not configured', items: { procedures: [], decisions: [], facts: [], retros: [] } };
+
+  // Bound input. Haiku 4.5 handles 200k context but we keep cost reasonable.
+  const trimmed = String(text || '').slice(0, 80000);
+
+  const prompt = `You are decomposing a real-estate document for Jonathan Wallace's Jacqui memory system. He works in Georgian Bay / Simcoe County Ontario.
+
+Document title: ${title || '(untitled)'}
+Document summary: ${summary || '(no summary)'}
+Document tags: ${(tags || []).join(', ') || '(no tags)'}
+
+Document text (truncated to 80k chars):
+"""
+${trimmed}
+"""
+
+Extract every actionable, retainable item into one of FOUR memory categories. Be generous — capture anything Jonathan would benefit from recalling. Return ONLY valid JSON with this exact shape:
+
+{
+  "doc_kind": "sop|playbook|policy|reference|case_study|mixed",
+  "procedures": [
+    {
+      "name": "short procedure name (3-7 words)",
+      "trigger_when": "the situation that should invoke this procedure",
+      "steps": ["step 1...", "step 2...", "..."],
+      "tags": ["domain", "tags"]
+    }
+  ],
+  "decisions": [
+    {
+      "topic": "short topic",
+      "decision": "the forward-looking rule, in one sentence under 200 chars",
+      "why": "the reasoning",
+      "tags": ["domain", "tags"]
+    }
+  ],
+  "facts": [
+    {
+      "topic": "short topic",
+      "decision": "the atomic fact, e.g. 'Realtor.com leads cost $8-12 each in 2023'",
+      "why": "context",
+      "tags": ["fact", ...other tags]
+    }
+  ],
+  "retros": [
+    {
+      "what_worked": "...or null",
+      "what_didnt": "...or null",
+      "lesson": "the takeaway",
+      "tags": ["domain", "tags"]
+    }
+  ]
+}
+
+Rules:
+- Only include items genuinely present in the document. Don't fabricate.
+- For each procedure, steps should be 3-12 concrete numbered actions.
+- Facts go in the decisions array but with topic prefixed by "fact:".
+- Tags should be lowercase, hyphenated, max 5 per item.
+- If a category has nothing, return an empty array.
+- Return JSON only — no markdown fences, no commentary.`;
+
+  const completion = await anthropic.messages.create({
+    model: 'claude-haiku-4-5-20251001',
+    max_tokens: 8000,
+    messages: [{ role: 'user', content: prompt }],
+  });
+  const raw = completion.content?.[0]?.text || '';
+  let parsed = { procedures: [], decisions: [], facts: [], retros: [] };
+  try {
+    let t = String(raw).trim().replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '');
+    const f = t.indexOf('{'), l = t.lastIndexOf('}');
+    if (f >= 0 && l > f) t = t.slice(f, l + 1);
+    parsed = JSON.parse(t);
+  } catch (e) {
+    return { error: 'JSON parse failed: ' + e.message, raw: raw.slice(0, 500), items: parsed };
+  }
+  // Normalize — guarantee arrays exist
+  return {
+    doc_kind: parsed.doc_kind || 'mixed',
+    items: {
+      procedures: Array.isArray(parsed.procedures) ? parsed.procedures : [],
+      decisions: Array.isArray(parsed.decisions) ? parsed.decisions : [],
+      facts: Array.isArray(parsed.facts) ? parsed.facts : [],
+      retros: Array.isArray(parsed.retros) ? parsed.retros : [],
+    },
+    usage: completion.usage || null,
+  };
+}
+
 async function extractHandoffWithHaiku({ anthropic, markdown }) {
   if (!anthropic) return { decisions: [], patterns: [], retros: [] };
   const completion = await anthropic.messages.create({
@@ -554,6 +651,125 @@ export function register(app, deps) {
     });
 
     res.json({ ok: true, source, added, extracted });
+  });
+
+
+  // ── POST /api/jacqui/memory/documents/:id/decompose ──
+  // Layer 2 teaching: take an already-uploaded document and decompose it into
+  // structured memory items (procedures, decisions, facts, retros). Two modes:
+  //   ?commit=false (default) → return preview only, do not write
+  //   ?commit=true           → write extracted items to memory stores
+  app.post('/api/jacqui/memory/documents/:id/decompose', async (req, res) => {
+    const id = req.params.id;
+    const docs = readJsonl(PATH_DOCS);
+    const doc = docs.find(d => d.id === id);
+    if (!doc) return res.status(404).json({ ok: false, error: 'document not found' });
+
+    let text = doc.text;
+    if (!text && doc.textPath && fs.existsSync(doc.textPath)) {
+      try { text = fs.readFileSync(doc.textPath, 'utf8'); } catch {}
+    }
+    if (!text) return res.status(400).json({ ok: false, error: 'document has no text' });
+
+    const result = await decomposeDocumentWithHaiku({
+      anthropic,
+      title: doc.title || doc.source_filename || id,
+      summary: doc.summary || '',
+      text,
+      tags: doc.tags || [],
+    });
+    if (result.error) {
+      return res.status(500).json({ ok: false, error: result.error, raw: result.raw });
+    }
+
+    const commit = req.query.commit === 'true' || req.body?.commit === true;
+    const added = { procedures: 0, decisions: 0, facts: 0, retros: 0 };
+
+    if (commit) {
+      const sourceTag = `doc:${doc.source_filename || doc.title || id}`;
+      const today = new Date().toISOString().slice(0, 10);
+      const extraTags = ['from-document', 'jacqui-auto', sourceTag];
+
+      for (const p of result.items.procedures) {
+        const entry = {
+          id: makeId('pat'),
+          date: today,
+          createdAt: new Date().toISOString(),
+          pattern: p.name || 'procedure',
+          trigger_when: p.trigger_when || null,
+          steps: Array.isArray(p.steps) ? p.steps : [],
+          example: null,
+          tags: [...(Array.isArray(p.tags) ? p.tags : []), 'procedure', ...extraTags],
+          source_doc_id: id,
+        };
+        appendJsonl(PATH_PAT, entry);
+        added.procedures++;
+      }
+      for (const d of result.items.decisions) {
+        if (!d.decision) continue;
+        const entry = {
+          id: makeId('dec'),
+          date: today,
+          createdAt: new Date().toISOString(),
+          topic: d.topic || null,
+          decision: d.decision,
+          why: d.why || null,
+          alternatives: [],
+          tags: [...(Array.isArray(d.tags) ? d.tags : []), ...extraTags],
+          source_doc_id: id,
+        };
+        appendJsonl(PATH_DEC, entry);
+        added.decisions++;
+      }
+      for (const f of result.items.facts) {
+        if (!f.decision) continue;
+        const entry = {
+          id: makeId('fact'),
+          date: today,
+          createdAt: new Date().toISOString(),
+          topic: f.topic ? (f.topic.startsWith('fact:') ? f.topic : 'fact: ' + f.topic) : 'fact',
+          decision: f.decision,
+          why: f.why || null,
+          alternatives: [],
+          tags: [...(Array.isArray(f.tags) ? f.tags : ['fact']), ...extraTags],
+          source_doc_id: id,
+        };
+        appendJsonl(PATH_DEC, entry);
+        added.facts++;
+      }
+      for (const r of result.items.retros) {
+        if (!r.what_worked && !r.what_didnt && !r.lesson) continue;
+        const entry = {
+          id: makeId('ret'),
+          date: today,
+          createdAt: new Date().toISOString(),
+          what_worked: r.what_worked || null,
+          what_didnt: r.what_didnt || null,
+          lesson: r.lesson || null,
+          tags: [...(Array.isArray(r.tags) ? r.tags : []), ...extraTags],
+          source_doc_id: id,
+        };
+        appendJsonl(PATH_RET, entry);
+        added.retros++;
+      }
+    }
+
+    res.json({
+      ok: true,
+      doc_id: id,
+      doc_title: doc.title || doc.source_filename || id,
+      doc_kind: result.doc_kind,
+      committed: commit,
+      counts: {
+        procedures: result.items.procedures.length,
+        decisions: result.items.decisions.length,
+        facts: result.items.facts.length,
+        retros: result.items.retros.length,
+      },
+      added,
+      items: result.items,
+      usage: result.usage,
+    });
   });
 
   // ── GET /admin/jacqui-library — HTML UI ──
