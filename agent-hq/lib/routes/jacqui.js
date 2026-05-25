@@ -177,6 +177,23 @@ const JACQUI_TOOLS = [
     },
   },
   {
+    name: 'scan_listing_inquiries',
+    description:
+      "Trigger an immediate sweep of the inbox for new 2-405 Bay Street inquiry " +
+      "emails (or whatever listing is configured in the rule). For each new " +
+      "match: extract contact name/email/phone, forward to the buyer's agent " +
+      "Ryan Allary, send a 'Received' acknowledgement to engagement@faristeam.ca, " +
+      "and delete the original email. Idempotent — leads already forwarded won't " +
+      "be re-sent. Call this when Jonathan asks you to 'check for new leads', " +
+      "'forward new leads to Ryan', 'scan the inbox', or after he's just had a " +
+      "showing and expects fresh inquiries. The scheduler also runs this every " +
+      "15 min automatically, so don't call it more than once per chat turn.",
+    input_schema: {
+      type: 'object',
+      properties: {},
+    },
+  },
+  {
     name: 'remember_this',
     description:
       "Log something Jonathan just taught you into your persistent memory. " +
@@ -238,6 +255,35 @@ async function callOutlookGateway(action, action_params) {
   }
 }
 
+
+
+async function scanListingInquiries() {
+  const port = process.env.PORT || 3000;
+  try {
+    const resp = await fetch(`http://127.0.0.1:${port}/api/jacqui/rules/listing-inquiry-forward/scan`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: '{}',
+    });
+    const text = await resp.text();
+    let parsed;
+    try { parsed = JSON.parse(text); } catch { parsed = { raw: text }; }
+    if (!resp.ok) return { ok: false, status: resp.status, error: parsed?.error || text };
+    const r = parsed.run || {};
+    // Summarize for Jacqui's reply context
+    return {
+      ok: true,
+      summary: `Found ${r.found || 0}, forwarded ${r.forwarded || 0} to Ryan, acknowledged ${r.acknowledged || 0}, deleted ${r.deleted || 0}, skipped ${(r.skipped_already_processed || 0) + (r.skipped_duplicate_lead || 0) + (r.skipped_blocklisted_sender || 0) + (r.skipped_no_contact || 0)}.`,
+      forwarded: r.forwarded || 0,
+      acknowledged: r.acknowledged || 0,
+      deleted: r.deleted || 0,
+      errors: r.errors || [],
+      details: r.details || [],
+    };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+}
 
 async function rememberThis(input) {
   // Auto-write to Jacqui's persistent memory. We map the LLM-facing kind
@@ -322,6 +368,8 @@ async function runTool(name, input) {
       return await callOutlookGateway('mark_read', {
         messageId: input.messageId,
       });
+    case 'scan_listing_inquiries':
+      return await scanListingInquiries();
     case 'remember_this':
       return await rememberThis(input);
     default:
