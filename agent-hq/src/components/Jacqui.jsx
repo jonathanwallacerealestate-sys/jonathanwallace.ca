@@ -1,18 +1,78 @@
 // src/components/Jacqui.jsx
 //
-// Jacqui chat tab — text in, text out. Phase 1: persona + memories, no tools.
+// Jacqui chat tab — text + voice + document teaching, all in one tab.
+//
 // Voice calibrated against ~87 real screenshots of Jonathan's text conversations
 // with his mom Jacqueline (read 2026-04-30).
+//
+// CHANGES IN THIS VERSION (2026-05-25):
+//   • Mic button — browser-native webkitSpeechRecognition. No server round-trip,
+//     no audio leaves the device. Transcript drops into the composer; Jonathan
+//     reviews/edits before sending. Tap mic to start, tap again to stop.
+//   • Paperclip button — drop a PDF/image/text doc on her. Fires the existing
+//     /api/jacqui/memory/document endpoint which extracts → summarizes → writes
+//     memory entries tagged source=<filename>. Shows "📚 learned" confirm.
+//   • Memory ack chips — when she auto-writes to memory (handoff-style cues
+//     in your message like "remember that…" or "from now on…"), she returns
+//     `memory_writes` in the chat response; we show a little 📝 AUTO chip
+//     so Jonathan can audit what she captured.
+//   • Mobile-first composer — buttons wrap to a thumb-friendly row on narrow
+//     viewports. Safe-area-inset-bottom respected when used as installed PWA.
 
 import { useState, useEffect, useRef } from 'react';
-import { Heart, Send, Trash2, Loader2 } from 'lucide-react';
+import { Heart, Send, Trash2, Loader2, Mic, MicOff, Paperclip, BookOpen } from 'lucide-react';
 
 export default function Jacqui() {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
   const [model, setModel] = useState('');
+  const [listening, setListening] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [uploadMsg, setUploadMsg] = useState('');
+  const [micSupported, setMicSupported] = useState(true);
   const scrollRef = useRef(null);
+  const recogRef = useRef(null);
+  const fileInputRef = useRef(null);
+
+  // Detect mic support on mount
+  useEffect(() => {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) {
+      setMicSupported(false);
+      return;
+    }
+    const recog = new SR();
+    recog.continuous = true;
+    recog.interimResults = true;
+    recog.lang = 'en-CA';
+    recog.onresult = (event) => {
+      let finalText = '';
+      let interimText = '';
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const t = event.results[i][0].transcript;
+        if (event.results[i].isFinal) finalText += t;
+        else interimText += t;
+      }
+      if (finalText) {
+        setInput(prev => (prev ? prev + ' ' : '') + finalText.trim());
+      } else if (interimText) {
+        // Show interim in a status hint only (avoid stomping user edits)
+        setUploadMsg(`Listening: "${interimText.trim().slice(0, 60)}${interimText.length > 60 ? '…' : ''}"`);
+      }
+    };
+    recog.onend = () => {
+      setListening(false);
+      setUploadMsg('');
+    };
+    recog.onerror = (e) => {
+      setListening(false);
+      setUploadMsg(`Mic error: ${e.error || 'unknown'} (check Settings → Safari → Microphone)`);
+      setTimeout(() => setUploadMsg(''), 5000);
+    };
+    recogRef.current = recog;
+    return () => { try { recog.abort(); } catch {} };
+  }, []);
 
   // Load history on mount
   useEffect(() => {
@@ -37,6 +97,11 @@ export default function Jacqui() {
   async function send() {
     const text = input.trim();
     if (!text || sending) return;
+    // Stop listening if active — sending implies the dictation is done.
+    if (listening) {
+      try { recogRef.current?.stop(); } catch {}
+      setListening(false);
+    }
     const userMsg = { role: 'user', content: text, ts: new Date().toISOString() };
     setMessages(prev => [...prev, userMsg]);
     setInput('');
@@ -49,7 +114,22 @@ export default function Jacqui() {
       });
       const d = await r.json();
       if (d.success) {
-        setMessages(prev => [...prev, { role: 'assistant', content: d.reply, ts: new Date().toISOString() }]);
+        const msg = {
+          role: 'assistant',
+          content: d.reply,
+          ts: new Date().toISOString(),
+        };
+        // Surface memory writes from tool_calls so Jonathan sees what was logged.
+        const memCalls = (d.tool_calls || []).filter(
+          c => c.name === 'remember_this' && c.result && c.result.ok
+        );
+        if (memCalls.length) {
+          msg.memoryWrites = memCalls.map(c => ({
+            kind: c.input?.kind || 'note',
+            summary: c.input?.summary || c.input?.body?.slice(0, 80) || '',
+          }));
+        }
+        setMessages(prev => [...prev, msg]);
       } else {
         setMessages(prev => [...prev, { role: 'assistant', content: `(she's quiet — ${d.error || 'something went wrong'})`, ts: new Date().toISOString(), error: true }]);
       }
@@ -57,6 +137,61 @@ export default function Jacqui() {
       setMessages(prev => [...prev, { role: 'assistant', content: `(she's quiet — ${e.message})`, ts: new Date().toISOString(), error: true }]);
     } finally {
       setSending(false);
+    }
+  }
+
+  function toggleMic() {
+    if (!recogRef.current) return;
+    if (listening) {
+      try { recogRef.current.stop(); } catch {}
+      setListening(false);
+    } else {
+      try {
+        recogRef.current.start();
+        setListening(true);
+        setUploadMsg('Listening… (tap mic again to stop)');
+        if (navigator.vibrate) try { navigator.vibrate(10); } catch {}
+      } catch (e) {
+        setUploadMsg(`Mic failed to start: ${e.message}`);
+      }
+    }
+  }
+
+  async function uploadDoc(file) {
+    if (!file) return;
+    setUploading(true);
+    setUploadMsg(`Uploading "${file.name}"…`);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const r = await fetch('/api/jacqui/memory/document', {
+        method: 'POST',
+        body: fd,
+      });
+      const d = await r.json();
+      if (d.success || d.ok) {
+        const summary = d.summary || d.document?.summary || '';
+        setUploadMsg('');
+        // Inject a system-style bubble so Jonathan sees Jacqui acknowledged the doc.
+        setMessages(prev => [
+          ...prev,
+          {
+            role: 'assistant',
+            content: `📚 I read "${file.name}". ${summary ? '— ' + summary : ''}`,
+            ts: new Date().toISOString(),
+            taught: true,
+          },
+        ]);
+      } else {
+        setUploadMsg(`Upload failed: ${d.error || 'unknown error'}`);
+        setTimeout(() => setUploadMsg(''), 5000);
+      }
+    } catch (e) {
+      setUploadMsg(`Upload failed: ${e.message}`);
+      setTimeout(() => setUploadMsg(''), 5000);
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
     }
   }
 
@@ -98,7 +233,9 @@ export default function Jacqui() {
         </div>
         <div style={{ flex: 1 }}>
           <div style={{ fontSize: 15, fontWeight: 700, color: '#111827' }}>Jacqui</div>
-          <div style={{ fontSize: 11, color: '#6b7280' }}>Named in honour of mom · {model || 'connecting...'}</div>
+          <div style={{ fontSize: 11, color: '#6b7280' }}>
+            Named in honour of mom · {model || 'connecting...'} · talk, dictate, or teach her with a doc
+          </div>
         </div>
         <button onClick={clearThread} title="Clear conversation" style={{
           padding: 8, borderRadius: 8, border: '1px solid #e5e7eb', background: '#fff',
@@ -120,12 +257,20 @@ export default function Jacqui() {
             <Heart size={32} color="#fda4af" fill="#fda4af" style={{ margin: '0 auto 12px' }} />
             <div style={{ fontWeight: 600, color: '#6b7280', marginBottom: 6 }}>Say hi to Jacqui.</div>
             <div style={{ fontSize: 12, lineHeight: 1.6, maxWidth: 380, margin: '0 auto' }}>
-              Try: "what's on my plate today" · "I just had a hard call" · "remind me to call dad" · "I closed 25 King Street"
+              Try: "what's on my plate today" · "I just had a hard call" · "remember that Edmund Rucels sold 112 Farlain to Jorun" · drop a feature sheet PDF to teach her about a listing
             </div>
           </div>
         ) : (
           messages.map((m, i) => (
-            <Bubble key={i} role={m.role} content={m.content} ts={fmtTime(m.ts)} error={m.error} />
+            <Bubble
+              key={i}
+              role={m.role}
+              content={m.content}
+              ts={fmtTime(m.ts)}
+              error={m.error}
+              taught={m.taught}
+              memoryWrites={m.memoryWrites}
+            />
           ))
         )}
         {sending && (
@@ -135,24 +280,79 @@ export default function Jacqui() {
         )}
       </div>
 
+      {/* Status strip (mic / upload feedback) */}
+      {uploadMsg && (
+        <div style={{
+          padding: '6px 16px', fontSize: 11, color: '#6b7280',
+          background: '#fef3c7', borderLeft: '3px solid #f59e0b',
+          borderRight: '1px solid #f0f0f0', borderLeftColor: listening ? '#dc2626' : '#f59e0b',
+        }}>
+          {uploadMsg}
+        </div>
+      )}
+
       {/* Composer */}
       <div style={{
-        padding: '12px 16px', background: '#fff',
+        padding: '12px 16px',
+        paddingBottom: 'calc(12px + env(safe-area-inset-bottom, 0px))',
+        background: '#fff',
         borderRadius: '0 0 14px 14px', border: '1px solid #f0f0f0', borderTop: 'none',
-        display: 'flex', gap: 8, alignItems: 'flex-end',
+        display: 'flex', gap: 8, alignItems: 'flex-end', flexWrap: 'wrap',
       }}>
+        {/* Hidden file input — paperclip triggers it */}
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".pdf,.txt,.md,.docx,.png,.jpg,.jpeg,application/pdf,text/*,image/png,image/jpeg"
+          style={{ display: 'none' }}
+          onChange={e => uploadDoc(e.target.files?.[0])}
+        />
         <textarea
           value={input}
           onChange={e => setInput(e.target.value)}
           onKeyDown={onKeyDown}
-          placeholder="Talk to Jacqui..."
+          placeholder={listening ? 'Listening — speak now…' : 'Talk to Jacqui, or tap 🎤 to dictate, or 📎 to teach her a doc…'}
           rows={1}
           style={{
-            flex: 1, padding: '10px 12px', border: '1px solid #e5e7eb', borderRadius: 10,
+            flex: 1, minWidth: 180,
+            padding: '10px 12px', border: '1px solid #e5e7eb', borderRadius: 10,
             resize: 'none', fontSize: 14, fontFamily: 'inherit', minHeight: 40, maxHeight: 120,
             outline: 'none',
           }}
         />
+        {/* Paperclip — upload doc */}
+        <button
+          onClick={() => fileInputRef.current?.click()}
+          disabled={uploading}
+          title="Teach Jacqui with a document (PDF, image, text)"
+          style={{
+            padding: '10px 12px', borderRadius: 10,
+            border: '1px solid #e5e7eb', background: '#fff',
+            color: uploading ? '#9ca3af' : '#6b7280',
+            cursor: uploading ? 'wait' : 'pointer',
+            display: 'flex', alignItems: 'center', gap: 4,
+          }}
+        >
+          {uploading ? <Loader2 size={16} className="spin" /> : <Paperclip size={16} />}
+        </button>
+        {/* Mic */}
+        {micSupported && (
+          <button
+            onClick={toggleMic}
+            title={listening ? 'Stop dictation' : 'Start dictation (in-browser)'}
+            style={{
+              padding: '10px 12px', borderRadius: 10,
+              border: '1px solid ' + (listening ? '#dc2626' : '#e5e7eb'),
+              background: listening ? '#fee2e2' : '#fff',
+              color: listening ? '#dc2626' : '#6b7280',
+              cursor: 'pointer',
+              display: 'flex', alignItems: 'center', gap: 4,
+            }}
+          >
+            {listening ? <MicOff size={16} /> : <Mic size={16} />}
+          </button>
+        )}
+        {/* Send */}
         <button onClick={send} disabled={sending || !input.trim()} style={{
           padding: '10px 16px', borderRadius: 10, border: 'none',
           background: sending || !input.trim() ? '#e5e7eb' : '#be185d',
@@ -167,8 +367,9 @@ export default function Jacqui() {
   );
 }
 
-function Bubble({ role, content, ts, error }) {
+function Bubble({ role, content, ts, error, taught, memoryWrites }) {
   const isUser = role === 'user';
+  const isTaught = taught && !isUser;
   return (
     <div style={{
       display: 'flex', justifyContent: isUser ? 'flex-end' : 'flex-start',
@@ -178,14 +379,34 @@ function Bubble({ role, content, ts, error }) {
         <div style={{
           padding: '10px 14px',
           borderRadius: isUser ? '16px 16px 4px 16px' : '16px 16px 16px 4px',
-          background: isUser ? '#3b82f6' : (error ? '#fee2e2' : '#fff'),
-          color: isUser ? '#fff' : (error ? '#991b1b' : '#1f2937'),
+          background: isUser ? '#3b82f6'
+            : (error ? '#fee2e2'
+            : (isTaught ? '#ecfeff' : '#fff')),
+          color: isUser ? '#fff'
+            : (error ? '#991b1b'
+            : (isTaught ? '#0e7490' : '#1f2937')),
           fontSize: 14, lineHeight: 1.5,
-          border: isUser ? 'none' : '1px solid #f0f0f0',
+          border: isUser ? 'none'
+            : (isTaught ? '1px solid #a5f3fc' : '1px solid #f0f0f0'),
           whiteSpace: 'pre-wrap', wordBreak: 'break-word',
           boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
         }}>
           {content}
+          {memoryWrites && memoryWrites.length > 0 && (
+            <div style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+              {memoryWrites.map((w, i) => (
+                <span key={i} title={w.summary} style={{
+                  fontSize: 10, fontWeight: 700, letterSpacing: 0.4,
+                  padding: '2px 6px', borderRadius: 4,
+                  background: '#fef3c7', color: '#92400e',
+                  display: 'inline-flex', alignItems: 'center', gap: 3,
+                }}>
+                  <BookOpen size={10} />
+                  AUTO · {w.kind.toUpperCase()}
+                </span>
+              ))}
+            </div>
+          )}
         </div>
         {ts && (
           <div style={{
