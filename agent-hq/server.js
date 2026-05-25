@@ -43,6 +43,7 @@ import * as bootstrapRoutes from './lib/routes/bootstrap.js';
 import * as healthConsoleRoutes from './lib/routes/health-console.js';
 import * as voiceMemoRoutes from './lib/routes/voice-memo.js';
 import * as jacquiMemoryRoutes from './lib/routes/jacqui-memory.js';
+import * as listingInquiryForwardRoutes from './lib/routes/listing-inquiry-forward.js';
 import * as health from './lib/health.js';
 const _require = createRequire(import.meta.url);
 const pdfParse = _require('pdf-parse');
@@ -6020,6 +6021,7 @@ voiceMemoRoutes.register(app, {
   dataDir: DATA_DIR,
 });
 jacquiMemoryRoutes.register(app, { jacquiDir: JACQUI_DIR, anthropic, pdfParse, multer });
+listingInquiryForwardRoutes.register(app, { jacquiDir: JACQUI_DIR, anthropic });
 
 
 // ─────────────────────────────────────────────
