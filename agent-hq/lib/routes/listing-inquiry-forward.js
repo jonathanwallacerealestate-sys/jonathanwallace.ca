@@ -60,6 +60,17 @@ const DEFAULT_CONFIG = {
     'rallary@exitrealtytruenorth.com',
     'engagement@faristeam.ca',  // we don't loop on our own ack receipts
   ],
+  // Senders we DO act on. An email must come from one of these AND match the
+  // listing. This is the second safety layer: prevents random emails that
+  // happen to mention "2-405 Bay Street" in their body from triggering a
+  // forward. Lead-notification sources only.
+  allowed_senders: [
+    'leads@followupboss.com',
+    'notifications@followupboss.com',
+    'engagement@faristeam.ca',
+    'info@mg.brokerbay.com',
+    'info@mg2.brokerbay.com',
+  ],
   // Cap scans to N messages per cycle to bound cost.
   scan_limit: 25,
 };
@@ -265,6 +276,7 @@ export async function runScan({ anthropic, jacquiDir, dryRun = false }) {
     found: 0,
     skipped_already_processed: 0,
     skipped_no_contact: 0,
+    skipped_not_on_allowlist: 0,
     skipped_duplicate_lead: 0,
     skipped_blocklisted_sender: 0,
     forwarded: 0,
@@ -318,6 +330,20 @@ export async function runScan({ anthropic, jacquiDir, dryRun = false }) {
       detail.status = 'no-listing-match';
       run.details.push(detail);
       continue;
+    }
+    // SECOND SAFETY LAYER — the email must also come from a known lead-source
+    // sender. Prevents accidental forwards from any random message that
+    // mentions the listing address.
+    if (cfg.allowed_senders && cfg.allowed_senders.length > 0) {
+      const allowed = cfg.allowed_senders.map(s => String(s).toLowerCase());
+      if (!allowed.some(a => sender === a || sender.endsWith('@' + a) || sender.endsWith(a))) {
+        run.skipped_not_on_allowlist += 1;
+        detail.status = 'sender-not-on-allowlist';
+        detail.sender = sender;
+        run.details.push(detail);
+        // Don't mark processed — if we add the sender later we can re-scan.
+        continue;
+      }
     }
 
     // Extract contact
@@ -440,7 +466,7 @@ export async function runScan({ anthropic, jacquiDir, dryRun = false }) {
     forwarded: run.forwarded,
     acknowledged: run.acknowledged,
     deleted: run.deleted,
-    skipped: run.skipped_already_processed + run.skipped_duplicate_lead + run.skipped_blocklisted_sender + run.skipped_no_contact,
+    skipped: run.skipped_already_processed + run.skipped_duplicate_lead + run.skipped_blocklisted_sender + run.skipped_no_contact + (run.skipped_not_on_allowlist || 0),
     errors: run.errors.length,
   });
   if (!dryRun) saveState(STATE_PATH, state);
