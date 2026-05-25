@@ -8622,6 +8622,445 @@ setTimeout(() => { scheduleBackups().catch(e => console.error('[Backup] schedule
 // ─────────────────────────────────────────────
 // SPA Fallback — serve index.html for all other routes
 // ─────────────────────────────────────────────
+
+// ─────────────────────────────────────────────
+// HTML for the /dictate page — single-file PWA-flavored capture screen
+// Designed for iPhone Add-to-Home-Screen ("Jacqui" app icon)
+// ─────────────────────────────────────────────
+const JACQUI_DICTATE_HTML = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>Jacqui</title>
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Jacqui">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#0a0a0a">
+<link rel="apple-touch-icon" href="/agent-hq-logo.png">
+<style>
+:root { color-scheme: dark; }
+* { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+html, body { background: #0a0a0a; color: #f5f5f4; font-family: -apple-system, "SF Pro Text", system-ui, sans-serif; min-height: 100vh; overscroll-behavior: none; }
+body { padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
+.wrap { max-width: 540px; margin: 0 auto; padding: 18px 18px 80px; min-height: 100vh; display: flex; flex-direction: column; }
+.header { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 16px; }
+.title { font-size: 22px; font-weight: 600; letter-spacing: -0.02em; }
+.sub { font-size: 12px; color: #8a8784; margin-top: 2px; }
+.count { font-size: 11px; color: #888; }
+.stage { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 24px 0; min-height: 320px; }
+.mic { width: 152px; height: 152px; border-radius: 50%; background: #c2410c; color: #fff; border: none; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: transform 0.08s, background 0.15s; box-shadow: 0 8px 32px rgba(194,65,12,0.35); }
+.mic:active { transform: scale(0.96); }
+.mic.recording { background: #dc2626; animation: pulse 1.4s ease-in-out infinite; }
+.mic.processing { background: #6b7280; }
+.mic svg { width: 64px; height: 64px; }
+@keyframes pulse { 0%,100% { box-shadow: 0 8px 32px rgba(220,38,38,0.35); } 50% { box-shadow: 0 8px 32px rgba(220,38,38,0.7), 0 0 0 14px rgba(220,38,38,0.15); } }
+.label { margin-top: 18px; font-size: 14px; color: #d4d4d2; font-weight: 500; letter-spacing: 0.02em; }
+.label .small { color: #8a8784; font-size: 12px; display: block; margin-top: 4px; font-weight: 400; }
+.live { width: 100%; min-height: 80px; max-height: 180px; overflow-y: auto; background: #161615; border: 1px solid #2a2a28; border-radius: 14px; padding: 14px 16px; margin: 18px 0 12px; font-size: 15px; line-height: 1.55; color: #f5f5f4; display: none; }
+.live.show { display: block; }
+.live .interim { color: #8a8784; font-style: italic; }
+.actions { display: flex; gap: 10px; width: 100%; margin-top: 12px; display: none; }
+.actions.show { display: flex; }
+.actions button { flex: 1; font-family: inherit; font-size: 15px; font-weight: 500; padding: 14px 16px; border-radius: 12px; border: none; cursor: pointer; transition: opacity 0.1s, transform 0.08s; }
+.actions button:active { transform: scale(0.98); }
+.btn-send { background: #3b6d11; color: #fff; }
+.btn-cancel { background: #2a2a28; color: #d4d4d2; }
+.btn-send:disabled { opacity: 0.5; }
+.result { margin-top: 22px; }
+.result h3 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: #8a8784; margin-bottom: 10px; font-weight: 500; }
+.result .summary { background: #161615; border: 1px solid #2a2a28; border-radius: 12px; padding: 12px 14px; font-size: 14px; margin-bottom: 14px; line-height: 1.55; }
+.act-card { background: #161615; border: 1px solid #2a2a28; border-radius: 12px; padding: 12px 14px; margin-bottom: 8px; }
+.act-card .type { display: inline-block; font-size: 10px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; padding: 3px 8px; border-radius: 6px; background: #185fa5; color: #fff; margin-bottom: 8px; }
+.act-card .type.fub { background: #c2410c; }
+.act-card .type.text { background: #185fa5; }
+.act-card .type.email { background: #6366f1; }
+.act-card .type.feedback { background: #639922; }
+.act-card .type.task { background: #854f0b; }
+.act-card .type.calendar { background: #0891b2; }
+.act-card .type.review { background: #b91c1c; }
+.act-card .who { font-size: 13px; font-weight: 500; color: #f5f5f4; margin-bottom: 4px; }
+.act-card .body { font-size: 13px; color: #c4c4c2; line-height: 1.5; white-space: pre-wrap; }
+.act-card .meta { font-size: 11px; color: #8a8784; margin-top: 6px; }
+.recent { margin-top: 30px; padding-top: 20px; border-top: 1px solid #2a2a28; }
+.recent h3 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: #8a8784; margin-bottom: 10px; font-weight: 500; }
+.r-item { background: #131312; border: 1px solid #1f1f1d; border-radius: 10px; padding: 10px 12px; margin-bottom: 6px; }
+.r-item .r-time { font-size: 10px; color: #8a8784; margin-bottom: 4px; }
+.r-item .r-summary { font-size: 13px; color: #d4d4d2; line-height: 1.45; }
+.r-item .r-actions-count { font-size: 11px; color: #6b7280; margin-top: 4px; }
+.toast { position: fixed; left: 50%; bottom: 30px; transform: translateX(-50%); background: #161615; border: 1px solid #2a2a28; color: #f5f5f4; padding: 10px 16px; border-radius: 10px; font-size: 13px; display: none; z-index: 100; }
+.toast.show { display: block; }
+.toast.err { background: #2a0a0a; border-color: #7f1d1d; color: #fecaca; }
+.warn { background: #2a1a05; border: 1px solid #854f0b; border-radius: 10px; padding: 10px 14px; margin: 12px 0; font-size: 12px; color: #fde68a; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="header">
+    <div>
+      <div class="title">Jacqui</div>
+      <div class="sub" id="sub">Tap the mic and talk to me</div>
+    </div>
+    <div class="count" id="count">…</div>
+  </div>
+
+  <div id="warn" class="warn" style="display:none">Voice recognition not supported on this browser. Use Safari on iPhone (iOS 14.5+) or Chrome on desktop.</div>
+
+  <div class="stage">
+    <button id="micBtn" class="mic" aria-label="Tap to record">
+      <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+        <path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 1 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11h-2z"/>
+      </svg>
+    </button>
+    <div class="label" id="label">Tap to start<span class="small">Then talk — Jacqui transcribes live</span></div>
+  </div>
+
+  <div id="live" class="live"></div>
+
+  <div id="actions" class="actions">
+    <button class="btn-cancel" id="cancelBtn">Cancel</button>
+    <button class="btn-send" id="sendBtn">Send to Jacqui</button>
+  </div>
+
+  <div id="result" class="result" style="display:none"></div>
+
+  <div class="recent">
+    <h3>Recent dictations</h3>
+    <div id="recentList">Loading…</div>
+  </div>
+</div>
+
+<div id="toast" class="toast"></div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const micBtn = $('micBtn'), label = $('label'), live = $('live'), actions = $('actions');
+const sendBtn = $('sendBtn'), cancelBtn = $('cancelBtn'), result = $('result'), sub = $('sub'), count = $('count');
+
+let recognition = null, isRecording = false, isProcessing = false, finalText = '', interimText = '';
+
+function showToast(msg, kind = '') {
+  const t = $('toast');
+  t.textContent = msg;
+  t.className = 'toast show' + (kind ? ' ' + kind : '');
+  clearTimeout(showToast._h);
+  showToast._h = setTimeout(() => t.classList.remove('show'), 3000);
+}
+
+function setupRecognition() {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) {
+    $('warn').style.display = 'block';
+    micBtn.disabled = true;
+    return null;
+  }
+  const r = new SR();
+  r.continuous = true;
+  r.interimResults = true;
+  r.lang = 'en-US';
+  r.onresult = (e) => {
+    interimText = '';
+    for (let i = e.resultIndex; i < e.results.length; i++) {
+      const tr = e.results[i][0].transcript;
+      if (e.results[i].isFinal) finalText += tr + ' ';
+      else interimText += tr;
+    }
+    renderLive();
+  };
+  r.onerror = (e) => {
+    showToast('Recognition error: ' + e.error, 'err');
+    stopRecording();
+  };
+  r.onend = () => {
+    if (isRecording) {
+      // Auto-restart for long dictations on iOS Safari
+      try { r.start(); } catch {}
+    }
+  };
+  return r;
+}
+
+function renderLive() {
+  if (!finalText && !interimText) {
+    live.classList.remove('show');
+    return;
+  }
+  live.classList.add('show');
+  live.innerHTML = (finalText || '') + (interimText ? '<span class="interim">' + interimText + '</span>' : '');
+  live.scrollTop = live.scrollHeight;
+}
+
+function startRecording() {
+  if (!recognition) recognition = setupRecognition();
+  if (!recognition) return;
+  finalText = ''; interimText = '';
+  isRecording = true;
+  micBtn.classList.add('recording');
+  label.innerHTML = 'Listening… <span class="small">Tap mic when done</span>';
+  result.style.display = 'none';
+  result.innerHTML = '';
+  renderLive();
+  try { recognition.start(); } catch (e) { showToast('Could not start: ' + e.message, 'err'); }
+}
+
+function stopRecording() {
+  isRecording = false;
+  micBtn.classList.remove('recording');
+  if (recognition) { try { recognition.stop(); } catch {} }
+  if ((finalText + interimText).trim().length < 3) {
+    label.innerHTML = 'Tap to start<span class="small">Then talk — Jacqui transcribes live</span>';
+    actions.classList.remove('show');
+    return;
+  }
+  finalText = (finalText + ' ' + interimText).trim();
+  interimText = '';
+  renderLive();
+  label.innerHTML = 'Review and send<span class="small">Or tap mic to redo</span>';
+  actions.classList.add('show');
+}
+
+micBtn.addEventListener('click', () => {
+  if (isProcessing) return;
+  if (isRecording) stopRecording();
+  else startRecording();
+});
+
+cancelBtn.addEventListener('click', () => {
+  finalText = ''; interimText = '';
+  renderLive();
+  actions.classList.remove('show');
+  label.innerHTML = 'Tap to start<span class="small">Then talk — Jacqui transcribes live</span>';
+});
+
+sendBtn.addEventListener('click', async () => {
+  const text = finalText.trim();
+  if (!text) return;
+  isProcessing = true;
+  sendBtn.disabled = true;
+  cancelBtn.disabled = true;
+  micBtn.classList.add('processing');
+  label.innerHTML = 'Jacqui is parsing…<span class="small">Hang tight</span>';
+  try {
+    const resp = await fetch('/api/jacqui/dictation', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text, capturedAt: new Date().toISOString() }),
+    });
+    const data = await resp.json();
+    if (!data.ok) throw new Error(data.error || 'unknown');
+    renderResult(data.entry);
+    showToast('Captured — Jacqui logged it.');
+    finalText = ''; interimText = '';
+    renderLive();
+    actions.classList.remove('show');
+    label.innerHTML = 'Done<span class="small">Tap mic for another</span>';
+    loadRecent();
+  } catch (e) {
+    showToast('Failed: ' + e.message, 'err');
+    label.innerHTML = 'Send failed<span class="small">Tap to retry</span>';
+  } finally {
+    isProcessing = false;
+    sendBtn.disabled = false;
+    cancelBtn.disabled = false;
+    micBtn.classList.remove('processing');
+  }
+});
+
+function renderResult(entry) {
+  const parsed = entry.parsed || {};
+  const acts = entry.actions || [];
+  const sum = parsed.summary || '(no summary)';
+  const err = entry.parseError;
+  let html = '<h3>What Jacqui understood</h3>';
+  html += '<div class="summary">' + escapeHtml(sum) + '</div>';
+  if (err) html += '<div class="warn">Parse note: ' + escapeHtml(err) + '</div>';
+  if (acts.length === 0) {
+    html += '<div class="summary">No actions extracted. Saved as a note.</div>';
+  } else {
+    html += '<h3>Proposed actions (' + acts.length + ')</h3>';
+    for (const a of acts) {
+      html += renderAction(a);
+    }
+  }
+  result.innerHTML = html;
+  result.style.display = 'block';
+}
+
+function renderAction(a) {
+  const typeKey = (a.type || 'task').replace(/[^a-z]/g, '');
+  const labelMap = { fub_note: 'FUB note', draft_text: 'Draft text', draft_email: 'Draft email', feedback_capture: 'Feedback', task: 'Task', calendar: 'Calendar', review: 'Review' };
+  const typeCls = { fub_note: 'fub', draft_text: 'text', draft_email: 'email', feedback_capture: 'feedback', task: 'task', calendar: 'calendar', review: 'review' }[a.type] || 'task';
+  let who = '';
+  if (a.contact) who = a.contact;
+  else if (a.to) who = a.to;
+  else if (a.listing) who = a.listing;
+  else if (a.title) who = a.title;
+  let body = '';
+  if (a.body) body = a.body;
+  else if (a.subject && a.body) body = a.subject + '\\n' + a.body;
+  else if (a.subject) body = a.subject;
+  else if (a.comments) body = (a.rating ? 'Rating: ' + a.rating + '/5\\n' : '') + a.comments;
+  else if (a.snippet) body = a.snippet;
+  else if (a.when) body = a.when;
+  else body = JSON.stringify(a);
+  let meta = '';
+  if (a.due) meta = 'Due: ' + a.due;
+  if (a.when) meta = (meta ? meta + ' · ' : '') + a.when;
+  if (a.rating) meta = (meta ? meta + ' · ' : '') + 'rating ' + a.rating + '/5';
+  return '<div class="act-card">' +
+    '<span class="type ' + typeCls + '">' + (labelMap[a.type] || a.type) + '</span>' +
+    (who ? '<div class="who">' + escapeHtml(who) + '</div>' : '') +
+    '<div class="body">' + escapeHtml(body) + '</div>' +
+    (meta ? '<div class="meta">' + escapeHtml(meta) + '</div>' : '') +
+    '</div>';
+}
+
+function escapeHtml(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+async function loadRecent() {
+  try {
+    const r = await fetch('/api/jacqui/dictation/recent?limit=10');
+    const d = await r.json();
+    const list = $('recentList');
+    if (!d.entries || d.entries.length === 0) {
+      list.innerHTML = '<div class="r-item"><div class="r-summary" style="color:#6b7280">No dictations yet. Tap the mic to start.</div></div>';
+      count.textContent = '0';
+      return;
+    }
+    count.textContent = d.entries.length + ' recent';
+    list.innerHTML = d.entries.map(e => {
+      const t = new Date(e.capturedAt);
+      const tStr = t.toLocaleString('en-CA', { dateStyle: 'medium', timeStyle: 'short' });
+      const summary = (e.parsed && e.parsed.summary) || (e.text.length > 80 ? e.text.slice(0, 80) + '…' : e.text);
+      const aCount = (e.actions || []).length;
+      return '<div class="r-item">' +
+        '<div class="r-time">' + escapeHtml(tStr) + '</div>' +
+        '<div class="r-summary">' + escapeHtml(summary) + '</div>' +
+        '<div class="r-actions-count">' + aCount + ' action' + (aCount === 1 ? '' : 's') + ' proposed</div>' +
+        '</div>';
+    }).join('');
+  } catch (e) {
+    $('recentList').innerHTML = '<div class="r-item"><div class="r-summary" style="color:#7f1d1d">Could not load: ' + escapeHtml(e.message) + '</div></div>';
+  }
+}
+
+if (!(window.SpeechRecognition || window.webkitSpeechRecognition)) {
+  $('warn').style.display = 'block';
+  micBtn.disabled = true;
+}
+loadRecent();
+</script>
+</body>
+</html>`;
+
+
+
+// ─────────────────────────────────────────────
+// JACQUI DICTATION — voice-memo capture from iPhone home screen
+// Route: GET /dictate  →  single-page web app
+// Route: POST /api/jacqui/dictation  →  parses + stores + returns proposed actions
+// Storage: $DATA_DIR/.jacqui-dictations.json
+// ─────────────────────────────────────────────
+const DICTATION_PATH = path.join(DATA_DIR, '.jacqui-dictations.json');
+let dictationStore = { entries: [] };
+try {
+  if (fs.existsSync(DICTATION_PATH)) {
+    dictationStore = JSON.parse(fs.readFileSync(DICTATION_PATH, 'utf8'));
+    if (!dictationStore.entries) dictationStore = { entries: [] };
+  }
+} catch { dictationStore = { entries: [] }; }
+function saveDictationStore() {
+  try { fs.writeFileSync(DICTATION_PATH, JSON.stringify(dictationStore, null, 2)); } catch (e) { console.error('[Dictation] save error:', e.message); }
+}
+
+app.get('/dictate', (req, res) => {
+  res.set('Content-Type', 'text/html; charset=utf-8');
+  res.send(JACQUI_DICTATE_HTML);
+});
+
+app.post('/api/jacqui/dictation', express.json({ limit: '512kb' }), async (req, res) => {
+  const { text, capturedAt } = req.body || {};
+  if (!text || typeof text !== 'string' || text.trim().length < 3) {
+    return res.status(400).json({ ok: false, error: 'text required (min 3 chars)' });
+  }
+  const entry = {
+    id: `dict_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+    text: text.trim(),
+    capturedAt: capturedAt || new Date().toISOString(),
+    processedAt: new Date().toISOString(),
+    parsed: null,
+    actions: [],
+  };
+  if (anthropic) {
+    try {
+      const sys = `You are Jacqui, Jonathan Wallace's executive assistant. Jonathan just dictated a voice memo from the field. Parse it into structured actions.
+
+Context: Jonathan is a real estate agent in Georgian Bay (Midland, Tay, Tiny, Penetanguishene, Wasaga Beach, Barrie, Orillia) on the Faris Team. His tools: Follow Up Boss (FUB) for CRM, BrokerBay for showings, Sisu for transactions, Outlook for email, iMessage for texts.
+
+Known contacts include: Eric Beutler (realtor peer at For Sale on Georgian Bay), Gregory Holthaus (Tom Ferry coach), Rachael Bebb (seller 255 Lindsay), Anna + Darren Darvill (sellers 282 RPR), Wyatt Negrini, Sarah Pickett (co-op realtor), Vittotio Destefano (seller Hoyt St), Erikka Jonker (photographer), Ryan Lesperance (Faris team buyer agent), Courtney Overell (family — HARD STOP, never draft), Nancy (cleaner — HARD STOP).
+
+Active listings include: 160 Lafontaine Rd W, 255 Lindsay St, 405 Bay St #2, 100 Dean Ave #207, 466 Trillium St, 282 Robins Point Rd, 472 William St, 5 Scott St, and 14 others.
+
+Return ONLY a JSON object — no prose, no markdown fence. Shape:
+{
+  "summary": "1-sentence summary of what Jonathan dictated",
+  "actions": [
+    { "type": "fub_note", "contact": "Name", "body": "Note content for FUB" },
+    { "type": "draft_text", "to": "Name", "body": "Draft text to send" },
+    { "type": "draft_email", "to": "Name or email", "subject": "...", "body": "..." },
+    { "type": "feedback_capture", "listing": "Address", "rating": 1, "comments": "..." },
+    { "type": "task", "title": "...", "due": "today|tomorrow|YYYY-MM-DD" },
+    { "type": "calendar", "title": "...", "when": "Sat 2pm" },
+    { "type": "review", "reason": "...", "snippet": "..." }
+  ]
+}
+
+Rules:
+- Hard stop: NEVER draft anything that commits dollar terms (offers, counters, deposits, prices). For dollar-related items, output a 'review' action.
+- Hard stop: NEVER draft to Courtney Overell, Nancy, or other family.
+- If a draft is for a known seller's listing, include the listing address in the body context.
+- If Jonathan mentions a showing he just did, prefer feedback_capture for the listing + draft_text to the co-op agent.
+- Keep drafts short, in Jonathan's match-the-channel voice (warm-professional for email, lowercase-friendly for iMessage).
+- Skip nice-to-haves. Only include actions clearly implied.`;
+      const completion = await anthropic.messages.create({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 1500,
+        system: sys,
+        messages: [{ role: 'user', content: text }],
+      });
+      const raw = completion?.content?.[0]?.text || '{}';
+      const m = raw.match(/\{[\s\S]*\}/);
+      if (m) {
+        try {
+          entry.parsed = JSON.parse(m[0]);
+          entry.actions = Array.isArray(entry.parsed.actions) ? entry.parsed.actions : [];
+        } catch (e) {
+          entry.parseError = 'JSON parse: ' + e.message;
+          entry.rawResponse = raw.slice(0, 1000);
+        }
+      } else {
+        entry.parseError = 'no JSON in response';
+        entry.rawResponse = raw.slice(0, 1000);
+      }
+    } catch (e) {
+      console.error('[Jacqui dictation] anthropic error:', e.message);
+      entry.parseError = 'anthropic: ' + e.message;
+    }
+  } else {
+    entry.parseError = 'anthropic not configured';
+  }
+  dictationStore.entries.unshift(entry);
+  if (dictationStore.entries.length > 500) dictationStore.entries = dictationStore.entries.slice(0, 500);
+  saveDictationStore();
+  res.json({ ok: true, entry });
+});
+
+app.get('/api/jacqui/dictation/recent', (req, res) => {
+  const limit = Math.min(parseInt(req.query.limit) || 10, 50);
+  res.json({ ok: true, entries: dictationStore.entries.slice(0, limit) });
+});
+
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'dist', 'index.html'));
 });
