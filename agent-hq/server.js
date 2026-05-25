@@ -9144,24 +9144,12 @@ Rules:
         action.executionError = e.message;
       }
     } else if (action.type === 'draft_text' && action.to && action.body && action.send === true) {
+      // Mac Bridge: callBridge('imessage.send', { phone, body }) — phone is full E.164.
       try {
-        const candidates = ['imessage.send', 'send_imessage', 'imessage_send'];
-        let lastErr = null;
-        let sent = false;
-        for (const m of candidates) {
-          try {
-            const result = await callBridge(m, { recipient: action.to, message: action.body }, { timeoutMs: 12000 });
-            action.executed = true;
-            action.executionResult = { kind: 'imessage_sent', method: m, recipient: action.to, bridgeResult: result };
-            executedCount++;
-            sent = true;
-            break;
-          } catch (e) {
-            lastErr = e;
-            if (!/unknown method|method.*not.*found|invalid method/i.test(e.message || '')) throw e;
-          }
-        }
-        if (!sent) throw lastErr || new Error('No supported bridge method for iMessage send');
+        const result = await callBridge('imessage.send', { phone: action.to, body: action.body }, { timeoutMs: 15000 });
+        action.executed = true;
+        action.executionResult = { kind: 'imessage_sent', method: 'imessage.send', phone: action.to, bridgeResult: result };
+        executedCount++;
       } catch (e) {
         action.executionError = (e.message || String(e)) + (e.code ? ` [${e.code}]` : '');
       }
