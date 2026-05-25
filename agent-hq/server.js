@@ -1426,6 +1426,10 @@ app.post('/api/tasks', (req, res) => {
   const { priorities, backlog, doneCount, doneIds } = req.body;
   saveTaskState({ priorities, backlog, doneCount, doneIds, savedAt: new Date().toISOString() });
 
+
+  res.json({ status: 'saved' });
+});
+
 // ─────────────────────────────────────────────
 // DICTATION → PRIORITIES executor — when /api/jacqui/dictation parses a 'task'
 // action, write it directly into taskState.priorities so it shows up in Top
@@ -1460,8 +1464,6 @@ function appendDictationTaskToPriorities(action, dictationId) {
   return newPriority;
 }
 
-  res.json({ status: 'saved' });
-});
 
 // ─────────────────────────────────────────────
 // AI-POWERED PRIORITY GENERATION
