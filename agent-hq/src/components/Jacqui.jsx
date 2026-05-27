@@ -218,7 +218,18 @@ export default function Jacqui() {
     setMessages([]);
   }
 
+  // When the keyboard appears on iOS, scroll the composer + last message into view.
+  // The visualViewport API tells us the keyboard's effect on the layout.
+  function onTextareaFocus() {
+    setTimeout(() => {
+      if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }, 250);
+  }
+
   function onKeyDown(e) {
+    // Ignore Enter during IME composition (CJK input) — wait for final commit
+    if (e.isComposing || e.keyCode === 229) return;
+    // Send on Enter (no Shift). Shift+Enter inserts a newline.
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       send();
@@ -234,7 +245,7 @@ export default function Jacqui() {
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 80px)', maxHeight: 'calc(100vh - 80px)', gap: 0 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100dvh - 80px)', maxHeight: 'calc(100dvh - 80px)', minHeight: '300px', gap: 0 }}>
       {/* Header */}
       <div style={{
         display: 'flex', alignItems: 'center', gap: 12,
@@ -328,8 +339,14 @@ export default function Jacqui() {
           value={input}
           onChange={e => setInput(e.target.value)}
           onKeyDown={onKeyDown}
+          onFocus={onTextareaFocus}
           placeholder={listening ? 'Listening — speak now…' : 'Talk to Jacqui · 🎤 dictate · 📎 drop a PDF, image, or voice memo for her to learn from…'}
           rows={1}
+          enterKeyHint="send"
+          autoCapitalize="sentences"
+          autoCorrect="on"
+          spellCheck={true}
+          inputMode="text"
           style={{
             flex: 1, minWidth: 180,
             padding: '10px 12px', border: '1px solid #e5e7eb', borderRadius: 10,
