@@ -118,6 +118,7 @@ export default function Jacqui() {
           role: 'assistant',
           content: d.reply,
           ts: new Date().toISOString(),
+          status: d.status,  // Phase 4.2: ack | qualify | working | done | error
         };
         // Surface memory writes from tool_calls so Jonathan sees what was logged.
         const memCalls = (d.tool_calls || []).filter(
@@ -298,6 +299,7 @@ export default function Jacqui() {
               error={m.error}
               taught={m.taught}
               memoryWrites={m.memoryWrites}
+              status={m.status}
             />
           ))
         )}
@@ -401,9 +403,19 @@ export default function Jacqui() {
   );
 }
 
-function Bubble({ role, content, ts, error, taught, memoryWrites }) {
+const STATUS_STYLES = {
+  qualify: { bg: '#fef3c7', color: '#92400e', border: '1px solid #fcd34d', icon: '❓', label: 'Needs clarification' },
+  error:   { bg: '#fee2e2', color: '#991b1b', border: '1px solid #fca5a5', icon: '⚠', label: 'Error' },
+  done:    { bg: '#d1fae5', color: '#065f46', border: '1px solid #86efac', icon: '✓', label: null },
+  working: { bg: '#f3f4f6', color: '#4b5563', border: '1px solid #e5e7eb', icon: '⋯', label: null },
+  ack:     { bg: '#fff',    color: '#1f2937', border: '1px solid #f0f0f0', icon: null, label: null },
+};
+
+function Bubble({ role, content, ts, error, taught, memoryWrites, status }) {
   const isUser = role === 'user';
   const isTaught = taught && !isUser;
+  const statusKey = error ? 'error' : (status || null);
+  const palette = !isUser && !isTaught && statusKey ? STATUS_STYLES[statusKey] : null;
   return (
     <div style={{
       display: 'flex', justifyContent: isUser ? 'flex-end' : 'flex-start',
@@ -414,17 +426,26 @@ function Bubble({ role, content, ts, error, taught, memoryWrites }) {
           padding: '10px 14px',
           borderRadius: isUser ? '16px 16px 4px 16px' : '16px 16px 16px 4px',
           background: isUser ? '#3b82f6'
-            : (error ? '#fee2e2'
+            : (palette ? palette.bg
             : (isTaught ? '#ecfeff' : '#fff')),
           color: isUser ? '#fff'
-            : (error ? '#991b1b'
+            : (palette ? palette.color
             : (isTaught ? '#0e7490' : '#1f2937')),
           fontSize: 14, lineHeight: 1.5,
           border: isUser ? 'none'
-            : (isTaught ? '1px solid #a5f3fc' : '1px solid #f0f0f0'),
+            : (palette ? palette.border
+            : (isTaught ? '1px solid #a5f3fc' : '1px solid #f0f0f0')),
           whiteSpace: 'pre-wrap', wordBreak: 'break-word',
           boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
         }}>
+          {palette && palette.label && (
+            <div style={{
+              fontSize: 10, fontWeight: 700, letterSpacing: 0.4, marginBottom: 4,
+              textTransform: 'uppercase', opacity: 0.75,
+            }}>
+              {palette.icon} {palette.label}
+            </div>
+          )}
           {content}
           {memoryWrites && memoryWrites.length > 0 && (
             <div style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 4 }}>
