@@ -27,7 +27,7 @@
 import fs from 'fs';
 import path from 'path';
 import { buildSystemPrompt, JACQUI_MODEL, JACQUI_MAX_TOKENS, JACQUI_HISTORY_CAP } from '../jacqui/system-prompt.js';
-import { pickModel } from '../jacqui/model-router.js';
+import { pickModel, classifyTurn, pickModelForStatus } from '../jacqui/model-router.js';
 import { loadMemoryContext } from './jacqui-memory.js';
 
 const OUTLOOK_GATEWAY_URL =
@@ -435,6 +435,16 @@ export function register(app, deps) {
     const thread = loadThread();
     thread.push({ role: 'user', content: userMessage, ts: new Date().toISOString() });
 
+    // Phase 4.1.5: classify the turn first (cheap Haiku call), then route the
+    // main reply to Sonnet only for QUALIFY/ERROR turns. Everything else stays
+    // on Haiku for speed and cost. Falls back to ACK on classifier failure.
+    const turnStatus = await classifyTurn({
+      anthropic,
+      userMessage,
+      recentHistory: thread.slice(-6),
+    });
+    const chatModel = pickModelForStatus(turnStatus);
+
     // Build Anthropic-shaped messages from thread.
     // For tool-use turns we may have richer `content` arrays in memory; pass them through
     // when they're already arrays, otherwise wrap the string.
@@ -463,7 +473,7 @@ export function register(app, deps) {
     try {
       for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
         const completion = await anthropic.messages.create({
-          model: pickModel('reasoning'),
+          model: chatModel,
           max_tokens: JACQUI_MAX_TOKENS,
           system: systemPrompt,
           tools: JACQUI_TOOLS,
@@ -491,6 +501,7 @@ export function register(app, deps) {
             role: 'assistant',
             content: textOnly,
             ts: new Date().toISOString(),
+            status: turnStatus.toLowerCase(),
           });
         }
 
@@ -530,8 +541,9 @@ export function register(app, deps) {
 
       res.json({
         success: true,
+        status: turnStatus.toLowerCase(),
         reply: finalReplyText,
-        model: JACQUI_MODEL,
+        model: chatModel,
         usage: lastUsage,
         tool_calls: toolCallsLog,
       });

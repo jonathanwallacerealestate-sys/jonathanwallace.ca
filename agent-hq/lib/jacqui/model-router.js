@@ -88,3 +88,75 @@ export async function callAnthropicWithFallback({ anthropic, taskClass, requestP
   }
   throw new Error(`All models in chain failed: ${attempts.map(a => `${a.model}:${a.error || 'ok'}`).join(' → ')}`);
 }
+
+
+// ---------------------------------------------------------------------------
+// Phase 4.1.5 — Turn classifier + status-based model routing
+//
+// Classify each chat turn into ACK / QUALIFY / WORKING / DONE / ERROR using
+// Haiku (cheap, fast). Then route QUALIFY/ERROR to Sonnet (reasoning),
+// everything else to Haiku (quick). Inverts the prior "always Sonnet" default
+// so most turns are cheap; only high-stakes turns escalate.
+//
+// Env override: JACQUI_DISABLE_SONNET_ESCALATION=1 forces quick for everything.
+//
+// Added 2026-05-27.
+
+const CLASSIFY_PROMPT = `You will receive Jonathan's latest message and the recent chat history.
+Output ONLY one of these five words: ACK, QUALIFY, WORKING, DONE, ERROR.
+
+- QUALIFY = the message is ambiguous and needs a clarifying question before acting.
+- ERROR = the previous tool call returned an error or Jacqui cannot fulfill the request.
+- ACK = Jonathan gave an unambiguous task that requires tool calls.
+- WORKING = interim status during a multi-step task.
+- DONE = the task is complete and a summary is being returned.
+
+Default to ACK if you're not sure. Output exactly one word.`;
+
+/**
+ * Classify a Jacqui chat turn into one of the five contract states.
+ * Always uses Haiku (cheap, fast). Returns 'ACK' on any failure.
+ * @param {Object} opts
+ * @param {Object} opts.anthropic       Initialized Anthropic SDK client
+ * @param {string} opts.userMessage     The latest user turn
+ * @param {Array}  [opts.recentHistory] Last few thread messages for context
+ * @returns {Promise<'ACK'|'QUALIFY'|'WORKING'|'DONE'|'ERROR'>}
+ */
+export async function classifyTurn({ anthropic, userMessage, recentHistory }) {
+  try {
+    const historyText = (recentHistory || [])
+      .slice(-6)
+      .map(m => `${m.role}: ${typeof m.content === 'string' ? m.content.slice(0, 400) : ''}`)
+      .join('\n');
+
+    const r = await anthropic.messages.create({
+      model: pickModel('quick'),
+      max_tokens: 8,
+      messages: [{
+        role: 'user',
+        content: `${CLASSIFY_PROMPT}\n\n---\nRecent history:\n${historyText}\n\n---\nLatest user message:\n${userMessage}`,
+      }],
+    });
+
+    const text = (r.content?.[0]?.text || '').trim().toUpperCase();
+    const valid = ['ACK', 'QUALIFY', 'WORKING', 'DONE', 'ERROR'];
+    return valid.includes(text) ? text : 'ACK';
+  } catch (e) {
+    // Classifier failure must NEVER block the main reply. Fall back to ACK.
+    console.warn('[model-router] classifyTurn failed:', e.message);
+    return 'ACK';
+  }
+}
+
+/**
+ * Pick the right model based on turn classification.
+ * QUALIFY and ERROR turns route to reasoning (Sonnet). Everything else
+ * stays on quick (Haiku) for speed and cost.
+ *
+ * Env override: JACQUI_DISABLE_SONNET_ESCALATION=1 forces quick for everything.
+ */
+export function pickModelForStatus(status) {
+  if (process.env.JACQUI_DISABLE_SONNET_ESCALATION === '1') return pickModel('quick');
+  if (status === 'QUALIFY' || status === 'ERROR') return pickModel('reasoning');
+  return pickModel('quick');
+}
