@@ -28,6 +28,7 @@ import fs from 'fs';
 import path from 'path';
 import { buildSystemPrompt, JACQUI_MODEL, JACQUI_MAX_TOKENS, JACQUI_HISTORY_CAP } from '../jacqui/system-prompt.js';
 import { pickModel, classifyTurn, pickModelForStatus } from '../jacqui/model-router.js';
+import { loadListingsBlock } from '../jacqui/context-loaders/listings.js';
 import { loadMemoryContext } from './jacqui-memory.js';
 
 const OUTLOOK_GATEWAY_URL =
@@ -460,9 +461,18 @@ export function register(app, deps) {
     } catch (e) {
       console.warn('[Jacqui] memory load failed (continuing without):', e.message);
     }
-    const systemPrompt = memoryBlock
-      ? `${buildSystemPrompt()}\n\n---\n\n${memoryBlock}`
-      : buildSystemPrompt();
+
+    // Phase 5: load BrokerBay active-listings snapshot (read-only context).
+    // Failure is silent so a missing/stale store never blocks a chat turn.
+    let listingsBlock = '';
+    try {
+      listingsBlock = await loadListingsBlock();
+    } catch (e) {
+      console.warn('[Jacqui] listings load failed (continuing without):', e.message);
+    }
+
+    const sections = [buildSystemPrompt(), listingsBlock, memoryBlock].filter(Boolean);
+    const systemPrompt = sections.join('\n\n---\n\n');
 
     // --- Tool-use loop -----------------------------------------------------
     const MAX_TOOL_ROUNDS = 5;
