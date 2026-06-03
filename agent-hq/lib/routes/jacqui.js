@@ -30,6 +30,8 @@ import { buildSystemPrompt, JACQUI_MODEL, JACQUI_MAX_TOKENS, JACQUI_HISTORY_CAP 
 import { pickModel, classifyTurn, pickModelForStatus } from '../jacqui/model-router.js';
 import { loadListingsBlock } from '../jacqui/context-loaders/listings.js';
 import { loadMemoryContext } from './jacqui-memory.js';
+import { ms365 } from '../connectors/ms365.js';
+import { runMorningBriefing, readTodaysBriefing, formatBriefingText } from '../jacqui/morning-briefing.js';
 
 const OUTLOOK_GATEWAY_URL =
   process.env.OUTLOOK_GATEWAY_URL ||
@@ -196,6 +198,22 @@ const JACQUI_TOOLS = [
     },
   },
   {
+    name: 'morning_briefing',
+    description:
+      "Run the morning inbox triage on Jonathan's Faris Team Outlook. " +
+      "Pulls unread email, classifies each as URGENT / CLIENT / LEAD / ROUTINE / NOISE, " +
+      "and returns a structured briefing with counts and per-item summaries. " +
+      "Call this when Jonathan asks 'give me the briefing', 'morning briefing', " +
+      "'what's in my inbox today', 'what do I need to look at first', or any " +
+      "near-equivalent. The scheduled task also runs this at 6am Toronto time daily, " +
+      "so a same-day cached result may already exist — prefer that over a re-run " +
+      "unless Jonathan explicitly asks for a fresh scan.",
+    input_schema: {
+      type: 'object',
+      properties: {},
+    },
+  },
+  {
     name: 'remember_this',
     description:
       "Log something Jonathan just taught you into your persistent memory. " +
@@ -344,36 +362,42 @@ async function rememberThis(input) {
 }
 
 async function runTool(name, input) {
+  // Phase 1 (Jacqui MS365 connector): the five email tools route through the
+  // ms365 connector instead of the Make.com webhook directly. The connector
+  // decides which backend handles it (currently Make.com; Graph when creds
+  // exist). Swap is one file — this dispatcher does not change.
   switch (name) {
     case 'create_email_draft':
-      return await callOutlookGateway('create_email_draft', {
+      return await ms365.createEmailDraft({
         to: input.to,
         subject: input.subject,
         body: input.body,
       });
     case 'send_email':
-      return await callOutlookGateway('send_email', {
+      return await ms365.sendEmail({
         to: input.to,
         subject: input.subject,
         body: input.body,
       });
     case 'read_inbox':
-      return await callOutlookGateway('read_inbox', {
+      return await ms365.readInbox({
         limit: input.limit || 25,
       });
     case 'search_messages':
-      return await callOutlookGateway('search_messages', {
+      return await ms365.searchMessages({
         query: input.query,
         limit: input.limit || 25,
       });
     case 'mark_read':
-      return await callOutlookGateway('mark_read', {
+      return await ms365.markRead({
         messageId: input.messageId,
       });
     case 'scan_listing_inquiries':
       return await scanListingInquiries();
     case 'remember_this':
       return await rememberThis(input);
+    case 'morning_briefing':
+      return await runMorningBriefing({ JACQUI_DIR: input.__JACQUI_DIR });
     default:
       return { ok: false, error: `Unknown tool: ${name}` };
   }
@@ -565,6 +589,38 @@ export function register(app, deps) {
       if (idx >= 0) thread.pop();
       saveThread(thread);
       res.json({ success: false, error: err.message });
+    }
+  });
+
+  // ---- Phase 3: Morning inbox briefing -----------------------------------
+
+  // POST — run the briefing now (Jacqui chat, scheduled task, or admin curl).
+  app.post('/api/jacqui/morning-briefing/run', async (req, res) => {
+    try {
+      const briefing = await runMorningBriefing({ JACQUI_DIR });
+      res.json(briefing);
+    } catch (e) {
+      console.error('[Jacqui] morning-briefing run error:', e.message);
+      res.status(500).json({ ok: false, error: e.message });
+    }
+  });
+
+  // GET — read today's persisted briefing without re-running it (cheap).
+  app.get('/api/jacqui/morning-briefing/today', (req, res) => {
+    try {
+      const briefing = readTodaysBriefing(JACQUI_DIR);
+      if (!briefing) {
+        return res.json({ ok: true, briefing: null, message: 'No briefing for today yet.' });
+      }
+      const wantText = req.query.format === 'text';
+      if (wantText) {
+        res.type('text/plain').send(formatBriefingText(briefing));
+      } else {
+        res.json({ ok: true, briefing });
+      }
+    } catch (e) {
+      console.error('[Jacqui] morning-briefing today error:', e.message);
+      res.status(500).json({ ok: false, error: e.message });
     }
   });
 }
