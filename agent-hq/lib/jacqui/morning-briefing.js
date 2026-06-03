@@ -54,6 +54,174 @@ FACTS ONLY. Never invent a sender, subject, or detail. If you're not sure why
 something is urgent, classify it as ROUTINE — better to under-flag than to
 cry wolf. Pass the email's id field through verbatim so Jacqui can act on it.`;
 
+// ---- Phase 3.5 — Auto-draft replies -----------------------------------
+//
+// After triage, for each URGENT and CLIENT item: generate a short reply in
+// Jonathan's voice (operating manual: no bold, approved sign-offs, never
+// fabricate, never give legal advice, never bind agreements) and drop it
+// into Outlook Drafts via ms365.createEmailDraft. Jonathan reviews & sends.
+//
+// Skip auto-draft for: system/bot senders, legal/financial content, emails
+// from Jonathan himself. Drafts only — never sends.
+
+const DRAFT_SYSTEM_PROMPT = `You are Jacqui, drafting an email reply on behalf of Jonathan Wallace, a high-producing real estate agent at Faris Team in Georgian Bay / Midland, Ontario.
+
+You will receive a single unread email from his Outlook inbox. Draft a reply that Jonathan can review and one-click send.
+
+VOICE RULES (operating manual):
+- Tone: professional, calm, clear, direct, helpful.
+- No bold formatting, no markdown, plain text only.
+- Sign off with EXACTLY one of: "Cheers, Jonathan" / "Have a powerful day, Jonathan" / "Talk soon, Jonathan".
+- Address the sender by first name if known and natural; otherwise no greeting line.
+- Keep it SHORT — 2 to 4 sentences is usually right. Better short than overcommitting.
+
+CONTENT RULES (FACTS ONLY):
+- Never invent facts, prices, dates, addresses, deal terms, or client details that aren't in the source email.
+- Never bind Jonathan to a meeting, showing, offer, decision, or commitment unless the source email explicitly proposes a specific time/term and Jonathan would obviously accept.
+- Never give legal, financial, or tax advice.
+- If the right reply requires information Jonathan has but you don't, draft a reply that ASKS for that information rather than guessing.
+
+OUTPUT: just the email body text. No preamble, no quotes around it, no "Here's a draft:". Just the body that goes into the email.`;
+
+function isAutoDraftEligible(message) {
+  const fromAddr = (
+    message.from?.emailAddress?.address ||
+    message.from?.emailAddress?.name ||
+    message.from ||
+    ''
+  ).toLowerCase();
+  const subject = (message.subject || '').toLowerCase();
+  const preview = (message.bodyPreview || message.body_preview || '').toLowerCase();
+
+  const systemSenders = [
+    'noreply', 'no-reply', 'mailer-daemon', 'donotreply', 'do-not-reply',
+    'auto-confirm', 'notifications@', 'info@mg.brokerbay', 'info@mg2.brokerbay',
+    'realtor.ca', 'admin@brokerbay', 'system@', 'newsletter@',
+  ];
+  if (systemSenders.some(s => fromAddr.includes(s))) {
+    return { eligible: false, reason: 'system-sender' };
+  }
+
+  const legalKeywords = [
+    'lawyer', 'attorney', 'legal counsel', 'wire instructions', 'wire transfer',
+    'escrow', 'indemnification', 'liability', 'breach', 'court', 'lawsuit',
+    'subpoena', 'closing instructions', 'trust account', 'deposit instructions',
+  ];
+  const hay = subject + ' ' + preview;
+  if (legalKeywords.some(k => hay.includes(k))) {
+    return { eligible: false, reason: 'legal-content' };
+  }
+
+  if (fromAddr === 'jonathan@faristeam.ca' || fromAddr === 'jonathanwallacerealestate@gmail.com') {
+    return { eligible: false, reason: 'from-self' };
+  }
+
+  if (!fromAddr) {
+    return { eligible: false, reason: 'no-sender-address' };
+  }
+
+  return { eligible: true };
+}
+
+async function draftOneReply({ anthropic, message }) {
+  const fromAddr =
+    message.from?.emailAddress?.address ||
+    message.from?.emailAddress?.name ||
+    message.from ||
+    '(unknown sender)';
+  const fromName = message.from?.emailAddress?.name || fromAddr.split('@')[0];
+
+  const userMsg = `From: ${fromName} <${fromAddr}>
+Subject: ${message.subject || '(no subject)'}
+Received: ${message.receivedDateTime || '(unknown)'}
+
+Body preview:
+${(message.bodyPreview || message.body_preview || '').slice(0, 1500)}
+
+Draft Jonathan's reply.`;
+
+  try {
+    const completion = await anthropic.messages.create({
+      model: pickModel('reasoning'),
+      max_tokens: 600,
+      system: DRAFT_SYSTEM_PROMPT,
+      messages: [{ role: 'user', content: userMsg }],
+    });
+    const body = (completion.content?.[0]?.text || '').trim();
+    if (!body) return { ok: false, error: 'empty draft from model' };
+    return { ok: true, body, model: completion.model, usage: completion.usage };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+}
+
+async function autoDraftReplies({ candidates, anthropic }) {
+  const drafts = [];
+  const skipped = [];
+
+  for (const message of candidates) {
+    const elig = isAutoDraftEligible(message);
+    if (!elig.eligible) {
+      skipped.push({
+        id: message.id,
+        from: message.from?.emailAddress?.address || message.from || '(unknown)',
+        subject: message.subject || '(no subject)',
+        reason: elig.reason,
+      });
+      continue;
+    }
+
+    const reply = await draftOneReply({ anthropic, message });
+    if (!reply.ok) {
+      skipped.push({
+        id: message.id,
+        subject: message.subject || '(no subject)',
+        reason: 'draft generation failed: ' + reply.error,
+      });
+      continue;
+    }
+
+    const toAddr =
+      message.from?.emailAddress?.address ||
+      (typeof message.from === 'string' ? message.from : null);
+    if (!toAddr) {
+      skipped.push({
+        id: message.id,
+        subject: message.subject || '(no subject)',
+        reason: 'no recipient address',
+      });
+      continue;
+    }
+
+    const subject = (message.subject || '').toLowerCase().startsWith('re:')
+      ? message.subject
+      : `Re: ${message.subject || '(no subject)'}`;
+
+    const draftResult = await ms365.createEmailDraft({
+      to: toAddr,
+      subject,
+      body: reply.body,
+    });
+
+    if (draftResult.ok) {
+      drafts.push({
+        id: message.id,
+        to: toAddr,
+        subject,
+        body_preview: reply.body.slice(0, 200) + (reply.body.length > 200 ? '…' : ''),
+      });
+    } else {
+      skipped.push({
+        id: message.id,
+        subject: message.subject || '(no subject)',
+        reason: 'Outlook draft create failed: ' + (draftResult.error || 'unknown'),
+      });
+    }
+  }
+
+  return { drafts, skipped };
+}
+
 /**
  * Run the morning briefing.
  *
@@ -63,7 +231,7 @@ cry wolf. Pass the email's id field through verbatim so Jacqui can act on it.`;
  * @returns {Promise<object>} the structured briefing object (always defined,
  *                            even on error — caller checks the `ok` field).
  */
-export async function runMorningBriefing({ JACQUI_DIR, limit = 50 } = {}) {
+export async function runMorningBriefing({ JACQUI_DIR, limit = 50, draftReplies = true } = {}) {
   const t0 = Date.now();
 
   // Step 1 — pull recent inbox via the connector.
@@ -155,6 +323,26 @@ export async function runMorningBriefing({ JACQUI_DIR, limit = 50 } = {}) {
     }, t0, JACQUI_DIR);
   }
 
+  // Phase 3.5 — auto-draft replies for URGENT and CLIENT items.
+  // Drafts only land in Outlook Drafts. Jonathan reviews & sends.
+  let autoDrafts = { drafts: [], skipped: [], enabled: draftReplies };
+  if (draftReplies) {
+    try {
+      const urgentIds = new Set((Array.isArray(parsed.urgent) ? parsed.urgent : []).map(u => u.id));
+      const clientIds = new Set((Array.isArray(parsed.client) ? parsed.client : []).map(c => c.id));
+      const candidates = unread.filter(m => urgentIds.has(m.id) || clientIds.has(m.id));
+      if (candidates.length > 0) {
+        const anthropic2 = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+        const r = await autoDraftReplies({ candidates, anthropic: anthropic2 });
+        autoDrafts.drafts = r.drafts;
+        autoDrafts.skipped = r.skipped;
+      }
+    } catch (e) {
+      console.warn('[morning-briefing] auto-draft step failed:', e.message);
+      autoDrafts.error = e.message;
+    }
+  }
+
   return finalize({
     ok: true,
     headline: parsed.headline || '(no headline)',
@@ -168,6 +356,7 @@ export async function runMorningBriefing({ JACQUI_DIR, limit = 50 } = {}) {
     backend: ms365.backendName,
     model: completion.model,
     usage: completion.usage,
+    auto_drafts: autoDrafts,
   }, t0, JACQUI_DIR);
 }
 
@@ -240,6 +429,12 @@ export function formatBriefingText(briefing) {
     briefing.lead.forEach(l => lines.push(`  • ${l.from} — ${l.subject}`));
     lines.push('');
   }
+  if (briefing.auto_drafts?.drafts?.length) {
+    lines.push(`✓ ${briefing.auto_drafts.drafts.length} replies pre-drafted in Outlook Drafts.`);
+  } else if (briefing.auto_drafts?.enabled && briefing.auto_drafts?.skipped?.length) {
+    lines.push(`(Auto-draft considered ${briefing.auto_drafts.skipped.length} item(s); none eligible — held for your review.)`);
+  }
+  lines.push('');
   lines.push(`Routine: ${briefing.routine_count || 0}   Noise: ${briefing.noise_count || 0}   Total unread: ${briefing.total_unread || 0}`);
   return lines.join('\n');
 }
