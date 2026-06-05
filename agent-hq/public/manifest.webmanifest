@@ -2,7 +2,7 @@
   "name": "Agent HQ — Jonathan Wallace",
   "short_name": "Agent HQ",
   "description": "Jonathan Wallace's marketing & operations dashboard for Georgian Bay real estate.",
-  "start_url": "/",
+  "start_url": "/?tab=jacqui",
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait-primary",
