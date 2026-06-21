@@ -87,6 +87,7 @@ const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || '';
 const REDIRECT_URI = process.env.GOOGLE_REDIRECT_URI || `http://localhost:${PORT}/api/auth/callback`;
 const SCOPES = [
   'https://www.googleapis.com/auth/calendar.readonly',
+  'https://www.googleapis.com/auth/calendar.events', // write access for APS milestones
   'https://www.googleapis.com/auth/gmail.readonly',
   'https://www.googleapis.com/auth/gmail.labels',
   'https://www.googleapis.com/auth/drive.file', // For state backups — only files Agent HQ creates
@@ -6498,6 +6499,364 @@ app.delete('/api/aps/deals/:id', (req, res) => {
   apsParsedDeals = apsParsedDeals.filter(d => d.id !== id);
   saveApsDeals();
   res.json({ ok: true });
+});
+
+// ─────────────────────────────────────────────
+// APS → FOLLOW UP BOSS + GOOGLE CALENDAR SYNC
+// Wires a parsed APS deal into:
+//   • FUB: find-or-create person, custom fields, tags, milestone tasks
+//   • Google Calendar: one event per milestone with reminders (all-day)
+// Idempotent — re-running against the same deal updates in place.
+// ─────────────────────────────────────────────
+
+const APS_CALENDAR_COLORS = {
+  closing: '11',          // Tomato — can't-miss
+  title_search: '5',      // Banana
+  condition: '6',         // Tangerine
+  deposit_due: '4',       // Flamingo
+  irrevocable: '8',       // Graphite
+  home_anniversary: '10', // Basil — celebratory
+};
+
+// Filter out Jonathan's own emails + brokerage-side contacts. The APS text
+// layer includes every email on the document; we only want buyer emails.
+function filterBuyerEmails(emails = []) {
+  const SKIP_DOMAINS = ['@faristeam.ca', '@remax', '@kw.com', '@kellerwilliams', '@royallepage'];
+  return emails.filter(e => {
+    const lo = String(e || '').toLowerCase();
+    if (!lo.includes('@')) return false;
+    return !SKIP_DOMAINS.some(d => lo.includes(d));
+  });
+}
+
+function buildFubPlan(deal) {
+  const f = deal.fields || {};
+  const addr = f.property?.address || '';
+  const buyerEmails = filterBuyerEmails(f.emails || []);
+
+  const people = (f.buyers || []).map((name, i) => ({
+    name,
+    primary: i === 0,
+    emails: buyerEmails,
+  }));
+
+  const tasks = (deal.milestones || []).map(m => ({
+    title: m.title,
+    dueDate: m.date,
+    kind: m.kind,
+    priority: m.priority,
+    notes: m.notes || m.title,
+  }));
+
+  const depositStr = f.deposit?.amountCad
+    ? `$${Number(f.deposit.amountCad).toLocaleString()} to ${f.depositHolder || 'Deposit Holder'}`
+    : null;
+
+  const conditionsStr = (deal.conditions || [])
+    .map(c => `${c.label || c.category || 'Condition'} (waive by ${c.waiverByIso || '—'})`)
+    .join('; ');
+
+  const customFields = {
+    customClosingDate: f.completionDate || null,
+    customTitleSearchDate: f.titleSearchDate || null,
+    customDepositAmount: depositStr,
+    customConditions: conditionsStr || null,
+    customDealStatus: deal.status || null,
+    customHomeAnniversary: f.completionDate || null,
+    customNewAddress: addr || null,
+  };
+
+  const tags = [
+    deal.status === 'firm' ? 'aps:firm' : 'aps:conditional',
+    deal.status === 'firm' ? 'home-anniversary' : null,
+  ].filter(Boolean);
+
+  return { people, tasks, customFields, tags, addr };
+}
+
+async function fubFindOrCreatePerson(buyer) {
+  // Try email match first (most reliable).
+  for (const email of buyer.emails || []) {
+    try {
+      const r = await fetch(`${FUB_BASE}/people?email=${encodeURIComponent(email)}&limit=3`, { headers: fubHeaders() });
+      if (r.ok) {
+        const data = await r.json();
+        const match = (data.people || []).find(p =>
+          (p.emails || []).some(e => (e.value || '').toLowerCase() === email.toLowerCase())
+        );
+        if (match) return { id: match.id, matched: 'email', created: false };
+      }
+    } catch {}
+  }
+
+  // Name search fallback.
+  try {
+    const r = await fetch(`${FUB_BASE}/people?name=${encodeURIComponent(buyer.name)}&limit=5`, { headers: fubHeaders() });
+    if (r.ok) {
+      const data = await r.json();
+      const match = (data.people || []).find(p => {
+        const full = `${p.firstName || ''} ${p.lastName || ''}`.trim().toLowerCase();
+        return full === String(buyer.name).toLowerCase();
+      });
+      if (match) return { id: match.id, matched: 'name', created: false };
+    }
+  } catch {}
+
+  // Create new person.
+  const [firstName, ...rest] = String(buyer.name).split(/\s+/);
+  const payload = {
+    firstName: firstName || buyer.name,
+    lastName: rest.join(' '),
+    source: 'APS Parser',
+    stage: 'Active Client',
+    emails: (buyer.emails || []).map(value => ({ value, type: 'home' })),
+  };
+  const createResp = await fetch(`${FUB_BASE}/people`, {
+    method: 'POST',
+    headers: fubHeaders(),
+    body: JSON.stringify(payload),
+  });
+  if (!createResp.ok) {
+    const err = await createResp.text().catch(() => '');
+    throw new Error(`FUB create person failed (${createResp.status}): ${err.slice(0, 200)}`);
+  }
+  const created = await createResp.json();
+  return { id: created.id, matched: 'created', created: true };
+}
+
+async function fubUpdatePerson(personId, customFields, tagsToAdd) {
+  // Fetch current tags so we can merge instead of overwrite.
+  let existingTags = [];
+  try {
+    const r = await fetch(`${FUB_BASE}/people/${personId}`, { headers: fubHeaders() });
+    if (r.ok) {
+      const data = await r.json();
+      existingTags = data.tags || [];
+    }
+  } catch {}
+
+  const mergedTags = Array.from(new Set([...existingTags, ...(tagsToAdd || [])]));
+  const payload = { tags: mergedTags };
+  for (const [k, v] of Object.entries(customFields)) {
+    if (v !== null && v !== undefined && v !== '') payload[k] = v;
+  }
+  const resp = await fetch(`${FUB_BASE}/people/${personId}`, {
+    method: 'PUT',
+    headers: fubHeaders(),
+    body: JSON.stringify(payload),
+  });
+  if (!resp.ok) {
+    const err = await resp.text().catch(() => '');
+    // Don't throw — custom field name mismatches shouldn't nuke the whole sync.
+    return { updated: false, error: `${resp.status}: ${err.slice(0, 200)}` };
+  }
+  return { updated: true, fieldsWritten: Object.keys(payload).length };
+}
+
+async function fubUpsertMilestoneTask(personId, task) {
+  // Look for an existing open task with the exact same title on this person.
+  try {
+    const r = await fetch(`${FUB_BASE}/tasks?personId=${personId}&limit=100`, { headers: fubHeaders() });
+    if (r.ok) {
+      const data = await r.json();
+      const existing = (data.tasks || []).find(t => t.name === task.title);
+      if (existing) {
+        // Update due date if changed.
+        if (existing.dueDate !== task.dueDate) {
+          await fetch(`${FUB_BASE}/tasks/${existing.id}`, {
+            method: 'PUT',
+            headers: fubHeaders(),
+            body: JSON.stringify({ dueDate: task.dueDate }),
+          });
+          return { taskId: existing.id, action: 'updated', title: task.title };
+        }
+        return { taskId: existing.id, action: 'skipped', title: task.title };
+      }
+    }
+  } catch {}
+
+  const payload = {
+    personId,
+    name: task.title,
+    dueDate: task.dueDate,
+    isCompleted: false,
+    type: task.kind === 'closing' ? 'Closing' : 'Follow Up',
+    assignedUserId: Number(process.env.FUB_DEFAULT_USER_ID) || undefined,
+    notes: task.notes,
+  };
+  const resp = await fetch(`${FUB_BASE}/tasks`, {
+    method: 'POST',
+    headers: fubHeaders(),
+    body: JSON.stringify(payload),
+  });
+  if (!resp.ok) {
+    const err = await resp.text().catch(() => '');
+    return { action: 'failed', title: task.title, error: `${resp.status}: ${err.slice(0, 200)}` };
+  }
+  const created = await resp.json();
+  return { taskId: created.id, action: 'created', title: task.title };
+}
+
+async function syncApsDealToFub(deal, { dryRun = false } = {}) {
+  if (!FUB_API_KEY) return { ok: false, error: 'FUB_API_KEY not configured' };
+  const plan = buildFubPlan(deal);
+  if (dryRun) return { ok: true, dryRun: true, plan };
+  if (plan.people.length === 0) return { ok: false, error: 'No buyers extracted from deal — cannot sync to FUB' };
+
+  const personResults = [];
+  for (const buyer of plan.people) {
+    try {
+      const person = await fubFindOrCreatePerson(buyer);
+      const update = await fubUpdatePerson(person.id, plan.customFields, plan.tags);
+      const taskResults = [];
+      for (const task of plan.tasks) {
+        const tr = await fubUpsertMilestoneTask(person.id, task);
+        taskResults.push(tr);
+      }
+      personResults.push({ name: buyer.name, personId: person.id, matched: person.matched, created: person.created, update, tasks: taskResults });
+    } catch (err) {
+      personResults.push({ name: buyer.name, error: err.message });
+    }
+  }
+  return { ok: true, people: personResults, tagsApplied: plan.tags };
+}
+
+function toAllDayEventResource(deal, m) {
+  const description = [
+    m.notes || m.title,
+    '',
+    `Property: ${deal.fields?.property?.address || '—'}`,
+    `Status: ${deal.status?.toUpperCase?.() || '—'}`,
+    `Buyer(s): ${(deal.fields?.buyers || []).join(', ') || '—'}`,
+    `Seller(s): ${(deal.fields?.sellers || []).join(', ') || '—'}`,
+    '',
+    'Auto-scheduled by Agent HQ from the parsed APS.',
+  ].filter(x => x !== null && x !== undefined).join('\n');
+
+  const addOneDay = (iso) => {
+    const d = new Date(iso + 'T12:00:00Z');
+    d.setUTCDate(d.getUTCDate() + 1);
+    return d.toISOString().slice(0, 10);
+  };
+
+  const event = {
+    summary: m.title,
+    description,
+    start: { date: m.date },
+    end: { date: addOneDay(m.date) },
+    colorId: APS_CALENDAR_COLORS[m.kind] || undefined,
+    reminders: {
+      useDefault: false,
+      overrides: (m.reminders && m.reminders.length ? m.reminders : [1]).flatMap(days => [
+        { method: 'popup', minutes: Math.max(0, days) * 24 * 60 },
+        { method: 'email', minutes: Math.max(0, days) * 24 * 60 },
+      ]),
+    },
+    extendedProperties: {
+      private: {
+        source: 'aps-parser',
+        apsDealId: String(deal.id),
+        kind: m.kind,
+      },
+    },
+  };
+  if (m.recurrence === 'yearly') event.recurrence = ['RRULE:FREQ=YEARLY'];
+  return event;
+}
+
+async function syncApsDealToCalendar(deal, { dryRun = false } = {}) {
+  if (!tokens || !oauth2Client.credentials?.refresh_token) {
+    return { ok: false, error: 'Google not connected — reconnect required' };
+  }
+  const events = (deal.milestones || []).map(m => toAllDayEventResource(deal, m));
+  if (dryRun) return { ok: true, dryRun: true, events };
+
+  const calendar = google.calendar({ version: 'v3', auth: oauth2Client });
+  const calendarId = process.env.GOOGLE_CALENDAR_ID || 'primary';
+
+  // Fetch existing events stamped with this dealId for upsert dedupe.
+  let existing = [];
+  try {
+    const list = await calendar.events.list({
+      calendarId,
+      privateExtendedProperty: `apsDealId=${deal.id}`,
+      showDeleted: false,
+      maxResults: 100,
+    });
+    existing = list.data.items || [];
+  } catch (err) {
+    // If listing fails, fall through to inserts — duplicates are better than nothing.
+    console.warn('[APS→GCal] Could not list existing events for dedupe:', err.message);
+  }
+
+  const results = [];
+  for (const event of events) {
+    try {
+      const kind = event.extendedProperties?.private?.kind;
+      const match = existing.find(e => e.extendedProperties?.private?.kind === kind);
+      if (match) {
+        const upd = await calendar.events.update({
+          calendarId,
+          eventId: match.id,
+          requestBody: event,
+        });
+        results.push({ action: 'updated', kind, eventId: upd.data.id, htmlLink: upd.data.htmlLink });
+      } else {
+        const ins = await calendar.events.insert({ calendarId, requestBody: event });
+        results.push({ action: 'created', kind, eventId: ins.data.id, htmlLink: ins.data.htmlLink });
+      }
+    } catch (err) {
+      const msg = err?.errors?.[0]?.message || err.message || String(err);
+      results.push({ action: 'failed', kind: event.extendedProperties?.private?.kind, error: msg });
+    }
+  }
+  return { ok: true, calendarId, events: results };
+}
+
+app.post('/api/aps/push', express.json({ limit: '2mb' }), async (req, res) => {
+  try {
+    const dealId = Number(req.body?.dealId);
+    const pushFUB = req.body?.pushFUB !== false;
+    const pushCalendar = req.body?.pushCalendar !== false;
+    const dryRun = req.body?.dryRun === true;
+    if (!dealId) return res.json({ ok: false, error: 'dealId required' });
+
+    const deal = apsParsedDeals.find(d => d.id === dealId);
+    if (!deal) return res.json({ ok: false, error: 'deal not found' });
+
+    if (!deal.fields?.completionDate) {
+      return res.status(422).json({
+        ok: false,
+        error: 'missing_completion_date',
+        hint: 'Closing date is required to schedule milestones. Re-parse with a clearer PDF or skip.',
+      });
+    }
+
+    const [fubSettled, calSettled] = await Promise.allSettled([
+      pushFUB ? syncApsDealToFub(deal, { dryRun }) : Promise.resolve({ ok: true, skipped: true }),
+      pushCalendar ? syncApsDealToCalendar(deal, { dryRun }) : Promise.resolve({ ok: true, skipped: true }),
+    ]);
+
+    const unwrap = (s) => s.status === 'fulfilled' ? s.value : { ok: false, error: s.reason?.message || String(s.reason) };
+    const fub = unwrap(fubSettled);
+    const calendar = unwrap(calSettled);
+
+    // Persist outcome onto the stored deal so the UI can show sync status.
+    if (!dryRun) {
+      deal.pushed = {
+        at: new Date().toISOString(),
+        fub: fub.ok ? { synced: true, people: (fub.people || []).map(p => ({ name: p.name, personId: p.personId, tasks: (p.tasks || []).filter(t => t.action !== 'failed').length })) } : { synced: false, error: fub.error },
+        calendar: calendar.ok ? { synced: true, events: (calendar.events || []).filter(e => e.action !== 'failed').length } : { synced: false, error: calendar.error },
+      };
+      saveApsDeals();
+    }
+
+    console.log(`[APS→Push] dealId=${dealId} fub=${fub.ok ? 'ok' : 'err'} cal=${calendar.ok ? 'ok' : 'err'} dryRun=${dryRun}`);
+    res.json({ ok: true, dealId, dryRun, fub, calendar });
+  } catch (err) {
+    console.error('[APS→Push] error:', err);
+    res.status(500).json({ ok: false, error: err.message });
+  }
 });
 
 // ─────────────────────────────────────────────

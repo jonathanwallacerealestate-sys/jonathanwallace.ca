@@ -6102,6 +6102,9 @@ function ApsParser() {
   const [parsing, setParsing] = useState(false);
   const [selectedDeal, setSelectedDeal] = useState(null);
   const [dragOver, setDragOver] = useState(false);
+  const [pushing, setPushing] = useState(false);
+  const [pushResult, setPushResult] = useState(null);
+  const [pushTargets, setPushTargets] = useState({ fub: true, calendar: true, dryRun: false });
   const fileRef = useRef();
 
   useEffect(() => {
@@ -6113,6 +6116,42 @@ function ApsParser() {
       } catch {}
     })();
   }, []);
+
+  // Reset push result when switching between deals.
+  useEffect(() => { setPushResult(null); }, [selectedDeal?.id]);
+
+  const handlePush = async () => {
+    if (!selectedDeal) return;
+    setPushing(true);
+    setPushResult(null);
+    try {
+      const res = await fetch('/api/aps/push', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          dealId: selectedDeal.id,
+          pushFUB: pushTargets.fub,
+          pushCalendar: pushTargets.calendar,
+          dryRun: pushTargets.dryRun,
+        }),
+      });
+      const data = await res.json();
+      setPushResult(data);
+      // Refresh deals so the sidebar reflects the new "pushed" state.
+      if (data.ok && !pushTargets.dryRun) {
+        const r = await fetch('/api/aps/deals');
+        const d = await r.json();
+        if (d.ok) {
+          setDeals(d.deals || []);
+          const fresh = (d.deals || []).find(x => x.id === selectedDeal.id);
+          if (fresh) setSelectedDeal(fresh);
+        }
+      }
+    } catch (err) {
+      setPushResult({ ok: false, error: err.message });
+    }
+    setPushing(false);
+  };
 
   const handleParse = async (file) => {
     if (!file) return;
@@ -6257,6 +6296,83 @@ function ApsParser() {
                 ))}
               </div>
             )}
+
+            {/* Sync panel — push to FUB + Calendar */}
+            <div style={{ background: 'linear-gradient(135deg, #f9fafb, #eff6ff)', border: '1px solid #dbeafe', borderRadius: 10, padding: 14, marginBottom: 20 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: '#1e3a8a' }}>Sync milestones to CRM + Calendar</div>
+                {selectedDeal.pushed?.at && (
+                  <div style={{ fontSize: 10, color: '#059669', fontWeight: 600 }}>
+                    Last synced {new Date(selectedDeal.pushed.at).toLocaleString()}
+                  </div>
+                )}
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center', marginBottom: 10 }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 600, color: '#374151', cursor: 'pointer' }}>
+                  <input type="checkbox" checked={pushTargets.fub} onChange={e => setPushTargets(p => ({ ...p, fub: e.target.checked }))} />
+                  Follow Up Boss (contact + tasks)
+                </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 600, color: '#374151', cursor: 'pointer' }}>
+                  <input type="checkbox" checked={pushTargets.calendar} onChange={e => setPushTargets(p => ({ ...p, calendar: e.target.checked }))} />
+                  Google Calendar (milestone events)
+                </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 600, color: '#6b7280', cursor: 'pointer', marginLeft: 'auto' }}>
+                  <input type="checkbox" checked={pushTargets.dryRun} onChange={e => setPushTargets(p => ({ ...p, dryRun: e.target.checked }))} />
+                  Dry run (preview only)
+                </label>
+              </div>
+              <button
+                onClick={handlePush}
+                disabled={pushing || (!pushTargets.fub && !pushTargets.calendar)}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 6, width: '100%', justifyContent: 'center',
+                  background: pushing ? '#93c5fd' : (pushTargets.dryRun ? 'linear-gradient(135deg, #6b7280, #374151)' : 'linear-gradient(135deg, #2563eb, #1d4ed8)'),
+                  color: '#fff', border: 'none', padding: '10px 16px', borderRadius: 8,
+                  fontSize: 13, fontWeight: 700, cursor: pushing ? 'wait' : 'pointer',
+                }}
+              >
+                {pushing
+                  ? <><Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> Syncing...</>
+                  : pushTargets.dryRun
+                    ? <>Preview sync</>
+                    : <>Sync now {selectedDeal.pushed?.at ? '(re-sync)' : ''}</>}
+              </button>
+              {pushResult && (
+                <div style={{ marginTop: 10, fontSize: 11, color: '#374151', background: '#fff', border: '1px solid #e5e7eb', borderRadius: 8, padding: 10 }}>
+                  {pushResult.ok === false && (
+                    <div style={{ color: '#b91c1c', fontWeight: 600 }}>Error: {pushResult.error}</div>
+                  )}
+                  {pushResult.ok && pushResult.fub && (
+                    <div style={{ marginBottom: 6 }}>
+                      <strong>FUB:</strong>{' '}
+                      {pushResult.fub.skipped
+                        ? <span style={{ color: '#9ca3af' }}>skipped</span>
+                        : pushResult.fub.ok
+                          ? <span style={{ color: '#059669' }}>
+                              {pushResult.dryRun
+                                ? `dry run — would touch ${pushResult.fub.plan?.people?.length || 0} contact(s) with ${pushResult.fub.plan?.tasks?.length || 0} task(s)`
+                                : `${(pushResult.fub.people || []).length} contact(s) synced, ${(pushResult.fub.people || []).reduce((n, p) => n + (p.tasks || []).filter(t => t.action === 'created').length, 0)} task(s) created, ${(pushResult.fub.people || []).reduce((n, p) => n + (p.tasks || []).filter(t => t.action === 'updated').length, 0)} updated`}
+                            </span>
+                          : <span style={{ color: '#b91c1c' }}>{pushResult.fub.error}</span>}
+                    </div>
+                  )}
+                  {pushResult.ok && pushResult.calendar && (
+                    <div>
+                      <strong>Calendar:</strong>{' '}
+                      {pushResult.calendar.skipped
+                        ? <span style={{ color: '#9ca3af' }}>skipped</span>
+                        : pushResult.calendar.ok
+                          ? <span style={{ color: '#059669' }}>
+                              {pushResult.dryRun
+                                ? `dry run — would create ${(pushResult.calendar.events || []).length} event(s)`
+                                : `${(pushResult.calendar.events || []).filter(e => e.action === 'created').length} created, ${(pushResult.calendar.events || []).filter(e => e.action === 'updated').length} updated${(pushResult.calendar.events || []).some(e => e.action === 'failed') ? `, ${(pushResult.calendar.events || []).filter(e => e.action === 'failed').length} failed` : ''}`}
+                            </span>
+                          : <span style={{ color: '#b91c1c' }}>{pushResult.calendar.error}</span>}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
 
             {/* Chattels & extras */}
             {(selectedDeal.fields?.chattelsIncluded || selectedDeal.fields?.fixturesExcluded) && (
