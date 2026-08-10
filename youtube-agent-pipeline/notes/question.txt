@@ -1,3 +1,0 @@
-<!-- Put the ONE question you most need answered here, on a single line or few.
-     gemini_review.py reads this automatically if you don't pass --question.
-     Example: "What exact commands wire the /watch output into skill-creator?" -->
