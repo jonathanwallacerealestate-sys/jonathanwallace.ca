@@ -1,2 +1,6 @@
 __pycache__/
 *.pyc
+
+# Per-run working state: the passes, SPEC, and question.txt for whatever video
+# the skill was last pointed at. Regenerated every run; not skill source.
+notes/

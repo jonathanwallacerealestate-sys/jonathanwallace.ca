@@ -48,13 +48,23 @@ API_ROOT = "https://generativelanguage.googleapis.com/v1beta"
 # -- the script intersects it with what ListModels actually returns for your key,
 # and appends any other flash models it discovers. Verify names occasionally at
 # https://ai.google.dev/gemini-api/docs/models  (names/availability drift).
+# "*-latest" are stable aliases that track the current model, so they lead; the
+# 2.5 line is kept as a legacy tail (it 404s for newer keys but harms nothing).
 PREFERRED_FLASH = [
+    "gemini-flash-latest",
+    "gemini-3-flash-preview",
+    "gemini-3.5-flash",
+    "gemini-3.6-flash",
     "gemini-2.5-flash",
     "gemini-2.5-flash-lite",
-    "gemini-2.0-flash",
-    "gemini-2.0-flash-lite",
-    "gemini-flash-latest",
+    "gemini-flash-lite-latest",
 ]
+
+# Substrings that mark a model as a WRONG modality for reading a video into text.
+# ListModels returns image/tts/audio/embedding variants that share the "flash"
+# name but reject a video-in/text-out call (observed live: quota 429s, TTS token
+# 400s). Excluding them keeps the fallback chain from wasting calls on dead ends.
+_WRONG_MODALITY = ("image", "tts", "audio", "omni", "embedding", "aqa")
 
 # The six points every reading in this pipeline must cover (same as Claude's
 # pass in Step 5). Kept identical on purpose so the two readings are comparable.
@@ -143,14 +153,17 @@ def discover_flash_models(api_key):
         if "generateContent" in methods:
             available[name] = m
 
-    chain = [n for n in PREFERRED_FLASH if n in available]
+    def ok(name):
+        return "thinking" not in name and not any(w in name for w in _WRONG_MODALITY)
+
+    chain = [n for n in PREFERRED_FLASH if n in available and ok(n)]
     extras = sorted(
         n for n in available
-        if "flash" in n and n not in chain and "thinking" not in n
+        if "flash" in n and n not in chain and ok(n)
     )
     chain.extend(extras)
-    if not chain:  # nothing flash-y found; try preferred blindly
-        chain = list(PREFERRED_FLASH)
+    if not chain:  # nothing flash-y found; try the clean preferred names blindly
+        chain = [n for n in PREFERRED_FLASH if ok(n)]
     return chain
 
 
