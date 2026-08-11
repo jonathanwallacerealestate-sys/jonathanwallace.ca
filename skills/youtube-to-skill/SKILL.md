@@ -78,9 +78,10 @@ Ask for these if he has not already given them. Do not guess.
 ## The workflow
 
 Work from this skill's own directory so `notes/` sits beside the scripts and
-becomes the built skill's provenance. Replace `SKILL_DIR` with wherever this skill
-lives (its own folder in the skill library, or `skills/youtube-to-skill` in the
-website repo).
+becomes the built skill's provenance. `SKILL_DIR` below is this skill's base
+directory, the folder that holds this SKILL.md (Claude is given that path when the
+skill loads, for example `~/.claude/skills/youtube-to-skill`). Run everything from
+there so the bundled `scripts/` and `assets/` resolve.
 
 ```bash
 cd SKILL_DIR
