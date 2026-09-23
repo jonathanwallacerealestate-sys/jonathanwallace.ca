@@ -1,5 +1,8 @@
 # Agent Handoff — Jonathan Wallace's Command Center
 
+> **Retired.** Do not extend the old dashboard, Claude worker, or FUB routes.
+> The Railway service is Wallace Desk. Read [`backend/WALLACE-DESK.md`](backend/WALLACE-DESK.md).
+
 > **For the next Claude agent picking this up in Cowork.**
 > Read top to bottom. Everything you need is here. Jonathan is non-technical
 > — speak plainly, one step at a time, never tell him to edit code.

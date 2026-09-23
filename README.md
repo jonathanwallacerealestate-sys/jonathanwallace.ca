@@ -10,16 +10,20 @@ This is a fully static, responsive website built with modern HTML, CSS, and Java
 **Service Area:** Southern Georgian Bay (Midland, Penetanguishene, Tiny Township, Tay Township, Wasaga Beach)  
 **Tagline:** Your Georgian Bay Real Estate Experts
 
-## Agent Command Center
+## Wallace Desk
 
-The Railway backend includes a private agent dashboard at `/dashboard?key=API_KEY`
-that aggregates daily tasks, email triage, Follow-Up Boss CRM follow-ups,
-calendar, closings + P&L, personal tasks, workouts, meal prep, and marketing —
-all in one browser page. Make.com scenarios push live data in from Gmail,
-Follow-Up Boss, and Google Calendar; Claude processes agent tasks on Railway.
+The Railway service in [`backend/`](backend/) is **Wallace Desk**, the private
+morning screen at [hq.jonathanwallace.ca](https://hq.jonathanwallace.ca). It
+shows firm-deal clocks, the five moves before dials, listing closeout, feedback
+still owed, and an explicit parked list. It does not run a model, a CRM, or a
+scheduler. The chief of staff or Make.com posts one JSON board per Toronto day.
 
-See [`backend/DASHBOARD.md`](backend/DASHBOARD.md) for full setup, API docs,
-and Make.com scenario templates.
+The public marketing site in this repo is unchanged. The footer “Agent login”
+link still points at `/dashboard`, and the desk redirects that path to `/`.
+
+See [`backend/WALLACE-DESK.md`](backend/WALLACE-DESK.md) for environment
+variables (`DESK_INGEST_TOKEN`, `DESK_PIN`, `DATA_DIR`, `PORT`) and the
+Make.com / curl push.
 
 ## File Structure
 

@@ -6,7 +6,11 @@
 # Node modules (if needed for build tools)
 node_modules/
 package-lock.json
+!backend/package-lock.json
 yarn.lock
+
+# Wallace Desk runtime board (local). Production uses DATA_DIR.
+backend/data/
 
 # OS files
 .DS_Store

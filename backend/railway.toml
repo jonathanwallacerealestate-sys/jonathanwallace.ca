@@ -1,3 +1,6 @@
+# Wallace Desk — one Node process on Railway Hobby.
+# Mount a volume at /data and set DATA_DIR=/data so the morning board survives deploys.
+
 [build]
 builder = "NIXPACKS"
 

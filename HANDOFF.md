@@ -1,5 +1,9 @@
 # Agent Command Center — Deployment Handoff
 
+> **Retired.** The Railway app in `backend/` is now Wallace Desk.
+> Use [`backend/WALLACE-DESK.md`](backend/WALLACE-DESK.md). The rest of this
+> file describes the old command center and is not the live setup.
+
 A complete deployment + operations guide for the **Agent Command Center** built
 into `jonathanwallace.ca`. Hand this document to any developer; it contains
 everything needed to take the repo from "cloned" to "live and serving Jonathan
