@@ -45,12 +45,15 @@ Netlify project:
 [`backend/WALLACE-DESK.md`](backend/WALLACE-DESK.md).
 
 1. **Root directory**: `backend`
-2. Start command: `node src/index.js` (healthcheck `GET /api/health`)
+2. Start command: `node --max-old-space-size=256 src/index.js` (healthcheck `GET /api/health`)
 3. Mount a volume at `/data` and set `DATA_DIR=/data`
 4. Set `DESK_INGEST_TOKEN`, `DESK_PIN`, and `NODE_ENV=production`
-5. Custom domain: `hq.jonathanwallace.ca`
+5. Custom domain stays `hq.jonathanwallace.ca`
+6. Set a Railway workspace spend cap of **$10**
 
-No Postgres plugin and no Anthropic key. The service stores one JSON file on the volume.
+No Postgres plugin. No Anthropic, OpenAI, or Grok key. No cron and no worker.
+The service stores one JSON file on the volume. Make.com or the chief of staff
+post that file. Railway does not fetch the CRM.
 
 Test:
 - `GET /api/health` → `{ "status": "ok", "service": "wallace-desk" }`

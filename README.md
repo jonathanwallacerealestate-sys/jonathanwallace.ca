@@ -13,10 +13,31 @@ This is a fully static, responsive website built with modern HTML, CSS, and Java
 ## Wallace Desk
 
 The Railway service in [`backend/`](backend/) is **Wallace Desk**, the private
-morning screen at [hq.jonathanwallace.ca](https://hq.jonathanwallace.ca). It
-shows firm-deal clocks, the five moves before dials, listing closeout, feedback
-still owed, and an explicit parked list. It does not run a model, a CRM, or a
-scheduler. The chief of staff or Make.com posts one JSON board per Toronto day.
+morning screen at [hq.jonathanwallace.ca](https://hq.jonathanwallace.ca).
+That custom domain stays as it is. The screen shows firm-deal clocks, the five
+moves before dials, listing closeout, feedback still owed, and an explicit
+parked list.
+
+Railway is a thin host: it renders the page and stores the last JSON board
+posted for each Toronto date. Make.com or the chief of staff assemble that
+board. This service does not call a model, Grok, Follow Up Boss, Drive, or
+Outlook, and it does not run a worker or a cron.
+
+The board is one JSON file on a volume (`DATA_DIR=/data`). Postgres is not
+attached. The old command center was the only reason a database existed, and
+a second database service would spend the Hobby credit. A volume plus one
+Node process stays inside the $5 credit.
+
+`backend/railway.toml` starts `node --max-old-space-size=256 src/index.js`
+and healthchecks `GET /api/health`. The 256MB heap cap keeps the process
+inside a 512MB container. A missing ingest token does not fail that
+healthcheck, so Railway does not restart the container before the variable
+is set. `POST /api/desk/snapshot` still requires the `X-Desk-Token` header.
+
+**Railway spend cap: $10.** In the Railway workspace, set a hard usage limit
+of $10. The desk itself should sit inside the $5 Hobby credit. The cap stops
+the bill if an old Postgres plugin or an extra service is still attached.
+Do not add `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `XAI_API_KEY`, or any Grok key.
 
 The public marketing site in this repo is unchanged. The footer “Agent login”
 link still points at `/dashboard`, and the desk redirects that path to `/`.

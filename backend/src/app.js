@@ -122,7 +122,7 @@ function createApp(opts = {}) {
       if (!Number.isNaN(t)) ageSeconds = Math.max(0, Math.round((now - t) / 1000));
     }
     const body = {
-      status: db.ok ? 'ok' : 'unhealthy',
+      status: db.ok ? 'ok' : 'degraded',
       service: 'wallace-desk',
       timestamp: new Date().toISOString(),
       uptime: Math.round(process.uptime()),
@@ -145,7 +145,9 @@ function createApp(opts = {}) {
       }
     };
     noStore(res);
-    res.status(db.ok ? 200 : 503).json(body);
+    // Always 200 once the process is listening. A 503 here makes Railway
+    // restart the container, which cannot repair a snapshot file.
+    res.status(200).json(body);
   });
 
   app.post('/api/desk/snapshot', ingestLimit, (req, res) => {

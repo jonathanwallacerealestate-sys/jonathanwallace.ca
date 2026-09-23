@@ -1,8 +1,20 @@
 # Wallace Desk
 
-Morning command screen for Jonathan Wallace. One Node service on Railway Hobby.
-It does not call an LLM, Follow Up Boss, Google Drive, or Gmail. Make.com and
-the chief of staff push a finished board in. Jonathan opens the screen before dials.
+Morning command screen for Jonathan Wallace. One Node service on Railway Hobby,
+heap capped at 256MB so it fits a 512MB container.
+
+This process only renders the desk and stores the last JSON board for each
+Toronto date. Make.com and the chief of staff assemble the board. Railway
+does not call an LLM, Grok, Follow Up Boss, Google Drive, Outlook, or Gmail,
+and it does not run a worker or a cron. Do not add `ANTHROPIC_API_KEY`,
+`OPENAI_API_KEY`, `XAI_API_KEY`, or a Grok key to this service.
+
+**Spend cap: $10.** Set that as a hard usage limit on the Railway workspace.
+The service should stay inside the $5 Hobby credit. The cap is the stop if a
+leftover Postgres plugin is still billed. Postgres is not used: the desk is
+one JSON file, and a database plugin would be a second service.
+
+Custom domain stays `hq.jonathanwallace.ca`.
 
 Marketing pages on Netlify stay as they are. `jonathanwallace.ca/dashboard`
 already redirects to this service; `/dashboard` on the service sends you to `/`.
@@ -49,7 +61,12 @@ Without the volume, a new deploy starts empty and the sample board comes back. P
 
 ### `GET /api/health`
 
-`200` when the snapshot file is readable. `503` when it is not.
+Always `200` once the process is up, including when the snapshot file cannot
+be read (`status: "degraded"`). Railway healthchecks this path. A failing
+status code would restart the container in a loop, and a restart does not
+repair the file. `POST` is refused with `401` when `X-Desk-Token` does not
+match, and with `503` when `DESK_INGEST_TOKEN` is unset. Boot itself still
+succeeds in that case.
 
 ```json
 {
@@ -171,4 +188,4 @@ Open `http://127.0.0.1:3000/`. Data lands in `backend/data/` unless `DATA_DIR` i
 
 ## Deploy
 
-Railway project root directory: `backend`. `railway.toml` starts `node src/index.js` and healthchecks `/api/health`. Custom domain: `hq.jonathanwallace.ca`.
+Railway project root directory: `backend`. `railway.toml` starts `node --max-old-space-size=256 src/index.js` and healthchecks `/api/health`. Custom domain stays `hq.jonathanwallace.ca`. Set the workspace spend cap to $10.

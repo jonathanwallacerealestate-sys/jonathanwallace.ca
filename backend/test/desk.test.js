@@ -308,8 +308,8 @@ test('corrupt snapshot file fails health without taking the process down', async
   const srv = await listen(createApp({ dataDir: dir, ingestToken: '', pin: '', seed: true, store }));
   try {
     const health = await request(srv.base, '/api/health');
-    assert.equal(health.status, 503);
-    assert.equal(health.json.status, 'unhealthy');
+    assert.equal(health.status, 200);
+    assert.equal(health.json.status, 'degraded');
     assert.equal(health.json.database.ok, false);
   } finally {
     await srv.close();

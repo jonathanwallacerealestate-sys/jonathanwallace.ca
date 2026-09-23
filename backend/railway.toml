@@ -1,11 +1,13 @@
 # Wallace Desk — one Node process on Railway Hobby.
-# Mount a volume at /data and set DATA_DIR=/data so the morning board survives deploys.
+# Heap cap keeps the process inside a 512MB container. The board is one JSON
+# file on a volume (DATA_DIR=/data). No Postgres, no worker, no cron.
+# Custom domain stays hq.jonathanwallace.ca. Set a $10 Railway spend cap.
 
 [build]
 builder = "NIXPACKS"
 
 [deploy]
-startCommand = "node src/index.js"
+startCommand = "node --max-old-space-size=256 src/index.js"
 healthcheckPath = "/api/health"
 healthcheckTimeout = 30
 restartPolicyType = "ON_FAILURE"
