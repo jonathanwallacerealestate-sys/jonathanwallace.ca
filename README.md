@@ -10,16 +10,41 @@ This is a fully static, responsive website built with modern HTML, CSS, and Java
 **Service Area:** Southern Georgian Bay (Midland, Penetanguishene, Tiny Township, Tay Township, Wasaga Beach)  
 **Tagline:** Your Georgian Bay Real Estate Experts
 
-## Agent Command Center
+## Wallace Desk
 
-The Railway backend includes a private agent dashboard at `/dashboard?key=API_KEY`
-that aggregates daily tasks, email triage, Follow-Up Boss CRM follow-ups,
-calendar, closings + P&L, personal tasks, workouts, meal prep, and marketing —
-all in one browser page. Make.com scenarios push live data in from Gmail,
-Follow-Up Boss, and Google Calendar; Claude processes agent tasks on Railway.
+The Railway service in [`backend/`](backend/) is **Wallace Desk**, the private
+morning screen at [hq.jonathanwallace.ca](https://hq.jonathanwallace.ca).
+That custom domain stays as it is. The screen shows firm-deal clocks, the five
+moves before dials, listing closeout, feedback still owed, and an explicit
+parked list.
 
-See [`backend/DASHBOARD.md`](backend/DASHBOARD.md) for full setup, API docs,
-and Make.com scenario templates.
+Railway is a thin host: it renders the page and stores the last JSON board
+posted for each Toronto date. Make.com or the chief of staff assemble that
+board. This service does not call a model, Grok, Follow Up Boss, Drive, or
+Outlook, and it does not run a worker or a cron.
+
+The board is one JSON file on a volume (`DATA_DIR=/data`). Postgres is not
+attached. The old command center was the only reason a database existed, and
+a second database service would spend the Hobby credit. A volume plus one
+Node process stays inside the $5 credit.
+
+`backend/railway.toml` starts `node --max-old-space-size=256 src/index.js`
+and healthchecks `GET /api/health`. The 256MB heap cap keeps the process
+inside a 512MB container. A missing ingest token does not fail that
+healthcheck, so Railway does not restart the container before the variable
+is set. `POST /api/desk/snapshot` still requires the `X-Desk-Token` header.
+
+**Railway spend cap: $10.** In the Railway workspace, set a hard usage limit
+of $10. The desk itself should sit inside the $5 Hobby credit. The cap stops
+the bill if an old Postgres plugin or an extra service is still attached.
+Do not add `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `XAI_API_KEY`, or any Grok key.
+
+The public marketing site in this repo is unchanged. The footer “Agent login”
+link still points at `/dashboard`, and the desk redirects that path to `/`.
+
+See [`backend/WALLACE-DESK.md`](backend/WALLACE-DESK.md) for environment
+variables (`DESK_INGEST_TOKEN`, `DESK_PIN`, `DATA_DIR`, `PORT`) and the
+Make.com / curl push.
 
 ## File Structure
 

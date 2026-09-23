@@ -1,3 +1,7 @@
+# Not the Hobby desk. hq.jonathanwallace.ca is the backend/ service
+# (Wallace Desk). Do not point that domain at this folder, and do not
+# add a cron or a worker here for the morning board.
+
 [build]
 builder = "NIXPACKS"
 buildCommand = "npm install && npm run build"

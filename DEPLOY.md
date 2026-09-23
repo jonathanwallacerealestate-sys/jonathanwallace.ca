@@ -5,11 +5,11 @@ This repo runs as two services:
 | Piece | Hosted where | Purpose |
 |-------|-------------|---------|
 | **Marketing site** (`index.html`, `buyers.html`, community pages, etc.) | Netlify | Public-facing realty site at `jonathanwallace.ca` |
-| **Agent Command Center** (backend + dashboard UI) | Railway | Private daily briefing at `/dashboard` — beta at the Railway URL, eventually at `dashboard.jonathanwallace.ca` |
+| **Wallace Desk** (`backend/`) | Railway | Private morning board at `hq.jonathanwallace.ca` |
 
-Both auto-deploy from GitHub. **No laptop required** — every change can be
-made from a browser (GitHub web editor, Claude Code on web, or via
-this dashboard's own settings drawer).
+Both auto-deploy from GitHub. Copy and layout changes ship from a browser
+via the GitHub web editor. The morning board itself is not edited in git —
+Make.com or the chief of staff posts it to `POST /api/desk/snapshot`.
 
 ## Online editing flows
 
@@ -18,15 +18,9 @@ this dashboard's own settings drawer).
 2. Press `.` to open the GitHub web IDE (or use the pencil icon on any file)
 3. Commit on the `main` branch → Railway + Netlify auto-deploy in ~60 seconds
 
-### B. Edit runtime config without any commit
-The dashboard itself exposes a **Settings** drawer (gear icon in the top
-right) that writes to the `app_settings` table. Use it for:
-- Make.com webhook URLs (agent output, marketing publisher, CRM write-back)
-- Daily calorie / protein / workout targets
-- Timezone
-- Greeting text
-
-These values persist in Postgres and survive deploys.
+### B. Push today’s board without a commit
+`POST /api/desk/snapshot` with `X-Desk-Token`. The JSON replaces that
+Toronto date. See [`backend/WALLACE-DESK.md`](backend/WALLACE-DESK.md).
 
 ### C. Ask Claude to make code changes
 From anywhere (phone, iPad, borrowed computer):
@@ -45,50 +39,37 @@ Netlify project:
 3. Publish directory: `.` (repo root)
 4. Add custom domain `jonathanwallace.ca` → Netlify handles SSL
 
-## Railway (backend + dashboard)
+## Railway (Wallace Desk)
 
-`backend/railway.toml` pins the config. To connect:
+`backend/railway.toml` pins the config. Full env and ingest docs:
+[`backend/WALLACE-DESK.md`](backend/WALLACE-DESK.md).
 
-1. **New project → Deploy from GitHub** → pick this repo
-2. **Root directory**: `backend`
-3. Railway auto-detects Node (Nixpacks) and runs `node src/index.js`
-4. Provision a **Postgres plugin** — Railway wires `DATABASE_URL` automatically
-5. Set env vars:
-   - `API_KEY` — the secret you type into the dashboard login
-   - `ANTHROPIC_API_KEY` — enables the Claude worker
-   - `GMAIL_CLIENT_ID`, `GMAIL_CLIENT_SECRET`, `GMAIL_REFRESH_TOKEN`, `GMAIL_USER` — enables agent email tools
+1. **Root directory**: `backend`
+2. Start command: `node --max-old-space-size=256 src/index.js` (healthcheck `GET /api/health`)
+3. Mount a volume at `/data` and set `DATA_DIR=/data`
+4. Set `DESK_INGEST_TOKEN`, `DESK_PIN`, and `NODE_ENV=production`
+5. Custom domain stays `hq.jonathanwallace.ca`
+6. Set a Railway workspace spend cap of **$10**
 
-Railway gives you a URL like `https://<your-app>.up.railway.app`. Test:
-- `GET /api/health` → `{ "status": "healthy" }`
-- `GET /dashboard?key=YOUR_API_KEY` → full dashboard
+No Postgres plugin. No Anthropic, OpenAI, or Grok key. No cron and no worker.
+The service stores one JSON file on the volume. Make.com or the chief of staff
+post that file. Railway does not fetch the CRM.
 
-## Subdomain: `dashboard.jonathanwallace.ca` → Railway
+Test:
+- `GET /api/health` → `{ "status": "ok", "service": "wallace-desk" }`
+- `GET /` → the desk (PIN gate when `DESK_PIN` is set)
+- `POST /api/desk/snapshot` with header `X-Desk-Token`
 
-When the beta is ready to move under the main brand:
-
-1. In **Railway → Settings → Networking**, add a custom domain:
-   `dashboard.jonathanwallace.ca`. Railway gives you a CNAME target like
-   `<your-app>.up.railway.app`.
-2. In your DNS provider, add:
-   ```
-   CNAME  dashboard  <your-app>.up.railway.app
-   ```
-3. Railway auto-provisions Let's Encrypt SSL (takes ~1 min).
-4. Update `backend/src/index.js` CORS origins to include
-   `https://dashboard.jonathanwallace.ca` (already includes the base domain).
-5. The dashboard now loads at `https://dashboard.jonathanwallace.ca/dashboard`.
-
-### Add-to-homescreen for iPhone
-Once on the real domain:
-1. Visit `https://dashboard.jonathanwallace.ca/dashboard?key=API_KEY`
+### Add to the iPhone home screen
+1. Open `https://hq.jonathanwallace.ca/`, enter the PIN
 2. Share → Add to Home Screen
-3. Icon + manifest are already wired — launches as a standalone app.
+3. The manifest is served by the app. It opens standalone on `/`
 
-## Embedding the dashboard link in jonathanwallace.ca
+## Footer link on jonathanwallace.ca
 
-A discreet "Agent Login" button is included in the marketing site footer.
-It points to the Railway URL today; swap it to `dashboard.jonathanwallace.ca`
-after the DNS cutover.
+The marketing footer still has “Agent login” pointing at `/dashboard`.
+Netlify redirects that to this Railway service, and the service redirects
+`/dashboard` to `/`. The public pages do not need a change for the desk to load.
 
 ## Auto-deploy rules
 
